@@ -834,9 +834,9 @@ export default function PTMemberManager() {
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
-        const totalSummary = sessionProducts.length ? sessionProducts.map((p) => `${p.name} ${p.totalSessions}회`).join(" / ") : "-";
+        const totalSummary = sessionProducts.length ? sessionProducts.map((p) => p.name).join(" / ") : "-";
         const remainSummary = sessionProducts.length
-          ? sessionProducts.map((p) => `${p.name} ${p.totalSessions - p.usedSessions}회`).join(" / ")
+          ? sessionProducts.map((p) => `${p.totalSessions - p.usedSessions}회`).join(" / ")
           : "-";
         const minRemain = sessionProducts.length ? Math.min(...sessionProducts.map((p) => p.totalSessions - p.usedSessions)) : null;
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
