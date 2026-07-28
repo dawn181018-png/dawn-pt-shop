@@ -28,7 +28,7 @@ const emptyProduct = {
   sessionDuration: 50, listPrice: 0, price: 0, paidAmount: 0, paymentMethod: "card",
   createdAt: toLocalDateStr(new Date()),
 };
-const emptyCatalogItem = { name: "", sessions: 10, months: 1, price: 0 };
+const emptyCatalogItem = { name: "", sessions: 10, months: 1, price: 0, sessionDuration: 50 };
 const defaultSettings = { baseSalary: 300000, commissionRate: 10, deductionRate: 3.3 };
 
 const today = () => toLocalDateStr(new Date());
@@ -1127,7 +1127,7 @@ export default function PTMemberManager() {
                   <div className="ptm-card-top" style={{ cursor: "default" }}>
                     <div>
                       <div className="ptm-name-row"><span className="ptm-name">{item.name}</span></div>
-                      <div className="ptm-prod-count">{item.sessions}회 · {item.months}개월 · {Number(item.price || 0).toLocaleString()}원</div>
+                      <div className="ptm-prod-count">{item.sessions}회 · {item.months}개월 · {item.sessionDuration || 50}분 · {Number(item.price || 0).toLocaleString()}원</div>
                     </div>
                     <div className="ptm-actions">
                       <button className="ptm-icon-btn" onClick={() => openEditCatalog(item)}><Pencil size={14} /></button>
@@ -1763,6 +1763,7 @@ export default function PTMemberManager() {
                         name: item.name, type: "session",
                         totalSessions: item.sessions, usedSessions: 0,
                         startDate: today(), endDate: addMonths(today(), item.months),
+                        sessionDuration: item.sessionDuration || 50,
                         listPrice: item.price, price: item.price, paidAmount: item.price,
                       });
                     }
@@ -1770,7 +1771,7 @@ export default function PTMemberManager() {
                 >
                   <option value="">직접 입력</option>
                   {catalog.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.sessions}회 · {c.months}개월 · {Number(c.price || 0).toLocaleString()}원)</option>
+                    <option key={c.id} value={c.id}>{c.name} ({c.sessions}회 · {c.months}개월 · {c.sessionDuration || 50}분 · {Number(c.price || 0).toLocaleString()}원)</option>
                   ))}
                 </select>
               </div>
@@ -2071,6 +2072,9 @@ export default function PTMemberManager() {
               <div className="ptm-field"><label>규정 가격(원)</label>
                 <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(catalogForm.price)} onChange={(e) => setCatalogForm({ ...catalogForm, price: parseNum(e.target.value) })} />
               </div>
+            </div>
+            <div className="ptm-field"><label>1회 세션 시간(분)</label>
+              <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessionDuration} onChange={(e) => setCatalogForm({ ...catalogForm, sessionDuration: Number(e.target.value) })} placeholder="예: 50, 90, 100" />
             </div>
             <button className="ptm-save-btn" onClick={saveCatalogItem}>{editingCatalogId ? "수정 완료" : "이용권 등록"}</button>
           </div>

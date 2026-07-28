@@ -23,6 +23,7 @@ create table if not exists catalog_items (
   sessions int not null default 10,
   months int not null default 1,
   price numeric not null default 0,
+  session_duration int not null default 50,
   created_at timestamptz not null default now()
 );
 
