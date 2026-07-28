@@ -8,7 +8,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
@@ -231,22 +231,32 @@ export default function PTMemberManager() {
   const [acctMethodFilter, setAcctMethodFilter] = useState("all");
   const [acctQuery, setAcctQuery] = useState("");
 
+  // ---- 재등록 예정(파이프라인) ----
+  const emptyForecast = { customerId: "", targetMonth: today().slice(0, 7), expectedSessions: "", expectedAmount: 0, note: "" };
+  const [renewalForecasts, setRenewalForecasts] = useState([]);
+  const [showForecastForm, setShowForecastForm] = useState(false);
+  const [editingForecastId, setEditingForecastId] = useState(null);
+  const [forecastForm, setForecastForm] = useState(emptyForecast);
+  const [forecastMonth, setForecastMonth] = useState(today().slice(0, 7));
+
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
 
   useEffect(() => {
     (async () => {
       try {
-        const [customersData, productsData, reservationsData, catalogData, settingsData] = await Promise.all([
+        const [customersData, productsData, reservationsData, catalogData, settingsData, forecastsData] = await Promise.all([
           db.listCustomers(),
           db.listProducts(),
           db.listReservations(),
           db.listCatalog(),
           db.getSettings(),
+          db.listRenewalForecasts(),
         ]);
         setCustomers(customersData);
         setProducts(productsData);
         setReservations(reservationsData);
         setCatalog(catalogData);
+        setRenewalForecasts(forecastsData);
         if (settingsData) setSettings({ ...defaultSettings, ...settingsData });
       } catch (e) {
         flash("데이터를 불러오지 못했어요");
@@ -279,6 +289,65 @@ export default function PTMemberManager() {
       setCatalog(catalog.filter((i) => i.id !== id));
       flash("이용권 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+  };
+
+  // ---- 재등록 예정(파이프라인) ----
+  const openNewForecast = (customerId) => {
+    setForecastForm({ ...emptyForecast, customerId: customerId || "", targetMonth: forecastMonth });
+    setEditingForecastId(null);
+    setShowForecastForm(true);
+  };
+  const openEditForecast = (f) => {
+    setForecastForm({
+      customerId: f.customerId, targetMonth: f.targetMonth,
+      expectedSessions: f.expectedSessions ?? "", expectedAmount: f.expectedAmount, note: f.note || "",
+    });
+    setEditingForecastId(f.id);
+    setShowForecastForm(true);
+  };
+  const saveForecast = async () => {
+    if (!forecastForm.customerId) { flash("고객을 선택해주세요"); return; }
+    if (!forecastForm.targetMonth) { flash("목표 월을 선택해주세요"); return; }
+    const payload = {
+      customerId: forecastForm.customerId,
+      targetMonth: forecastForm.targetMonth,
+      expectedSessions: forecastForm.expectedSessions === "" ? null : Number(forecastForm.expectedSessions),
+      expectedAmount: Number(forecastForm.expectedAmount) || 0,
+      note: forecastForm.note,
+    };
+    try {
+      if (editingForecastId) {
+        const updated = await db.updateRenewalForecast(editingForecastId, payload);
+        setRenewalForecasts(renewalForecasts.map((f) => (f.id === editingForecastId ? updated : f)));
+        flash("재등록 예정 수정됨");
+      } else {
+        const created = await db.insertRenewalForecast({ ...payload, status: "pending" });
+        setRenewalForecasts([...renewalForecasts, created]);
+        flash("재등록 예정 등록됨");
+      }
+      setShowForecastForm(false);
+    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  const removeForecast = async (id) => {
+    try {
+      await db.deleteRenewalForecast(id);
+      setRenewalForecasts(renewalForecasts.filter((f) => f.id !== id));
+      flash("재등록 예정 삭제됨");
+    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+  };
+  const markForecastMissed = async (id) => {
+    try {
+      const updated = await db.updateRenewalForecast(id, { status: "missed" });
+      setRenewalForecasts(renewalForecasts.map((f) => (f.id === id ? updated : f)));
+      flash("무산으로 표시됨");
+    } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
+  };
+  const reopenForecast = async (id) => {
+    try {
+      const updated = await db.updateRenewalForecast(id, { status: "pending", actualAmount: null, actualProductId: null });
+      setRenewalForecasts(renewalForecasts.map((f) => (f.id === id ? updated : f)));
+      flash("다시 대기 상태로 변경됨");
+    } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   };
 
   // ---- Customers ----
@@ -371,7 +440,16 @@ export default function PTMemberManager() {
       } else {
         const created = await db.insertProduct(productFormCustomerId, payload);
         setProducts([...products, created]);
-        flash("상품 등록됨");
+        // 이 고객에게 결제월과 같은 달의 "대기중" 재등록 예정이 있으면 자동으로 달성 처리한다.
+        const paidMonth = toLocalDateStr(new Date(created.createdAt)).slice(0, 7);
+        const matched = renewalForecasts.find((f) => f.customerId === productFormCustomerId && f.status === "pending" && f.targetMonth === paidMonth);
+        if (matched) {
+          const updatedForecast = await db.updateRenewalForecast(matched.id, { status: "done", actualAmount: created.price, actualProductId: created.id });
+          setRenewalForecasts((prev) => prev.map((f) => (f.id === matched.id ? updatedForecast : f)));
+          flash("상품 등록됨 · 재등록 예정과 자동 연결됨");
+        } else {
+          flash("상품 등록됨");
+        }
       }
       setShowProductForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
@@ -615,9 +693,10 @@ export default function PTMemberManager() {
       const doneDates = reservations.filter((r) => r.customerId === c.id && r.status === "done").map((r) => r.date).sort();
       const lastVisit = doneDates.length ? doneDates[doneDates.length - 1] : null;
       const daysSinceVisit = lastVisit ? daysBetween(today(), lastVisit) : Infinity;
-      return { ...c, products: prods, hasUnpaid, worst, minRemain, lastVisit, daysSinceVisit };
+      const pendingForecast = renewalForecasts.find((f) => f.customerId === c.id && f.status === "pending");
+      return { ...c, products: prods, hasUnpaid, worst, minRemain, lastVisit, daysSinceVisit, pendingForecast };
     });
-  }, [customers, products, reservations]);
+  }, [customers, products, reservations, renewalForecasts]);
 
   const filteredCustomers = useMemo(() => {
     let list = customerSummary.filter((c) => c.name.includes(query) || (c.phone || "").includes(query));
@@ -757,6 +836,38 @@ export default function PTMemberManager() {
   const pctDiff = (cur, base) => (base ? Math.round(((cur - base) / base) * 100) : null);
   const noshowRate = (r) => (r.sessionCount + r.noshowCount > 0 ? Math.round((r.noshowCount / (r.sessionCount + r.noshowCount)) * 100) : 0);
 
+  // ---- 재등록 예정(파이프라인) 파생 데이터 ----
+  const forecastRows = useMemo(() => {
+    return renewalForecasts
+      .filter((f) => f.targetMonth === forecastMonth)
+      .map((f) => {
+        const cust = customers.find((c) => c.id === f.customerId);
+        const actual = f.status === "done" ? Number(f.actualAmount || 0) : 0;
+        const gap = f.status === "missed" ? 0 : Number(f.expectedAmount || 0) - actual;
+        return { ...f, customerName: cust ? cust.name : "(삭제된 고객)", customerPhone: cust ? cust.phone : "", actual, gap };
+      })
+      .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  }, [renewalForecasts, forecastMonth, customers]);
+
+  const forecastStats = useMemo(() => {
+    const pending = forecastRows.filter((f) => f.status === "pending");
+    const done = forecastRows.filter((f) => f.status === "done");
+    const missed = forecastRows.filter((f) => f.status === "missed");
+    const totalExpected = forecastRows.reduce((s, f) => s + Number(f.expectedAmount || 0), 0);
+    const totalActual = done.reduce((s, f) => s + f.actual, 0);
+    const totalGap = pending.reduce((s, f) => s + f.gap, 0);
+    return {
+      total: forecastRows.length, pendingCount: pending.length, doneCount: done.length, missedCount: missed.length,
+      totalExpected, totalActual, totalGap,
+    };
+  }, [forecastRows]);
+
+  const shiftForecastMonth = (delta) => {
+    const y = Number(forecastMonth.slice(0, 4)), m = Number(forecastMonth.slice(5, 7));
+    const { y: ny, m: nm } = shiftMonthYM(y, m, delta);
+    setForecastMonth(monthKey(ny, nm));
+  };
+
   // ---- 회계관리 ----
   const acctRange = useMemo(() => {
     if (acctPeriod === "day") return { start: acctDate, end: acctDate };
@@ -823,6 +934,7 @@ export default function PTMemberManager() {
         <button className={`ptm-tab ${view === "members" ? "active" : ""}`} onClick={() => setView("members")}><Users size={15} /> 고객관리</button>
         <button className={`ptm-tab ${view === "catalog" ? "active" : ""}`} onClick={() => setView("catalog")}><Tag size={15} /> 이용권 관리</button>
         <button className={`ptm-tab ${view === "accounting" ? "active" : ""}`} onClick={() => setView("accounting")}><Receipt size={15} /> 회계관리</button>
+        <button className={`ptm-tab ${view === "forecast" ? "active" : ""}`} onClick={() => setView("forecast")}><Target size={15} /> 재등록 예정</button>
         <button className={`ptm-tab ${view === "stats" ? "active" : ""}`} onClick={() => setView("stats")}><TrendingUp size={15} /> 통계분석</button>
         <button className={`ptm-tab ${view === "payroll" ? "active" : ""}`} onClick={() => setView("payroll")}><Wallet size={15} /> 페이롤</button>
       </div>
@@ -969,6 +1081,7 @@ export default function PTMemberManager() {
                       <div className="ptm-name-row">
                         <span className="ptm-name">{c.name}</span>
                         {c.hasUnpaid && <span className="ptm-badge unpaid">미수금</span>}
+                        {c.pendingForecast && <span className="ptm-badge forecast">재등록예정 {c.pendingForecast.targetMonth.slice(5, 7)}월 · {Number(c.pendingForecast.expectedAmount || 0).toLocaleString()}원</span>}
                       </div>
                       {c.phone && <div className="ptm-phone"><Phone size={11} /> {c.phone}</div>}
                       <div className="ptm-prod-count">
@@ -1077,6 +1190,72 @@ export default function PTMemberManager() {
                       <td>{Number(r.price || 0).toLocaleString()}원</td>
                       <td>{paymentMethodLabel[r.paymentMethod] || "-"}</td>
                       <td>{isFullyPaid(r) ? "완납" : `미수 ${getUnpaidAmount(r).toLocaleString()}원`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+
+      {view === "forecast" && (
+        <>
+          <div className="ptm-week-toolbar">
+            <div className="ptm-week-nav">
+              <button className="ptm-nav-btn" onClick={() => shiftForecastMonth(-1)}><ChevronLeft size={16} /></button>
+              <button className="ptm-nav-today" onClick={() => setForecastMonth(today().slice(0, 7))}>이번달</button>
+              <button className="ptm-nav-btn" onClick={() => shiftForecastMonth(1)}><ChevronRight size={16} /></button>
+              <span className="ptm-week-range">{forecastMonth.slice(0, 4)}년 {Number(forecastMonth.slice(5, 7))}월</span>
+            </div>
+            <button className="ptm-quick-add" onClick={() => openNewForecast()}><Plus size={16} /> 재등록 예정 등록</button>
+          </div>
+
+          <div className="ptm-pay-grid">
+            <div className="ptm-pay-card">
+              <div className="ptm-pay-card-label">이번달 예상 총매출</div>
+              <div className="ptm-pay-card-num">{forecastStats.totalExpected.toLocaleString()}원</div>
+              <div className="ptm-prod-count">{forecastStats.total}건 (대기 {forecastStats.pendingCount} · 완료 {forecastStats.doneCount} · 무산 {forecastStats.missedCount})</div>
+            </div>
+            <div className="ptm-pay-card">
+              <div className="ptm-pay-card-label">실제 달성 금액</div>
+              <div className="ptm-pay-card-num" style={{ color: "var(--teal)" }}>{forecastStats.totalActual.toLocaleString()}원</div>
+            </div>
+            <div className="ptm-pay-card">
+              <div className="ptm-pay-card-label">부족한 금액 (대기중 기준)</div>
+              <div className="ptm-pay-card-num" style={forecastStats.totalGap > 0 ? { color: "var(--coral)" } : {}}>{forecastStats.totalGap.toLocaleString()}원</div>
+            </div>
+            <div className="ptm-pay-card">
+              <div className="ptm-pay-card-label">달성률</div>
+              <div className="ptm-pay-card-num">{forecastStats.totalExpected > 0 ? Math.round((forecastStats.totalActual / forecastStats.totalExpected) * 100) : 0}%</div>
+            </div>
+          </div>
+
+          <div className="ptm-table-wrap">
+            {forecastRows.length === 0 ? (
+              <div className="ptm-table-empty">이 달에 등록된 재등록 예정이 없어요</div>
+            ) : (
+              <table className="ptm-table">
+                <thead><tr><th>고객명</th><th>연락처</th><th>예상세션</th><th>예상금액</th><th>실제금액</th><th>부족액</th><th>메모</th><th>상태</th><th></th></tr></thead>
+                <tbody>
+                  {forecastRows.map((f) => (
+                    <tr key={f.id}>
+                      <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(f.customerId); setCustomerDetailTab("home"); }}>{f.customerName}</td>
+                      <td>{f.customerPhone || "-"}</td>
+                      <td>{f.expectedSessions ?? "-"}</td>
+                      <td>{Number(f.expectedAmount || 0).toLocaleString()}원</td>
+                      <td>{f.status === "done" ? `${f.actual.toLocaleString()}원` : "-"}</td>
+                      <td style={f.status === "pending" && f.gap > 0 ? { color: "var(--coral)" } : {}}>{f.status === "missed" ? "-" : `${f.gap.toLocaleString()}원`}</td>
+                      <td>{f.note || "-"}</td>
+                      <td><span className={`ptm-res-badge ${f.status === "done" ? "done" : f.status === "missed" ? "cancelled" : ""}`}>{f.status === "pending" ? "대기" : f.status === "done" ? "완료" : "무산"}</span></td>
+                      <td>
+                        <div className="ptm-actions">
+                          <button className="ptm-icon-btn" title="수정" onClick={() => openEditForecast(f)}><Pencil size={14} /></button>
+                          {f.status === "pending" && <button className="ptm-icon-btn" title="무산 처리" onClick={() => markForecastMissed(f.id)}><Ban size={14} /></button>}
+                          {f.status !== "pending" && <button className="ptm-icon-btn" title="대기로 되돌리기" onClick={() => reopenForecast(f.id)}><CalendarClock size={14} /></button>}
+                          <button className="ptm-icon-btn" title="삭제" onClick={() => removeForecast(f.id)}><Trash2 size={14} /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1326,6 +1505,7 @@ export default function PTMemberManager() {
         const custReservations = allReservations.filter((r) => r.customerId === cust.id).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
         const totalPaid = custProducts.reduce((s, p) => s + getPaidAmount(p), 0);
         const totalUnpaid = custProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
+        const custForecasts = [...renewalForecasts].filter((f) => f.customerId === cust.id).sort((a, b) => b.targetMonth.localeCompare(a.targetMonth));
         return (
           <div className="ptm-overlay" onClick={() => setCustomerDetailId(null)}>
             <div className="ptm-sheet ptm-detail-sheet" onClick={(e) => e.stopPropagation()}>
@@ -1357,7 +1537,36 @@ export default function PTMemberManager() {
                     </div>
                   )}
                   {cust.memo && <div className="ptm-detail-memo">{cust.memo}</div>}
-                  <div className="ptm-detail-section-title">최근 예약 · 출결 내역</div>
+
+                  <div className="ptm-detail-section-title">재등록 예정</div>
+                  {custForecasts.length === 0 ? (
+                    <div className="ptm-no-product-msg">등록된 재등록 예정이 없어요</div>
+                  ) : (
+                    custForecasts.map((f) => (
+                      <div className="ptm-prod-row" key={f.id} style={{ marginBottom: 8 }}>
+                        <div className="ptm-prod-top">
+                          <div>
+                            <span className="ptm-prod-name">{f.targetMonth.slice(0, 4)}년 {Number(f.targetMonth.slice(5, 7))}월</span>{" "}
+                            <span className={`ptm-res-badge ${f.status === "done" ? "done" : f.status === "missed" ? "cancelled" : ""}`}>{f.status === "pending" ? "대기" : f.status === "done" ? "완료" : "무산"}</span>
+                          </div>
+                          <div className="ptm-actions">
+                            <button className="ptm-icon-btn" onClick={() => openEditForecast(f)}><Pencil size={14} /></button>
+                            <button className="ptm-icon-btn" onClick={() => removeForecast(f.id)}><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                        <div className="ptm-prod-bottom">
+                          <div className="ptm-price">
+                            예상 {Number(f.expectedAmount || 0).toLocaleString()}원{f.expectedSessions ? ` · ${f.expectedSessions}회` : ""}
+                            {f.status === "done" && ` · 실제 ${Number(f.actualAmount || 0).toLocaleString()}원`}
+                          </div>
+                        </div>
+                        {f.note && <div className="ptm-res-memo">{f.note}</div>}
+                      </div>
+                    ))
+                  )}
+                  <button className="ptm-add-product-btn" onClick={() => openNewForecast(cust.id)}><Plus size={14} /> 재등록 예정 추가</button>
+
+                  <div className="ptm-detail-section-title" style={{ marginTop: 14 }}>최근 예약 · 출결 내역</div>
                   {custReservations.length === 0 ? (
                     <div className="ptm-res-empty">예약 내역이 없어요</div>
                   ) : (
@@ -1850,6 +2059,40 @@ export default function PTMemberManager() {
               </div>
             </div>
             <button className="ptm-save-btn" onClick={saveCatalogItem}>{editingCatalogId ? "수정 완료" : "이용권 등록"}</button>
+          </div>
+        </div>
+      )}
+
+      {showForecastForm && (
+        <div className="ptm-overlay" onClick={() => setShowForecastForm(false)}>
+          <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">{editingForecastId ? "재등록 예정 수정" : "재등록 예정 등록"}</span>
+              <button className="ptm-icon-btn" onClick={() => setShowForecastForm(false)}><X size={16} /></button>
+            </div>
+            <div className="ptm-field"><label>고객</label>
+              <select value={forecastForm.customerId} onChange={(e) => setForecastForm({ ...forecastForm, customerId: e.target.value })}>
+                <option value="">고객 선택</option>
+                {[...customers].sort((a, b) => a.name.localeCompare(b.name, "ko")).map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}{c.phone ? ` · ${c.phone}` : ""}</option>
+                ))}
+              </select>
+            </div>
+            <div className="ptm-field"><label>목표 월</label>
+              <input type="month" value={forecastForm.targetMonth} onChange={(e) => setForecastForm({ ...forecastForm, targetMonth: e.target.value })} />
+            </div>
+            <div className="ptm-row2">
+              <div className="ptm-field"><label>예상 세션</label>
+                <input type="number" onFocus={(e) => e.target.select()} value={forecastForm.expectedSessions} onChange={(e) => setForecastForm({ ...forecastForm, expectedSessions: e.target.value })} placeholder="선택 입력" />
+              </div>
+              <div className="ptm-field"><label>예상 금액(원)</label>
+                <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(forecastForm.expectedAmount)} onChange={(e) => setForecastForm({ ...forecastForm, expectedAmount: parseNum(e.target.value) })} placeholder="0" />
+              </div>
+            </div>
+            <div className="ptm-field"><label>메모 (트레이닝 방향성, 리뉴 계획 등)</label>
+              <textarea rows={3} value={forecastForm.note} onChange={(e) => setForecastForm({ ...forecastForm, note: e.target.value })} placeholder="예: 컨디셔닝 위주 운동중, 다음달 재등록 예정" />
+            </div>
+            <button className="ptm-save-btn" onClick={saveForecast}>{editingForecastId ? "수정 완료" : "등록"}</button>
           </div>
         </div>
       )}

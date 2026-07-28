@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -18,6 +18,9 @@ function mapCatalogItem(row: Record<string, unknown>): CatalogItem {
 }
 function mapSettings(row: Record<string, unknown>): PayrollSettings {
   return toCamel<PayrollSettings>(row);
+}
+function mapForecast(row: Record<string, unknown>): RenewalForecast {
+  return withEpochCreatedAt(toCamel<RenewalForecast>(row));
 }
 
 function must<T>(data: T | null, error: { message: string } | null): T {
@@ -141,4 +144,22 @@ export async function upsertSettings(data: PayrollSettings): Promise<PayrollSett
     .select()
     .single();
   return mapSettings(must(row, error));
+}
+
+// ---------- renewal_forecasts ----------
+export async function listRenewalForecasts(): Promise<RenewalForecast[]> {
+  const { data, error } = await supabase.from("renewal_forecasts").select("*").order("created_at", { ascending: true });
+  return must(data, error).map(mapForecast);
+}
+export async function insertRenewalForecast(data: Partial<RenewalForecast>): Promise<RenewalForecast> {
+  const { data: row, error } = await supabase.from("renewal_forecasts").insert(toSnake(data)).select().single();
+  return mapForecast(must(row, error));
+}
+export async function updateRenewalForecast(id: string, data: Partial<RenewalForecast>): Promise<RenewalForecast> {
+  const { data: row, error } = await supabase.from("renewal_forecasts").update(toSnake(data)).eq("id", id).select().single();
+  return mapForecast(must(row, error));
+}
+export async function deleteRenewalForecast(id: string): Promise<void> {
+  const { error } = await supabase.from("renewal_forecasts").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }

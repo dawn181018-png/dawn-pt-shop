@@ -56,3 +56,18 @@ export interface PayrollSettings {
   commissionRate: number;
   deductionRate: number;
 }
+
+export type ForecastStatus = "pending" | "done" | "missed";
+
+export interface RenewalForecast {
+  id: string;
+  customerId: string;
+  targetMonth: string; // 'YYYY-MM'
+  expectedSessions?: number;
+  expectedAmount: number;
+  note?: string;
+  status: ForecastStatus;
+  actualAmount?: number;
+  actualProductId?: string | null;
+  createdAt?: number;
+}

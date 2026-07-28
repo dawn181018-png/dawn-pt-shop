@@ -68,6 +68,21 @@ create table if not exists payroll_settings (
   deduction_rate numeric not null default 3.3
 );
 
+-- ---------- renewal_forecasts (재등록/신규 예정 - 예상 매출 파이프라인) ----------
+create table if not exists renewal_forecasts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  customer_id uuid not null references customers(id) on delete cascade,
+  target_month text not null, -- 'YYYY-MM'
+  expected_sessions int,
+  expected_amount numeric not null default 0,
+  note text,
+  status text not null default 'pending' check (status in ('pending', 'done', 'missed')),
+  actual_amount numeric,
+  actual_product_id uuid references products(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
 -- ---------- 인덱스 ----------
 create index if not exists idx_customers_owner on customers(owner_id);
 create index if not exists idx_catalog_items_owner on catalog_items(owner_id);
@@ -77,6 +92,9 @@ create index if not exists idx_reservations_owner on reservations(owner_id);
 create index if not exists idx_reservations_customer on reservations(customer_id);
 create index if not exists idx_reservations_product on reservations(product_id);
 create index if not exists idx_reservations_date on reservations(date);
+create index if not exists idx_renewal_forecasts_owner on renewal_forecasts(owner_id);
+create index if not exists idx_renewal_forecasts_customer on renewal_forecasts(customer_id);
+create index if not exists idx_renewal_forecasts_month on renewal_forecasts(target_month);
 
 -- ---------- RLS 활성화 ----------
 alter table customers enable row level security;
@@ -84,6 +102,7 @@ alter table catalog_items enable row level security;
 alter table products enable row level security;
 alter table reservations enable row level security;
 alter table payroll_settings enable row level security;
+alter table renewal_forecasts enable row level security;
 
 -- ---------- RLS 정책: 본인(owner_id) 데이터만 CRUD 가능 ----------
 create policy "customers_owner_all" on customers
@@ -101,6 +120,9 @@ create policy "reservations_owner_all" on reservations
 create policy "payroll_settings_owner_all" on payroll_settings
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+create policy "renewal_forecasts_owner_all" on renewal_forecasts
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
 -- ---------- 테이블 권한(GRANT) ----------
 -- SQL Editor로 직접 만든 테이블은 대시보드 UI로 만들 때와 달리 anon/authenticated 역할에
 -- 기본 권한이 자동으로 부여되지 않는다. RLS는 GRANT가 있어야 평가되므로 반드시 필요하다.
@@ -111,6 +133,7 @@ grant select, insert, update, delete on public.catalog_items to authenticated;
 grant select, insert, update, delete on public.products to authenticated;
 grant select, insert, update, delete on public.reservations to authenticated;
 grant select, insert, update, delete on public.payroll_settings to authenticated;
+grant select, insert, update, delete on public.renewal_forecasts to authenticated;
 
 -- ---------- 세션 사용횟수 원자적 증감 ----------
 -- 클라이언트에서 "현재값 읽기 -> +1/-1 계산 -> 저장" 방식은, 같은 상품의 예약 여러 건을
