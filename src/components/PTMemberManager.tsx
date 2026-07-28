@@ -834,8 +834,9 @@ export default function PTMemberManager() {
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
+        const totalSummary = sessionProducts.length ? sessionProducts.map((p) => `${p.name} ${p.totalSessions}회`).join(" / ") : "-";
         const remainSummary = sessionProducts.length
-          ? sessionProducts.map((p) => `${p.name} 잔여${p.totalSessions - p.usedSessions}`).join(" / ")
+          ? sessionProducts.map((p) => `${p.name} ${p.totalSessions - p.usedSessions}회`).join(" / ")
           : "-";
         const minRemain = sessionProducts.length ? Math.min(...sessionProducts.map((p) => p.totalSessions - p.usedSessions)) : null;
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
@@ -845,7 +846,7 @@ export default function PTMemberManager() {
         const gap = Math.max(0, expectedAmount - actual);
         return {
           forecastId: f ? f.id : null, customerId: c.id, customerName: c.name, customerPhone: c.phone,
-          remainSummary, minRemain, expectedSessions, expectedAmount, note: f ? f.note : "",
+          totalSummary, remainSummary, minRemain, expectedSessions, expectedAmount, note: f ? f.note : "",
           actual, gap, achieved: expectedAmount > 0 && actual >= expectedAmount,
         };
       })
@@ -1250,12 +1251,13 @@ export default function PTMemberManager() {
               <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
             ) : (
               <table className="ptm-table">
-                <thead><tr><th>고객명</th><th>연락처</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
+                <thead><tr><th>고객명</th><th>연락처</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
                 <tbody>
                   {filteredForecastRows.map((r) => (
-                    <tr key={r.customerId}>
+                    <tr key={r.customerId} className={r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
                       <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>{r.customerName}</td>
                       <td>{r.customerPhone || "-"}</td>
+                      <td>{r.totalSummary}</td>
                       <td>{r.remainSummary}</td>
                       <td>{r.expectedSessions ?? "-"}</td>
                       <td>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</td>

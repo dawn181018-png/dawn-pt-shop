@@ -189,6 +189,7 @@
 .ptm-table th { text-align:left; padding:9px 10px; color:var(--ink-dim); font-weight:600; border-bottom:1px solid var(--line); white-space:nowrap; }
 .ptm-table td { padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; }
 .ptm-table tr:last-child td { border-bottom:none; }
+.ptm-table tr.ptm-row-planned td { background:rgba(224,67,63,0.08); }
 .ptm-table-empty { padding:24px; text-align:center; color:var(--ink-dim); font-size:13px; }
 
 .ptm-toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:var(--panel-2); border:1px solid var(--line); padding:10px 16px; border-radius:999px; font-size:13px; z-index:60; }
