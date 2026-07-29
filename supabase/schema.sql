@@ -70,10 +70,12 @@ create table if not exists payroll_settings (
 );
 
 -- ---------- renewal_forecasts (재등록/신규 예정 - 예상 매출 파이프라인) ----------
+-- customer_id가 없으면(null) 아직 고객으로 등록되지 않은 신규 예정 고객이며, prospect_name에 이름을 직접 적어둔다.
 create table if not exists renewal_forecasts (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null references auth.users(id) default auth.uid(),
-  customer_id uuid not null references customers(id) on delete cascade,
+  customer_id uuid references customers(id) on delete cascade,
+  prospect_name text,
   target_month text not null, -- 'YYYY-MM'
   expected_sessions int,
   expected_amount numeric not null default 0,
@@ -83,6 +85,11 @@ create table if not exists renewal_forecasts (
   actual_product_id uuid references products(id) on delete set null,
   created_at timestamptz not null default now()
 );
+
+-- 이미 renewal_forecasts 테이블이 있는 기존 DB에서는 위 create table이 스킵되므로,
+-- customer_id를 nullable로 바꾸고 prospect_name 컬럼을 추가한다. 재실행해도 안전하다(idempotent).
+alter table renewal_forecasts alter column customer_id drop not null;
+alter table renewal_forecasts add column if not exists prospect_name text;
 
 -- ---------- 인덱스 ----------
 create index if not exists idx_customers_owner on customers(owner_id);

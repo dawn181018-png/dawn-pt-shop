@@ -61,7 +61,8 @@ export type ForecastStatus = "pending" | "done" | "missed";
 
 export interface RenewalForecast {
   id: string;
-  customerId: string;
+  customerId?: string | null; // 없으면 아직 등록 안 된 신규 고객 예정 (prospectName 사용)
+  prospectName?: string | null;
   targetMonth: string; // 'YYYY-MM'
   expectedSessions?: number;
   expectedAmount: number;

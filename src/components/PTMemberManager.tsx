@@ -239,6 +239,8 @@ export default function PTMemberManager() {
   const [forecastForm, setForecastForm] = useState(emptyForecast);
   const [forecastMonth, setForecastMonth] = useState(today().slice(0, 7));
   const [forecastQuery, setForecastQuery] = useState("");
+  const emptyProspect = { name: "", expectedAmount: 0, note: "" };
+  const [newProspectForm, setNewProspectForm] = useState(emptyProspect);
 
   const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
 
@@ -345,6 +347,37 @@ export default function PTMemberManager() {
       flash("재등록 예정 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
+
+  // ---- 신규 고객 명단(아직 등록 안 된 예정 고객) ----
+  const addProspect = async () => {
+    if (!newProspectForm.name.trim()) { flash("이름을 입력해주세요"); return; }
+    const payload = {
+      prospectName: newProspectForm.name.trim(),
+      targetMonth: forecastMonth,
+      expectedAmount: Number(newProspectForm.expectedAmount) || 0,
+      note: newProspectForm.note,
+    };
+    try {
+      const created = await db.insertRenewalForecast(payload);
+      setRenewalForecasts([...renewalForecasts, created]);
+      setNewProspectForm(emptyProspect);
+      flash("신규 고객 예정 등록됨");
+    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  const updateProspectField = (id, field, value) => {
+    setRenewalForecasts((cur) => cur.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
+  };
+  const persistProspect = async (id) => {
+    const f = renewalForecasts.find((x) => x.id === id);
+    if (!f) return;
+    try {
+      const updated = await db.updateRenewalForecast(id, {
+        prospectName: f.prospectName, expectedAmount: Number(f.expectedAmount) || 0, note: f.note,
+      });
+      setRenewalForecasts((cur) => cur.map((x) => (x.id === id ? updated : x)));
+    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  const handleProspectKeyDown = (e) => { if (e.key === "Enter") addProspect(); };
 
   // ---- Customers ----
   const openNewCustomer = () => { setCustomerForm(emptyCustomer); setEditingCustomerId(null); setShowCustomerForm(true); };
@@ -858,14 +891,29 @@ export default function PTMemberManager() {
     return forecastRows.filter((r) => r.customerName.includes(forecastQuery) || (r.customerPhone || "").includes(forecastQuery));
   }, [forecastRows, forecastQuery]);
 
+  // 아직 고객으로 등록되지 않은 신규 예정 고객 (customer_id 없이 이름만 직접 입력된 행)
+  const prospectRows = useMemo(() => {
+    return renewalForecasts
+      .filter((f) => !f.customerId && f.targetMonth === forecastMonth)
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  }, [renewalForecasts, forecastMonth]);
+
   const forecastStats = useMemo(() => {
     const planned = forecastRows.filter((f) => f.expectedAmount > 0);
-    const totalExpected = planned.reduce((s, f) => s + f.expectedAmount, 0);
     const totalActual = forecastRows.reduce((s, f) => s + f.actual, 0);
-    const totalGap = planned.reduce((s, f) => s + f.gap, 0);
+    const existingExpected = planned.reduce((s, f) => s + f.expectedAmount, 0);
+    const existingGap = planned.reduce((s, f) => s + f.gap, 0);
     const achievedCount = planned.filter((f) => f.achieved).length;
-    return { plannedCount: planned.length, achievedCount, totalExpected, totalActual, totalGap };
-  }, [forecastRows]);
+    const plannedProspects = prospectRows.filter((f) => Number(f.expectedAmount || 0) > 0);
+    const prospectExpected = plannedProspects.reduce((s, f) => s + Number(f.expectedAmount || 0), 0);
+    return {
+      plannedCount: planned.length + plannedProspects.length,
+      achievedCount,
+      totalExpected: existingExpected + prospectExpected,
+      totalActual,
+      totalGap: existingGap + prospectExpected,
+    };
+  }, [forecastRows, prospectRows]);
 
   const shiftForecastMonth = (delta) => {
     const y = Number(forecastMonth.slice(0, 4)), m = Number(forecastMonth.slice(5, 7));
@@ -939,7 +987,7 @@ export default function PTMemberManager() {
         <button className={`ptm-tab ${view === "members" ? "active" : ""}`} onClick={() => setView("members")}><Users size={15} /> 고객관리</button>
         <button className={`ptm-tab ${view === "catalog" ? "active" : ""}`} onClick={() => setView("catalog")}><Tag size={15} /> 이용권 관리</button>
         <button className={`ptm-tab ${view === "accounting" ? "active" : ""}`} onClick={() => setView("accounting")}><Receipt size={15} /> 회계관리</button>
-        <button className={`ptm-tab ${view === "forecast" ? "active" : ""}`} onClick={() => setView("forecast")}><Target size={15} /> 재등록 예정</button>
+        <button className={`ptm-tab ${view === "forecast" ? "active" : ""}`} onClick={() => setView("forecast")}><Target size={15} /> 매출 계획</button>
         <button className={`ptm-tab ${view === "stats" ? "active" : ""}`} onClick={() => setView("stats")}><TrendingUp size={15} /> 통계분석</button>
         <button className={`ptm-tab ${view === "payroll" ? "active" : ""}`} onClick={() => setView("payroll")}><Wallet size={15} /> 페이롤</button>
       </div>
@@ -1278,6 +1326,68 @@ export default function PTMemberManager() {
                 </tbody>
               </table>
             )}
+          </div>
+
+          <div className="ptm-detail-section-title" style={{ marginTop: 22 }}>신규 고객 명단</div>
+          <div className="ptm-no-product-msg" style={{ marginTop: -6, marginBottom: 10 }}>
+            아직 등록 안 된 신규 고객도 이름과 예상 매출을 적어두면 위 이번달 예상 총매출에 함께 합산돼요.
+          </div>
+          <div className="ptm-table-wrap">
+            <table className="ptm-table ptm-table-compact">
+              <thead><tr><th>이름</th><th>예상금액</th><th>메모</th><th></th></tr></thead>
+              <tbody>
+                {prospectRows.map((f) => (
+                  <tr key={f.id} className={Number(f.expectedAmount || 0) > 0 ? "ptm-row-planned" : ""}>
+                    <td>
+                      <input className="ptm-cell-input" value={f.prospectName || ""} placeholder="이름"
+                        onChange={(e) => updateProspectField(f.id, "prospectName", e.target.value)}
+                        onBlur={() => persistProspect(f.id)} />
+                    </td>
+                    <td>
+                      <input className="ptm-cell-input" type="text" inputMode="numeric" placeholder="0"
+                        onFocus={(e) => e.target.select()}
+                        value={fmtNum(f.expectedAmount)}
+                        onChange={(e) => updateProspectField(f.id, "expectedAmount", parseNum(e.target.value))}
+                        onBlur={() => persistProspect(f.id)} />
+                    </td>
+                    <td>
+                      <input className="ptm-cell-input" value={f.note || ""} placeholder="메모"
+                        onChange={(e) => updateProspectField(f.id, "note", e.target.value)}
+                        onBlur={() => persistProspect(f.id)} />
+                    </td>
+                    <td>
+                      <div className="ptm-actions">
+                        <button className="ptm-icon-btn" title="삭제" onClick={() => removeForecast(f.id)}><Trash2 size={14} /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>
+                    <input className="ptm-cell-input" value={newProspectForm.name} placeholder="새 고객 이름"
+                      onChange={(e) => setNewProspectForm({ ...newProspectForm, name: e.target.value })}
+                      onKeyDown={handleProspectKeyDown} />
+                  </td>
+                  <td>
+                    <input className="ptm-cell-input" type="text" inputMode="numeric" placeholder="0"
+                      onFocus={(e) => e.target.select()}
+                      value={fmtNum(newProspectForm.expectedAmount)}
+                      onChange={(e) => setNewProspectForm({ ...newProspectForm, expectedAmount: parseNum(e.target.value) })}
+                      onKeyDown={handleProspectKeyDown} />
+                  </td>
+                  <td>
+                    <input className="ptm-cell-input" value={newProspectForm.note} placeholder="메모(선택)"
+                      onChange={(e) => setNewProspectForm({ ...newProspectForm, note: e.target.value })}
+                      onKeyDown={handleProspectKeyDown} />
+                  </td>
+                  <td>
+                    <div className="ptm-actions">
+                      <button className="ptm-icon-btn" title="추가" onClick={addProspect}><Plus size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </>
       )}
