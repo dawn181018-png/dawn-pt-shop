@@ -12,8 +12,12 @@ create table if not exists customers (
   birthdate date,
   email text,
   memo text,
+  is_dormant boolean not null default false,
   created_at timestamptz not null default now()
 );
+
+-- 이미 customers 테이블이 있는 기존 DB에서는 위 create table이 스킵되므로 컬럼을 추가한다. (idempotent)
+alter table customers add column if not exists is_dormant boolean not null default false;
 
 -- ---------- catalog_items (이용권 템플릿) ----------
 create table if not exists catalog_items (

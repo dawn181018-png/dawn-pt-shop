@@ -5,6 +5,7 @@ export interface Customer {
   birthdate?: string;
   email?: string;
   memo?: string;
+  isDormant?: boolean;
   createdAt?: number;
 }
 

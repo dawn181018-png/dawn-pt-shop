@@ -7,7 +7,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
-  CalendarClock, Check, UserX, Ban, ChevronLeft, ChevronRight, Users, CalendarDays,
+  CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
   Wallet, Settings2, Tag, Receipt, TrendingUp, Target,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
@@ -407,6 +407,13 @@ export default function PTMemberManager() {
         openNewProduct(created.id); // 신규 고객 등록 직후 바로 이용권 등록으로 이어간다
       }
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  const toggleDormant = async (c) => {
+    try {
+      const updated = await db.updateCustomer(c.id, { isDormant: !c.isDormant });
+      setCustomers(customers.map((x) => (x.id === c.id ? updated : x)));
+      flash(updated.isDormant ? "휴면 상태로 변경됨 · 매출 계획에서 제외돼요" : "휴면 상태 해제됨");
+    } catch (e) { flash("변경 실패, 다시 시도해주세요"); }
   };
   const removeCustomer = async (id) => {
     try {
@@ -866,6 +873,7 @@ export default function PTMemberManager() {
   // 해당 월에 새로 등록된 상품 금액을 합산해 자동으로 계산한다.
   const forecastRows = useMemo(() => {
     return customers
+      .filter((c) => !c.isDormant)
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
@@ -1133,11 +1141,12 @@ export default function PTMemberManager() {
           ) : (
             <div className="ptm-list">
               {filteredCustomers.map((c) => (
-                <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer" }}>
+                <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: c.isDormant ? 0.55 : 1 }}>
                   <div className="ptm-card-top">
                     <div>
                       <div className="ptm-name-row">
                         <span className="ptm-name">{c.name}</span>
+                        {c.isDormant && <span className="ptm-badge dormant">휴면</span>}
                         {c.hasUnpaid && <span className="ptm-badge unpaid">미수금</span>}
                         {c.pendingForecast && <span className="ptm-badge forecast">재등록예정 {c.pendingForecast.targetMonth.slice(5, 7)}월 · {Number(c.pendingForecast.expectedAmount || 0).toLocaleString()}원</span>}
                       </div>
@@ -1150,6 +1159,7 @@ export default function PTMemberManager() {
                       </div>
                     </div>
                     <div className="ptm-actions">
+                      <button className={`ptm-icon-btn ${c.isDormant ? "active" : ""}`} title={c.isDormant ? "휴면 해제" : "휴면 상태로 표시 (매출 계획에서 제외)"} onClick={(e) => { e.stopPropagation(); toggleDormant(c); }}><Moon size={14} /></button>
                       <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); openEditCustomer(c); }}><Pencil size={14} /></button>
                       <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); removeCustomer(c.id); }}><Trash2 size={14} /></button>
                     </div>
