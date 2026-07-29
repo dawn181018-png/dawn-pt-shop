@@ -13,12 +13,14 @@
 .ptm-tab { display:flex; align-items:center; gap:6px; padding:8px 16px; border-radius:7px; border:none; background:transparent; color:var(--ink-dim); font-size:14px; font-weight:600; cursor:pointer; }
 .ptm-tab.active { background:var(--amber); color:#ffffff; }
 
-.ptm-stats { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:16px; }
+.ptm-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin-bottom:16px; }
 .ptm-stat { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px 10px; }
 .ptm-stat-num { font-family:'Oswald',sans-serif; font-size:22px; font-weight:600; line-height:1; }
 .ptm-stat-label { font-size:11px; color:var(--ink-dim); margin-top:4px; }
 .ptm-stat.warn .ptm-stat-num { color:var(--amber); }
 .ptm-stat.bad .ptm-stat-num { color:var(--coral); }
+.ptm-stat.clickable { cursor:pointer; }
+.ptm-stat.clickable.active { border-color:var(--amber); background:rgba(59,111,224,0.06); }
 
 .ptm-week-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
 .ptm-week-summary { display:flex; align-items:center; gap:14px; font-size:12.5px; color:var(--ink-dim); }

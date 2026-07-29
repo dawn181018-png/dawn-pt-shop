@@ -173,7 +173,7 @@ export default function PTMemberManager() {
   const [view, setView] = useState("schedule");
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("urgent");
-  const [quickFilter, setQuickFilter] = useState(null); // remain5 | remain10 | inactive10 | inactive20 | null
+  const [quickFilter, setQuickFilter] = useState(null); // remain5 | remain10 | inactive10 | inactive20 | dormant | null
   const [toast, setToast] = useState("");
 
   const [showCustomerForm, setShowCustomerForm] = useState(false);
@@ -735,6 +735,7 @@ export default function PTMemberManager() {
     else if (quickFilter === "remain10") list = list.filter((c) => c.minRemain !== null && c.minRemain < 10);
     else if (quickFilter === "inactive10") list = list.filter((c) => c.daysSinceVisit >= 10);
     else if (quickFilter === "inactive20") list = list.filter((c) => c.daysSinceVisit >= 20);
+    else if (quickFilter === "dormant") list = list.filter((c) => c.isDormant);
     if (sortMode === "urgent") list = [...list].sort((a, b) => (urgencyRank[a.worst] ?? 3) - (urgencyRank[b.worst] ?? 3));
     else if (sortMode === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name, "ko"));
     else list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -773,7 +774,8 @@ export default function PTMemberManager() {
     const lowSessions = customerSummary.filter((c) => c.worst !== "ok" && c.worst !== "none").length;
     const unpaid = customerSummary.filter((c) => c.hasUnpaid).length;
     const todayCount = todaySchedule.filter((r) => r.status === "scheduled").length;
-    return { total, lowSessions, unpaid, todayCount };
+    const dormant = customers.filter((c) => c.isDormant).length;
+    return { total, lowSessions, unpaid, todayCount, dormant };
   }, [customers, customerSummary, todaySchedule]);
 
   const resSheetProduct = products.find((p) => p.id === resSheetProductId);
@@ -1111,6 +1113,9 @@ export default function PTMemberManager() {
             <div className={`ptm-stat ${stats.lowSessions > 0 ? "warn" : ""}`}><div className="ptm-stat-num">{stats.lowSessions}</div><div className="ptm-stat-label">임박 상품</div></div>
             <div className={`ptm-stat ${stats.unpaid > 0 ? "bad" : ""}`}><div className="ptm-stat-num">{stats.unpaid}</div><div className="ptm-stat-label">미수금</div></div>
             <div className="ptm-stat"><div className="ptm-stat-num">{stats.todayCount}</div><div className="ptm-stat-label">오늘 예약</div></div>
+            <div className={`ptm-stat clickable ${quickFilter === "dormant" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "dormant" ? null : "dormant")}>
+              <div className="ptm-stat-num">{stats.dormant}</div><div className="ptm-stat-label">휴면 고객</div>
+            </div>
           </div>
           <div className="ptm-quickfilter-row">
             <button className={`ptm-quickfilter-btn ${quickFilter === "remain5" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "remain5" ? null : "remain5")}>#잔여 5회 미만</button>
