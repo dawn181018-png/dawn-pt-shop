@@ -1281,6 +1281,9 @@ export default function PTMemberManager() {
               <button className="ptm-nav-btn" onClick={() => shiftForecastMonth(1)}><ChevronRight size={16} /></button>
               <span className="ptm-week-range">{forecastMonth.slice(0, 4)}년 {Number(forecastMonth.slice(5, 7))}월</span>
             </div>
+            <div className="ptm-week-summary">
+              <span>휴면 제외 관리 고객 <b>{forecastRows.length}</b>명</span>
+            </div>
           </div>
 
           <div className="ptm-pay-grid">
