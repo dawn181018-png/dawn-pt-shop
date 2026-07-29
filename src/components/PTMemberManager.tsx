@@ -1250,7 +1250,7 @@ export default function PTMemberManager() {
             {filteredForecastRows.length === 0 ? (
               <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
             ) : (
-              <table className="ptm-table">
+              <table className="ptm-table ptm-table-compact">
                 <thead><tr><th>고객명</th><th>연락처</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
                 <tbody>
                   {filteredForecastRows.map((r) => (
