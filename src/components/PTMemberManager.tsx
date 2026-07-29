@@ -398,12 +398,14 @@ export default function PTMemberManager() {
         const updated = await db.updateCustomer(editingCustomerId, payload);
         setCustomers(customers.map((c) => (c.id === editingCustomerId ? updated : c)));
         flash("고객 정보 수정됨");
+        setShowCustomerForm(false);
       } else {
         const created = await db.insertCustomer(payload);
         setCustomers([...customers, created]);
-        flash("고객 등록됨");
+        flash("고객 등록됨 · 이용권을 등록해주세요");
+        setShowCustomerForm(false);
+        openNewProduct(created.id); // 신규 고객 등록 직후 바로 이용권 등록으로 이어간다
       }
-      setShowCustomerForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
   const removeCustomer = async (id) => {
