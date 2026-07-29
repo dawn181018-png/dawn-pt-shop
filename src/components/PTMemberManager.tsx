@@ -1009,6 +1009,9 @@ export default function PTMemberManager() {
                         setDragResId(null);
                       }}
                     >
+                      {gridHover && gridHover.date === d && !hoverInfo && (
+                        <div className="ptm-slot-preview" style={{ top: timeTopPx(gridHover.time), height: durHeightPx(50) }} />
+                      )}
                       {dayRes.map((r) => {
                         const widthPct = 100 / r.columnCount;
                         const leftPct = r.col * widthPct;

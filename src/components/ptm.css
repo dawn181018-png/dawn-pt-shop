@@ -52,8 +52,8 @@
 .ptm-week-body { display:flex; position:relative; }
 .ptm-hour-label { position:absolute; left:0; right:0; transform:translateY(-7px); font-size:10.5px; color:var(--ink-dim); text-align:center; }
 .ptm-day-bg { background-image: repeating-linear-gradient(to bottom, var(--line) 0, var(--line) 1px, transparent 1px, transparent 36px); cursor:pointer; }
-.ptm-day-bg:hover { background-color:rgba(59,111,224,0.06); }
 .ptm-day-bg.drag-over { background-color:rgba(59,111,224,0.14); }
+.ptm-slot-preview { position:absolute; left:2px; right:2px; border-radius:6px; background:rgba(59,111,224,0.14); border:1.5px dashed var(--amber); pointer-events:none; }
 .ptm-block.dragging { opacity:0.35; }
 .ptm-block { position:absolute; border-radius:6px; padding:3px 6px; overflow:hidden; cursor:grab; border:1px solid transparent; }
 .ptm-block.scheduled { background:var(--amber); border-color:var(--amber); }
