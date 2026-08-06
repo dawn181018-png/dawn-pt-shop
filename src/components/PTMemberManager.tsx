@@ -903,7 +903,7 @@ export default function PTMemberManager() {
   // 해당 월에 새로 등록된 상품 금액을 합산해 자동으로 계산한다.
   const forecastRows = useMemo(() => {
     return customers
-      .filter((c) => !c.isDormant)
+      .filter((c) => !c.isDormant && products.some((p) => p.customerId === c.id))
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
