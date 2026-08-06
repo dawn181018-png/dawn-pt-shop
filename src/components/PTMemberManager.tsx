@@ -211,6 +211,7 @@ export default function PTMemberManager() {
   const [quickForm, setQuickForm] = useState({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
   const [quickSearch, setQuickSearch] = useState("");
   const [quickIsNew, setQuickIsNew] = useState(false);
+  const [quickIsMisc, setQuickIsMisc] = useState(false);
   const [walkInName, setWalkInName] = useState("");
   const [walkInPhone, setWalkInPhone] = useState("");
 
@@ -511,7 +512,7 @@ export default function PTMemberManager() {
   };
 
   // ---- Reservations ----
-  const pushReservation = async (customerId, productId, data, statusOverride) => {
+  const pushReservation = async (customerId, productId, data, statusOverride, extra = {}) => {
     const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
     const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
     const seriesId = count > 1 ? newId() : null;
@@ -520,6 +521,7 @@ export default function PTMemberManager() {
       customerId, productId, seriesId,
       date: i === 0 ? data.date : addRepeatInterval(data.date, repeat, i),
       time: data.time, duration: Number(data.duration) || 50, memo: data.memo || "", status,
+      ...extra,
     }));
     const created = await db.insertReservations(rows);
     setReservations((prev) => [...prev, ...created]);
@@ -545,11 +547,21 @@ export default function PTMemberManager() {
     setQuickForm({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
+    setQuickIsMisc(false);
     setWalkInName("");
     setWalkInPhone("");
   };
   const addQuickReservation = async (statusOverride) => {
     try {
+      if (quickIsMisc) {
+        const title = (quickForm.memo || "").trim();
+        if (!title) { flash("제목을 입력해주세요"); return; }
+        const n = await pushReservation(null, null, { ...quickForm, memo: title }, statusOverride, { type: "misc" });
+        setShowQuickAdd(false);
+        resetQuickAddState();
+        flash(n > 1 ? `기타 일정 ${n}건 등록됨` : "기타 일정 등록됨");
+        return;
+      }
       if (quickIsNew) {
         if (!walkInName.trim()) { flash("이름을 입력해주세요"); return; }
         const newCustomer = await db.insertCustomer({ name: walkInName.trim(), phone: walkInPhone.trim(), birthdate: null, email: "", memo: "" });
@@ -579,6 +591,7 @@ export default function PTMemberManager() {
     setQuickForm({ customerId: "", productId: "", date, time, duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
+    setQuickIsMisc(false);
     setWalkInName("");
     setWalkInPhone("");
     setShowQuickAdd(true);
@@ -744,6 +757,16 @@ export default function PTMemberManager() {
 
   const allReservations = useMemo(() => {
     return reservations.map((r) => {
+      if (r.type === "misc") {
+        return {
+          ...r,
+          customerName: r.memo || "제목 없음",
+          productName: "기타 일정",
+          unitPrice: 0,
+          remainCount: null,
+          totalSessions: null,
+        };
+      }
       const product = products.find((p) => p.id === r.productId);
       const customer = customers.find((c) => c.id === r.customerId);
       return {
@@ -1076,7 +1099,7 @@ export default function PTMemberManager() {
                         const widthPct = 100 / r.columnCount;
                         const leftPct = r.col * widthPct;
                         return (
-                          <div key={r.id} className={`ptm-block ${r.status} ${dragResId === r.id ? "dragging" : ""}`}
+                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}`}
                             style={{
                               top: timeTopPx(r.time), height: durHeightPx(r.duration || 50),
                               left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
@@ -2059,16 +2082,23 @@ export default function PTMemberManager() {
         <div className="ptm-overlay" onClick={() => setShowQuickAdd(false)}>
           <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="ptm-sheet-head">
-              <span className="ptm-sheet-title">새 예약 등록 · {koDate(quickForm.date)} {quickForm.time}</span>
+              <span className="ptm-sheet-title">{quickIsMisc ? "새 일정 등록" : "새 예약 등록"} · {koDate(quickForm.date)} {quickForm.time}</span>
               <button className="ptm-icon-btn" onClick={() => setShowQuickAdd(false)}><X size={16} /></button>
             </div>
 
             <div className="ptm-type-toggle" style={{ marginBottom: 14 }}>
-              <button className={`ptm-type-btn ${!quickIsNew ? "active" : ""}`} onClick={() => setQuickIsNew(false)}>등록 회원 예약하기</button>
-              <button className={`ptm-type-btn ${quickIsNew ? "active" : ""}`} onClick={() => { setQuickIsNew(true); setQuickForm({ ...quickForm, customerId: "", productId: "" }); setQuickSearch(""); }}>미등록 회원 추가하기</button>
+              <button className={`ptm-type-btn ${!quickIsNew && !quickIsMisc ? "active" : ""}`} onClick={() => { setQuickIsNew(false); setQuickIsMisc(false); }}>등록 회원 예약하기</button>
+              <button className={`ptm-type-btn ${quickIsNew ? "active" : ""}`} onClick={() => { setQuickIsNew(true); setQuickIsMisc(false); setQuickForm({ ...quickForm, customerId: "", productId: "" }); setQuickSearch(""); }}>미등록 회원 추가하기</button>
+              <button className={`ptm-type-btn ${quickIsMisc ? "active" : ""}`} onClick={() => { setQuickIsMisc(true); setQuickIsNew(false); setQuickForm({ ...quickForm, customerId: "", productId: "", memo: "" }); setQuickSearch(""); }}>기타 일정</button>
             </div>
 
-            {quickIsNew ? (
+            {quickIsMisc && (
+              <div className="ptm-field"><label>제목</label>
+                <input value={quickForm.memo} onChange={(e) => setQuickForm({ ...quickForm, memo: e.target.value })} placeholder="예: 팀 미팅, 외부 일정" autoFocus />
+              </div>
+            )}
+
+            {!quickIsMisc && (quickIsNew ? (
               <div className="ptm-row2">
                 <div className="ptm-field"><label>이름</label>
                   <input value={walkInName} onChange={(e) => setWalkInName(e.target.value)} placeholder="신규 고객 이름" autoFocus />
@@ -2104,7 +2134,7 @@ export default function PTMemberManager() {
                 <div><span className="ptm-selected-chip-name">{quickCustomer?.name}</span><span className="ptm-selected-chip-phone">{quickCustomer?.phone}</span></div>
                 <button className="ptm-change-btn" onClick={() => setQuickForm({ ...quickForm, customerId: "", productId: "" })}>변경</button>
               </div>
-            )}
+            ))}
 
             {quickIsNew && (
               <div className="ptm-no-product-msg">
@@ -2166,10 +2196,14 @@ export default function PTMemberManager() {
             {quickForm.repeat !== "none" && (
               <div className="ptm-discount-note">{repeatLabel[quickForm.repeat]} 간격으로 총 {Math.max(1, Number(quickForm.repeatCount) || 1)}회 예약이 등록돼요</div>
             )}
-            <div className="ptm-field"><label>메모</label>
-              <input value={quickForm.memo} onChange={(e) => setQuickForm({ ...quickForm, memo: e.target.value })} placeholder="선택 입력" />
-            </div>
-            {quickForm.repeat === "none" && isPastDateTime(quickForm.date, quickForm.time) ? (
+            {!quickIsMisc && (
+              <div className="ptm-field"><label>메모</label>
+                <input value={quickForm.memo} onChange={(e) => setQuickForm({ ...quickForm, memo: e.target.value })} placeholder="선택 입력" />
+              </div>
+            )}
+            {quickIsMisc ? (
+              <button className="ptm-save-btn" onClick={() => addQuickReservation()}>일정 등록</button>
+            ) : quickForm.repeat === "none" && isPastDateTime(quickForm.date, quickForm.time) ? (
               <>
                 <div className="ptm-no-product-msg">이미 지난 시간이에요 — 예약 대신 바로 출석/결석으로 기록할 수 있어요</div>
                 <div className="ptm-row2">
@@ -2294,19 +2328,31 @@ export default function PTMemberManager() {
             <div className="ptm-ctx-menu" style={posStyle} onClick={(e) => e.stopPropagation()}>
               <div className="ptm-ctx-header">
                 <div className="ptm-ctx-header-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}</div>
-                <div className="ptm-ctx-header-sub">{r.customerName} · {r.productName}</div>
+                <div className="ptm-ctx-header-sub">{r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`}</div>
               </div>
-              <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "done"); setCtxMenu(null); }}>출석(완료) 상태로 변경</button>
-              <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "noshow"); setCtxMenu(null); }}>노쇼 상태로 변경</button>
-              <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
-              <div className="ptm-ctx-divider" />
-              <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>날짜·시간 수정</button>
-              <div className="ptm-ctx-divider" />
-              <button className="ptm-ctx-item" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); setCtxMenu(null); }}>고객 정보 보기</button>
-              {r.productId && <button className="ptm-ctx-item" onClick={() => { setResSheetProductId(r.productId); setCtxMenu(null); }}>예약 내역 보기 · 수정</button>}
-              <button className="ptm-ctx-item" onClick={() => { if (cust?.phone) window.open(`sms:${cust.phone}`, "_blank"); setCtxMenu(null); }}>문자(SMS) 보내기</button>
-              <div className="ptm-ctx-divider" />
-              <button className="ptm-ctx-item danger" onClick={() => { requestDeleteReservation(r); setCtxMenu(null); }}>예약 삭제</button>
+              {r.type === "misc" ? (
+                <>
+                  <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
+                  <div className="ptm-ctx-divider" />
+                  <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>날짜·시간 수정</button>
+                  <div className="ptm-ctx-divider" />
+                  <button className="ptm-ctx-item danger" onClick={() => { requestDeleteReservation(r); setCtxMenu(null); }}>일정 삭제</button>
+                </>
+              ) : (
+                <>
+                  <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "done"); setCtxMenu(null); }}>출석(완료) 상태로 변경</button>
+                  <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "noshow"); setCtxMenu(null); }}>노쇼 상태로 변경</button>
+                  <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
+                  <div className="ptm-ctx-divider" />
+                  <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>날짜·시간 수정</button>
+                  <div className="ptm-ctx-divider" />
+                  <button className="ptm-ctx-item" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); setCtxMenu(null); }}>고객 정보 보기</button>
+                  {r.productId && <button className="ptm-ctx-item" onClick={() => { setResSheetProductId(r.productId); setCtxMenu(null); }}>예약 내역 보기 · 수정</button>}
+                  <button className="ptm-ctx-item" onClick={() => { if (cust?.phone) window.open(`sms:${cust.phone}`, "_blank"); setCtxMenu(null); }}>문자(SMS) 보내기</button>
+                  <div className="ptm-ctx-divider" />
+                  <button className="ptm-ctx-item danger" onClick={() => { requestDeleteReservation(r); setCtxMenu(null); }}>예약 삭제</button>
+                </>
+              )}
             </div>
           </div>
         );
@@ -2325,14 +2371,28 @@ export default function PTMemberManager() {
 
       {hoverInfo && (() => {
         const r = hoverInfo.reservation;
+        const left = Math.min(hoverInfo.x + 14, window.innerWidth - 270);
+        const top = Math.min(hoverInfo.y + 14, window.innerHeight - 340);
+        if (r.type === "misc") {
+          return (
+            <div
+              className="ptm-hover-card"
+              style={{ left, top }}
+              onMouseEnter={cancelHideHoverInfo}
+              onMouseLeave={scheduleHideHoverInfo}
+            >
+              <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{r.columnCount > 1 ? " · 동시예약" : ""}</div>
+              <div className="ptm-hover-row"><span>구분</span><span>기타 일정</span></div>
+              <div className="ptm-hover-row"><span>제목</span><span>{r.customerName}</span></div>
+            </div>
+          );
+        }
         const cust = customers.find((c) => c.id === r.customerId);
         const product = products.find((p) => p.id === r.productId);
         const custProducts = products.filter((p) => p.customerId === r.customerId);
         const otherProducts = custProducts.filter((p) => p.id !== r.productId);
         const totalRemainAll = custProducts.reduce((s, p) => s + (p.type === "session" ? (p.totalSessions - p.usedSessions) : 0), 0);
         const totalSessionsAll = custProducts.reduce((s, p) => s + (p.type === "session" ? p.totalSessions : 0), 0);
-        const left = Math.min(hoverInfo.x + 14, window.innerWidth - 270);
-        const top = Math.min(hoverInfo.y + 14, window.innerHeight - 340);
         return (
           <div
             className="ptm-hover-card"

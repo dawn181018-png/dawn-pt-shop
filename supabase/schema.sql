@@ -95,6 +95,12 @@ create table if not exists renewal_forecasts (
 alter table renewal_forecasts alter column customer_id drop not null;
 alter table renewal_forecasts add column if not exists prospect_name text;
 
+-- 이미 reservations 테이블이 있는 기존 DB에서는 위 create table이 스킵되므로, 고객/상품과 연결되지 않는
+-- "기타 일정"(개인 미팅, 외부 일정 등)을 지원하기 위해 type 컬럼을 추가하고 customer_id를 nullable로 바꾼다.
+-- 재실행해도 안전하다(idempotent).
+alter table reservations add column if not exists type text not null default 'pt' check (type in ('pt', 'misc'));
+alter table reservations alter column customer_id drop not null;
+
 -- ---------- 인덱스 ----------
 create index if not exists idx_customers_owner on customers(owner_id);
 create index if not exists idx_catalog_items_owner on catalog_items(owner_id);
