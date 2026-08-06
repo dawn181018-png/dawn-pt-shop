@@ -1,7 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 .ptm-root {
   --bg:#eef1f7; --panel:#ffffff; --panel-2:#f3f5fa; --line:#dde3ee;
-  --ink:#1f2937; --ink-dim:#6b7684; --amber:#3b6fe0; --teal:#1aa35a; --coral:#e0433f; --purple:#7c6fd6;
+  --ink:#1f2937; --ink-dim:#6b7684; --amber:#3b6fe0; --teal:#1aa35a; --coral:#e0433f; --purple:#7c6fd6; --red:#dc2626;
   font-family:'Inter',sans-serif; background:var(--bg); color:var(--ink);
   min-height:100%; padding:20px 16px 60px; box-sizing:border-box;
 }
@@ -59,6 +59,7 @@
 .ptm-block.dragging { opacity:0.35; }
 .ptm-block { position:absolute; border-radius:6px; padding:3px 6px; overflow:hidden; cursor:grab; border:1px solid transparent; }
 .ptm-block.scheduled { background:var(--amber); border-color:var(--amber); }
+.ptm-block.misc { background:var(--red); border-color:var(--red); }
 .ptm-block.done { background:rgba(124,111,214,0.22); border-color:var(--purple); }
 .ptm-block.done .ptm-block-time, .ptm-block.done .ptm-block-sub { color:#5b4fc4; }
 .ptm-block.done .ptm-block-name { color:#4a3fae; }

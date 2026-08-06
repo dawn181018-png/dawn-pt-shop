@@ -30,10 +30,11 @@ export interface Product {
 }
 
 export type ReservationStatus = "scheduled" | "done" | "noshow" | "cancelled";
+export type ReservationType = "pt" | "misc";
 
 export interface Reservation {
   id: string;
-  customerId: string;
+  customerId: string | null;
   productId: string | null;
   seriesId: string | null;
   date: string;
@@ -41,6 +42,7 @@ export interface Reservation {
   duration: number;
   memo?: string;
   status: ReservationStatus;
+  type: ReservationType;
 }
 
 export interface CatalogItem {
