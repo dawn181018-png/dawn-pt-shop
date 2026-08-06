@@ -207,6 +207,11 @@ export default function PTMemberManager() {
   const [resForm, setResForm] = useState({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
 
   const [weekStart, setWeekStart] = useState(mondayOf(today()));
+  const [nowClock, setNowClock] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setNowClock(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [quickForm, setQuickForm] = useState({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
   const [quickSearch, setQuickSearch] = useState("");
@@ -1094,6 +1099,9 @@ export default function PTMemberManager() {
                     >
                       {gridHover && gridHover.date === d && !hoverInfo && (
                         <div className="ptm-slot-preview" style={{ top: timeTopPx(gridHover.time), height: durHeightPx(50) }} />
+                      )}
+                      {d === today() && nowClock.getHours() >= HOUR_START && nowClock.getHours() < HOUR_END && (
+                        <div className="ptm-now-line" style={{ top: timeTopPx(`${String(nowClock.getHours()).padStart(2, "0")}:${String(nowClock.getMinutes()).padStart(2, "0")}`) }} />
                       )}
                       {dayRes.map((r) => {
                         const widthPct = 100 / r.columnCount;
