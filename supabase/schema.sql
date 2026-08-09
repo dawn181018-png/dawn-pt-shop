@@ -168,3 +168,34 @@ as $$
 $$;
 
 grant execute on function adjust_used_sessions(uuid, int) to authenticated;
+
+-- ---------- 출석 서명 (signature) ----------
+-- 예약을 "출석(완료)" 처리할 때 받는 터치 서명 이미지를 저장할 컬럼과 Storage 버킷.
+-- 기존 테이블/데이터는 전혀 건드리지 않는다: nullable 컬럼 추가(no default)만 하므로
+-- 기존 행은 signature_url = NULL이 되고, 그 외에는 아무 영향이 없다. 재실행해도 안전하다(idempotent).
+alter table reservations add column if not exists signature_url text;
+
+-- 서명 이미지 버킷 (private). URL이 아니라 스토리지 경로를 signature_url에 저장하고,
+-- 조회 시점마다 signed URL을 새로 발급한다.
+insert into storage.buckets (id, name, public)
+values ('signatures', 'signatures', false)
+on conflict (id) do nothing;
+
+-- 트레이너(owner)별 폴더(첫 경로 세그먼트 = auth.uid())에만 접근 가능하도록 제한.
+-- drop policy if exists + create policy 조합은 "이 정책들"에 대해서만 이미 존재하면 재생성하는
+-- 것으로, signatures 버킷 전용 정책만 다루며 다른 테이블/버킷의 기존 정책은 건드리지 않는다.
+drop policy if exists "signatures_owner_select" on storage.objects;
+create policy "signatures_owner_select" on storage.objects for select to authenticated
+  using (bucket_id = 'signatures' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "signatures_owner_insert" on storage.objects;
+create policy "signatures_owner_insert" on storage.objects for insert to authenticated
+  with check (bucket_id = 'signatures' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "signatures_owner_update" on storage.objects;
+create policy "signatures_owner_update" on storage.objects for update to authenticated
+  using (bucket_id = 'signatures' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "signatures_owner_delete" on storage.objects;
+create policy "signatures_owner_delete" on storage.objects for delete to authenticated
+  using (bucket_id = 'signatures' and (storage.foldername(name))[1] = auth.uid()::text);

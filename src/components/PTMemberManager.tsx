@@ -12,7 +12,19 @@ import {
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
+import SignatureModal from "./SignatureModal";
 import "./ptm.css";
+
+function SignatureThumb({ path }) {
+  const [url, setUrl] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (path) db.getSignatureUrl(path).then((u) => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [path]);
+  if (!url) return null;
+  return <img src={url} alt="서명" className="ptm-signature-thumb" onClick={() => window.open(url, "_blank")} />;
+}
 
 // epoch/Date 절대시각을 "브라우저 로컬 기준" 날짜 문자열로 변환.
 // toISOString()은 UTC 기준이라, UTC+9(한국)에서도 자정~오전 9시 사이엔 하루 전 날짜로 밀리는 버그가 있었다.
@@ -601,7 +613,7 @@ export default function PTMemberManager() {
     setWalkInPhone("");
     setShowQuickAdd(true);
   };
-  const setReservationStatus = async (resId, newStatus) => {
+  const setReservationStatus = async (resId, newStatus, extra = {}) => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     const was = countsAsUsed(r.status), will = countsAsUsed(newStatus);
@@ -609,7 +621,7 @@ export default function PTMemberManager() {
     if (will && !was) delta = 1;
     if (!will && was) delta = -1;
     try {
-      const updatedRes = await db.updateReservation(resId, { status: newStatus });
+      const updatedRes = await db.updateReservation(resId, { status: newStatus, ...extra });
       setReservations((prev) => prev.map((x) => (x.id === resId ? updatedRes : x)));
       if (delta !== 0 && r.productId) {
         const p = products.find((x) => x.id === r.productId);
@@ -622,6 +634,18 @@ export default function PTMemberManager() {
       else if (newStatus === "noshow") flash("노쇼 처리 · 세션 1회 차감");
       else if (newStatus === "cancelled") flash("예약 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
+  };
+
+  // ---- 출석(완료) 처리 전 서명 받기 ----
+  const [signatureRes, setSignatureRes] = useState(null);
+  const requestCompleteReservation = (r) => setSignatureRes(r);
+  const submitSignatureAndComplete = async (blob) => {
+    if (!signatureRes) return;
+    try {
+      const path = await db.uploadSignature(signatureRes.id, blob);
+      await setReservationStatus(signatureRes.id, "done", { signatureUrl: path });
+      setSignatureRes(null);
+    } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
   };
   const deleteReservation = async (resId) => {
     const r = reservations.find((x) => x.id === resId);
@@ -2073,8 +2097,9 @@ export default function PTMemberManager() {
                     <span className={`ptm-res-badge ${r.status}`}>{statusLabel[r.status]}</span>
                   </div>
                   {r.memo && <div className="ptm-res-memo">{r.memo}</div>}
+                  {r.signatureUrl && <SignatureThumb path={r.signatureUrl} />}
                   <div className="ptm-res-actions">
-                    {r.status !== "done" && <button className="ptm-res-btn" onClick={() => setReservationStatus(r.id, "done")}><Check size={12} /> 완료</button>}
+                    {r.status !== "done" && <button className="ptm-res-btn" onClick={() => requestCompleteReservation(r)}><Check size={12} /> 완료</button>}
                     {r.status !== "noshow" && <button className="ptm-res-btn" onClick={() => setReservationStatus(r.id, "noshow")}><UserX size={12} /> 노쇼</button>}
                     {r.status !== "cancelled" && <button className="ptm-res-btn" onClick={() => requestCancelReservation(r)}><Ban size={12} /> 취소</button>}
                     <button className="ptm-res-btn danger" onClick={() => requestDeleteReservation(r)}><Trash2 size={12} /> 삭제</button>
@@ -2348,7 +2373,7 @@ export default function PTMemberManager() {
                 </>
               ) : (
                 <>
-                  <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "done"); setCtxMenu(null); }}>출석(완료) 상태로 변경</button>
+                  <button className="ptm-ctx-item" onClick={() => { requestCompleteReservation(r); setCtxMenu(null); }}>출석(완료) 상태로 변경</button>
                   <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "noshow"); setCtxMenu(null); }}>노쇼 상태로 변경</button>
                   <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
                   <div className="ptm-ctx-divider" />
@@ -2474,6 +2499,14 @@ export default function PTMemberManager() {
             <button className="ptm-series-btn ghost" onClick={() => setSeriesPrompt(null)}>그만두기</button>
           </div>
         </div>
+      )}
+
+      {signatureRes && (
+        <SignatureModal
+          title={`${signatureRes.customerName || customers.find((c) => c.id === signatureRes.customerId)?.name || "고객"} · 출석 서명`}
+          onCancel={() => setSignatureRes(null)}
+          onSubmit={submitSignatureAndComplete}
+        />
       )}
 
       {toast && <div className="ptm-toast">{toast}</div>}

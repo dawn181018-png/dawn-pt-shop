@@ -253,3 +253,15 @@
 .ptm-grid-hover-tag { position:fixed; z-index:65; pointer-events:none; background:var(--panel-2); border:1px solid var(--amber); color:var(--amber); font-family:'Oswald',sans-serif; font-size:12px; font-weight:600; padding:5px 10px; border-radius:7px; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,0.35); }
 
 @media (max-width:420px) { .ptm-stats, .ptm-pay-grid, .ptm-stats-compare { grid-template-columns:repeat(2,1fr); } .ptm-charts { grid-template-columns:1fr; } }
+
+.ptm-signature-sheet { max-width:640px; }
+.ptm-signature-hint { font-size:12.5px; color:var(--ink-dim); margin-bottom:10px; }
+.ptm-signature-canvas-wrap { border:1px solid var(--line); border-radius:10px; background:#ffffff; overflow:hidden; }
+.ptm-signature-canvas { width:100%; height:260px; display:block; touch-action:none; }
+.ptm-signature-actions { display:flex; gap:8px; margin-top:12px; }
+.ptm-signature-actions .ptm-res-btn { padding:12px; font-size:13.5px; flex:0 0 auto; }
+.ptm-signature-actions .ptm-save-btn { flex:1; }
+.ptm-signature-actions .ptm-save-btn:disabled { opacity:0.5; cursor:not-allowed; }
+.ptm-signature-thumb { display:block; max-width:160px; max-height:70px; border:1px solid var(--line); border-radius:6px; background:#ffffff; margin-top:6px; cursor:pointer; }
+
+@media (max-width:600px) { .ptm-signature-canvas { height:200px; } }

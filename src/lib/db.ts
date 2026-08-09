@@ -96,6 +96,27 @@ export async function deleteReservation(id: string): Promise<void> {
   const { error } = await supabase.from("reservations").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+// 출석(완료) 서명 이미지 업로드 → signature_url 컬럼에 저장할 스토리지 경로를 반환.
+// signatures 버킷은 private이라, 조회 시엔 getSignatureUrl로 그때그때 signed URL을 새로 발급받는다.
+export async function uploadSignature(reservationId: string, blob: Blob): Promise<string> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("로그인이 필요합니다");
+  const path = `${user.id}/${reservationId}-${Date.now()}.png`;
+  const { error } = await supabase.storage.from("signatures").upload(path, blob, {
+    contentType: "image/png",
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+  return path;
+}
+export async function getSignatureUrl(path: string): Promise<string | null> {
+  const { data, error } = await supabase.storage.from("signatures").createSignedUrl(path, 3600);
+  if (error) return null;
+  return data.signedUrl;
+}
 export async function cancelReservationSeriesFrom(seriesId: string, fromDate: string): Promise<void> {
   const { error } = await supabase
     .from("reservations")
