@@ -80,9 +80,23 @@ export async function adjustUsedSessions(productId: string, delta: number): Prom
 }
 
 // ---------- reservations ----------
+// PostgREST는 요청 1건당 최대 1000행까지만 반환한다(기본 db-max-rows).
+// 예약이 1000건을 넘으면 정렬 없는 select("*") 한 번으로는 어떤 행이 잘려나갈지 보장이 없어서,
+// 방금 새로 만든 예약이 새로고침 후 감쪽같이 사라져 보이는 문제가 있었다. range()로 전부 페이징해서 가져온다.
 export async function listReservations(): Promise<Reservation[]> {
-  const { data, error } = await supabase.from("reservations").select("*");
-  return must(data, error).map(mapReservation);
+  const pageSize = 1000;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("reservations")
+      .select("*")
+      .order("created_at", { ascending: true })
+      .range(from, from + pageSize - 1);
+    const page = must(data, error);
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows.map(mapReservation);
 }
 export async function insertReservations(rows: Partial<Reservation>[]): Promise<Reservation[]> {
   const { data, error } = await supabase.from("reservations").insert(rows.map(toSnake)).select();
