@@ -91,6 +91,7 @@ export async function listReservations(): Promise<Reservation[]> {
       .from("reservations")
       .select("*")
       .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
       .range(from, from + pageSize - 1);
     const page = must(data, error);
     rows.push(...page);
