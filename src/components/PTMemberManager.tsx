@@ -2535,16 +2535,29 @@ export default function PTMemberManager() {
         // 총 등록 횟수만큼 자리를 미리 깔아두고(수기 사인지처럼) 앞에서부터 채워, 등록한 세션 전체와
         // 그중 어디까지 진행됐는지를 한 화면에서 볼 수 있게 한다. 50회면 1~25 왼쪽 / 26~50 오른쪽,
         // 30회면 1~15 / 16~30 식으로 반씩 나눈다.
+        // usedSessions(수동조정 포함 누적 사용횟수)가 실제 예약 기록(history) 건수보다 많을 수 있다 —
+        // 서명 기능 이전에 수기로 진행했거나 수동(+/-)으로 조정된 세션들. 그런 자리는 앞쪽에 채우고
+        // "check"로 표시해, 진짜 서명 기록이 있는 최근 세션들과 구분한다.
         const total = product.type === "session" ? Number(product.totalSessions) || 0 : 0;
         const half = Math.ceil(total / 2);
-        const slots = Array.from({ length: total }, (_, i) => history[i] || null);
-        const renderSlotRows = (slotArr, offset) => slotArr.map((r, i) => (
-          <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
-            <td>{offset + i + 1}</td>
-            <td>{r ? `${koDate(r.date)} ${r.time}` : "-"}</td>
-            <td>{r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : "-"}</td>
-          </tr>
-        ));
+        const historyCount = history.length;
+        const usedCount = Math.max(0, Math.min(total, Number(product.usedSessions) || 0));
+        const manualUsedCount = Math.max(0, usedCount - historyCount);
+        const slots = Array.from({ length: total }, (_, i) => {
+          if (i < manualUsedCount) return { used: true, res: null };
+          const hIdx = i - manualUsedCount;
+          return hIdx < historyCount ? { used: true, res: history[hIdx] } : { used: false, res: null };
+        });
+        const renderSlotRows = (slotArr, offset) => slotArr.map((slot, i) => {
+          const r = slot.res;
+          return (
+            <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
+              <td>{offset + i + 1}</td>
+              <td>{r ? `${koDate(r.date)} ${r.time}` : "-"}</td>
+              <td>{r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : (slot.used ? "check" : "-")}</td>
+            </tr>
+          );
+        });
         return (
           <div className="ptm-overlay" onClick={() => setSessionCardResId(null)}>
             <div className={`ptm-sheet ptm-session-card-sheet ${total > 0 ? "ptm-session-card-wide" : ""}`} onClick={(e) => e.stopPropagation()}>
