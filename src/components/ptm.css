@@ -265,3 +265,7 @@
 .ptm-signature-thumb { display:block; max-width:160px; max-height:70px; border:1px solid var(--line); border-radius:6px; background:#ffffff; margin-top:6px; cursor:pointer; }
 
 @media (max-width:600px) { .ptm-signature-canvas { height:200px; } }
+
+.ptm-session-card-sheet { max-width:520px; }
+.ptm-session-card-warn { margin-top:8px; padding:8px 10px; border-radius:8px; background:rgba(224,67,63,0.08); color:var(--coral); font-size:12.5px; font-weight:600; }
+.ptm-session-card-highlight td { background:rgba(59,111,224,0.1); }
