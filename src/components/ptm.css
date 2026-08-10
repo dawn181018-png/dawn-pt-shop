@@ -267,5 +267,11 @@
 @media (max-width:600px) { .ptm-signature-canvas { height:200px; } }
 
 .ptm-session-card-sheet { max-width:520px; }
+.ptm-session-card-sheet.ptm-session-card-wide { max-width:780px; }
 .ptm-session-card-warn { margin-top:8px; padding:8px 10px; border-radius:8px; background:rgba(224,67,63,0.08); color:var(--coral); font-size:12.5px; font-weight:600; }
 .ptm-session-card-highlight td { background:rgba(59,111,224,0.1); }
+.ptm-session-card-cols { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+.ptm-session-card-cols .ptm-table-wrap { min-width:0; }
+.ptm-session-card-cols .ptm-table th, .ptm-session-card-cols .ptm-table td { white-space:nowrap; }
+.ptm-session-card-cols .ptm-signature-thumb { max-width:90px; max-height:38px; margin-top:0; }
+@media (max-width:640px) { .ptm-session-card-cols { grid-template-columns:1fr; } }
