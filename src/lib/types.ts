@@ -43,6 +43,7 @@ export interface Reservation {
   memo?: string;
   status: ReservationStatus;
   type: ReservationType;
+  signatureUrl?: string | null; // Storage 내 서명 이미지 경로 (signed URL이 아니라 경로를 저장)
 }
 
 export interface CatalogItem {
