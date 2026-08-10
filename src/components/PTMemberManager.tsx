@@ -51,6 +51,17 @@ const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto
 const repeatLabel = { none: "안함", daily: "매일", weekly: "매주", biweekly: "2주마다", monthly: "매월", yearly: "매년" };
 // 반복 선택 시 "취소 전까지 계속" 느낌을 주기 위해 기본으로 넉넉히 생성해두는 횟수 (나중에 직접 줄이거나 늘릴 수 있음)
 const defaultRepeatCount = { none: 1, daily: 90, weekly: 52, biweekly: 26, monthly: 24, yearly: 5 };
+// "매주"를 고르면 다음 달까지 쭉 뻗어나가지 않도록, 시작일이 속한 달 안에서만 반복되는 횟수로 기본값을 잡는다.
+// (그 이후 반복은 다음 달 초에 다시 등록하는 방식 — 예약이 무한정 쌓여 조회 성능/1000행 제한에 영향을 주는 걸 방지)
+const getDefaultRepeatCount = (repeatType, dateStr) => {
+  if (repeatType === "weekly") {
+    const startMonth = new Date(dateStr).getMonth();
+    let n = 0;
+    while (new Date(addDays(dateStr, 7 * n)).getMonth() === startMonth) n++;
+    return Math.max(1, n);
+  }
+  return defaultRepeatCount[repeatType];
+};
 const addRepeatInterval = (dateStr, repeatType, n) => {
   if (repeatType === "daily") return addDays(dateStr, n);
   if (repeatType === "weekly") return addDays(dateStr, 7 * n);
@@ -2069,7 +2080,7 @@ export default function PTMemberManager() {
             )}
             <div className="ptm-repeat-row">
               <div className="ptm-field"><label>반복</label>
-                <select value={resForm.repeat} onChange={(e) => setResForm({ ...resForm, repeat: e.target.value, repeatCount: defaultRepeatCount[e.target.value] })}>
+                <select value={resForm.repeat} onChange={(e) => setResForm({ ...resForm, repeat: e.target.value, repeatCount: getDefaultRepeatCount(e.target.value, resForm.date) })}>
                   <option value="none">안함</option>
                   <option value="daily">매일</option>
                   <option value="weekly">매주</option>
@@ -2211,7 +2222,7 @@ export default function PTMemberManager() {
             </div>
             <div className="ptm-repeat-row">
               <div className="ptm-field"><label>반복</label>
-                <select value={quickForm.repeat} onChange={(e) => setQuickForm({ ...quickForm, repeat: e.target.value, repeatCount: defaultRepeatCount[e.target.value] })}>
+                <select value={quickForm.repeat} onChange={(e) => setQuickForm({ ...quickForm, repeat: e.target.value, repeatCount: getDefaultRepeatCount(e.target.value, quickForm.date) })}>
                   <option value="none">안함</option>
                   <option value="daily">매일</option>
                   <option value="weekly">매주</option>
