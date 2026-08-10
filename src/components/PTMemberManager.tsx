@@ -650,11 +650,14 @@ export default function PTMemberManager() {
   // ---- 출석(완료) 처리 전 서명 받기 ----
   const [signatureRes, setSignatureRes] = useState(null);
   const requestCompleteReservation = (r) => setSignatureRes(r);
+  // 서명 직후, 수기 PT 세션 카드를 대체하는 "몇 회 중 몇 회 사용" 요약을 한 번 보여준다.
+  const [sessionCardResId, setSessionCardResId] = useState(null);
   const submitSignatureAndComplete = async (blob) => {
     if (!signatureRes) return;
     try {
       const path = await db.uploadSignature(signatureRes.id, blob);
       await setReservationStatus(signatureRes.id, "done", { signatureUrl: path });
+      setSessionCardResId(signatureRes.id);
       setSignatureRes(null);
     } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
   };
@@ -2519,6 +2522,98 @@ export default function PTMemberManager() {
           onSubmit={submitSignatureAndComplete}
         />
       )}
+
+      {sessionCardResId && (() => {
+        const res = reservations.find((r) => r.id === sessionCardResId);
+        const product = res && products.find((p) => p.id === res.productId);
+        const customer = res && customers.find((c) => c.id === res.customerId);
+        if (!res || !product || !customer) return null;
+        const history = [...reservations]
+          .filter((r) => r.productId === product.id && r.status === "done")
+          .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+        const remaining = Math.max(0, product.totalSessions - product.usedSessions);
+        // 총 등록 횟수만큼 자리를 미리 깔아두고(수기 사인지처럼) 앞에서부터 채워, 등록한 세션 전체와
+        // 그중 어디까지 진행됐는지를 한 화면에서 볼 수 있게 한다. 50회면 1~25 왼쪽 / 26~50 오른쪽,
+        // 30회면 1~15 / 16~30 식으로 반씩 나눈다.
+        // usedSessions(수동조정 포함 누적 사용횟수)가 실제 예약 기록(history) 건수보다 많을 수 있다 —
+        // 서명 기능 이전에 수기로 진행했거나 수동(+/-)으로 조정된 세션들. 그런 자리는 앞쪽에 채우고
+        // "check"로 표시해, 진짜 서명 기록이 있는 최근 세션들과 구분한다.
+        const total = product.type === "session" ? Number(product.totalSessions) || 0 : 0;
+        const half = Math.ceil(total / 2);
+        const historyCount = history.length;
+        const usedCount = Math.max(0, Math.min(total, Number(product.usedSessions) || 0));
+        const manualUsedCount = Math.max(0, usedCount - historyCount);
+        const slots = Array.from({ length: total }, (_, i) => {
+          if (i < manualUsedCount) return { used: true, res: null };
+          const hIdx = i - manualUsedCount;
+          return hIdx < historyCount ? { used: true, res: history[hIdx] } : { used: false, res: null };
+        });
+        const renderSlotRows = (slotArr, offset) => slotArr.map((slot, i) => {
+          const r = slot.res;
+          return (
+            <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
+              <td>{offset + i + 1}</td>
+              <td>{r ? `${koDate(r.date)} ${r.time}` : "-"}</td>
+              <td>{r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : (slot.used ? "check" : "-")}</td>
+            </tr>
+          );
+        });
+        return (
+          <div className="ptm-overlay" onClick={() => setSessionCardResId(null)}>
+            <div className={`ptm-sheet ptm-session-card-sheet ${total > 0 ? "ptm-session-card-wide" : ""}`} onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">{customer.name} · {product.name} 출석 카드</span>
+                <button className="ptm-icon-btn" onClick={() => setSessionCardResId(null)}><X size={16} /></button>
+              </div>
+              {product.type === "session" && (
+                <>
+                  <div className="ptm-gauge-row">
+                    <div className="ptm-gauge-track"><div className={`ptm-gauge-fill ${urgency(product)}`} style={{ width: `${progressPct(product)}%` }} /></div>
+                    <div className="ptm-gauge-label">{product.usedSessions} / {product.totalSessions}회 사용</div>
+                  </div>
+                  {remaining <= 3 && (
+                    <div className="ptm-session-card-warn">
+                      {remaining === 0 ? "세션을 모두 사용했어요 — 재등록을 안내해보세요" : `남은 세션 ${remaining}회 — 재등록을 안내해보세요`}
+                    </div>
+                  )}
+                </>
+              )}
+              {total > 0 ? (
+                <div className="ptm-session-card-cols">
+                  <div className="ptm-table-wrap">
+                    <table className="ptm-table">
+                      <thead><tr><th>No.</th><th>일자</th><th>회원서명</th></tr></thead>
+                      <tbody>{renderSlotRows(slots.slice(0, half), 0)}</tbody>
+                    </table>
+                  </div>
+                  <div className="ptm-table-wrap">
+                    <table className="ptm-table">
+                      <thead><tr><th>No.</th><th>일자</th><th>회원서명</th></tr></thead>
+                      <tbody>{renderSlotRows(slots.slice(half), half)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="ptm-table-wrap" style={{ marginTop: 12 }}>
+                  <table className="ptm-table">
+                    <thead><tr><th>No.</th><th>일자</th><th>회원서명</th></tr></thead>
+                    <tbody>
+                      {history.map((r, i) => (
+                        <tr key={r.id} className={r.id === res.id ? "ptm-session-card-highlight" : ""}>
+                          <td>{i + 1}</td>
+                          <td>{koDate(r.date)} {r.time}</td>
+                          <td>{r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <button className="ptm-save-btn" onClick={() => setSessionCardResId(null)}>확인</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {toast && <div className="ptm-toast">{toast}</div>}
     </div>
