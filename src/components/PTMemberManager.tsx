@@ -213,6 +213,10 @@ export default function PTMemberManager() {
   const [customerDetailId, setCustomerDetailId] = useState(null);
   const [customerDetailTab, setCustomerDetailTab] = useState("home");
 
+  // ---- 공용 삭제 확인 다이얼로그 ----
+  const [confirmState, setConfirmState] = useState(null); // { message, confirmLabel, onConfirm }
+  const askConfirm = (message, onConfirm, confirmLabel = "삭제") => setConfirmState({ message, onConfirm, confirmLabel });
+
   const [resSheetProductId, setResSheetProductId] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { x, y, reservation }
   const [hoverInfo, setHoverInfo] = useState(null); // { x, y, reservation }
@@ -388,6 +392,7 @@ export default function PTMemberManager() {
       flash("재등록 예정 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
+  const requestRemoveForecast = (id, message) => askConfirm(message, () => removeForecast(id));
 
   // ---- 신규 고객 명단(아직 등록 안 된 예정 고객) ----
   const addProspect = async () => {
@@ -465,6 +470,15 @@ export default function PTMemberManager() {
       flash("고객 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
+  const requestRemoveCustomer = (c) => {
+    const prodCount = products.filter((p) => p.customerId === c.id).length;
+    const resCount = reservations.filter((r) => r.customerId === c.id).length;
+    const parts = [];
+    if (prodCount > 0) parts.push(`보유 상품 ${prodCount}개`);
+    if (resCount > 0) parts.push(`예약 ${resCount}건`);
+    const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
+    askConfirm(`"${c.name}" 고객을 삭제할까요?${suffix}`, () => removeCustomer(c.id));
+  };
 
   const bulkRows = useMemo(() => {
     return bulkText.split("\n").map((l) => l.trim()).filter(Boolean).map(parseBulkLine).filter((r) => r.name);
@@ -533,6 +547,14 @@ export default function PTMemberManager() {
       setReservations(reservations.filter((r) => r.productId !== id));
       flash("상품 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+  };
+  const requestRemoveProduct = (p) => {
+    const resCount = reservations.filter((r) => r.productId === p.id).length;
+    const parts = [];
+    if (p.type === "session") parts.push(`잔여 ${Math.max(0, p.totalSessions - p.usedSessions)}회`);
+    if (resCount > 0) parts.push(`관련 예약 ${resCount}건`);
+    const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
+    askConfirm(`"${p.name}" 상품을 삭제할까요?${suffix}`, () => removeProduct(p.id));
   };
   const bumpSession = async (id, delta) => {
     const p = products.find((x) => x.id === id);
@@ -697,8 +719,9 @@ export default function PTMemberManager() {
     else setReservationStatus(r.id, "cancelled");
   };
   const requestDeleteReservation = (r) => {
-    if (r.seriesId) setSeriesPrompt({ reservation: r, action: "delete" });
-    else deleteReservation(r.id);
+    if (r.seriesId) { setSeriesPrompt({ reservation: r, action: "delete" }); return; }
+    const label = r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`;
+    askConfirm(`${koDate(r.date)} ${r.time} "${label}" 예약을 삭제할까요?`, () => deleteReservation(r.id));
   };
   const cancelSeriesFuture = async (seriesId, fromDate) => {
     const deltaByProduct = {};
@@ -1249,7 +1272,7 @@ export default function PTMemberManager() {
                     <div className="ptm-actions">
                       <button className={`ptm-icon-btn ${c.isDormant ? "active" : ""}`} title={c.isDormant ? "휴면 해제" : "휴면 상태로 표시 (매출 계획에서 제외)"} onClick={(e) => { e.stopPropagation(); toggleDormant(c); }}><Moon size={14} /></button>
                       <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); openEditCustomer(c); }}><Pencil size={14} /></button>
-                      <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); removeCustomer(c.id); }}><Trash2 size={14} /></button>
+                      <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); requestRemoveCustomer(c); }}><Trash2 size={14} /></button>
                     </div>
                   </div>
                 </div>
@@ -1421,7 +1444,7 @@ export default function PTMemberManager() {
                       <td>
                         <div className="ptm-actions">
                           <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={() => openForecastFor(r)}><Pencil size={14} /></button>
-                          {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => removeForecast(r.forecastId)}><Trash2 size={14} /></button>}
+                          {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
                         </div>
                       </td>
                     </tr>
@@ -1460,7 +1483,7 @@ export default function PTMemberManager() {
                     </td>
                     <td>
                       <div className="ptm-actions">
-                        <button className="ptm-icon-btn" title="삭제" onClick={() => removeForecast(f.id)}><Trash2 size={14} /></button>
+                        <button className="ptm-icon-btn" title="삭제" onClick={() => requestRemoveForecast(f.id, `"${f.prospectName || "이름 없음"}" 신규 고객 명단을 삭제할까요?`)}><Trash2 size={14} /></button>
                       </div>
                     </td>
                   </tr>
@@ -1781,7 +1804,7 @@ export default function PTMemberManager() {
                           </div>
                           <div className="ptm-actions">
                             <button className="ptm-icon-btn" onClick={() => openEditForecast(f)}><Pencil size={14} /></button>
-                            <button className="ptm-icon-btn" onClick={() => removeForecast(f.id)}><Trash2 size={14} /></button>
+                            <button className="ptm-icon-btn" onClick={() => requestRemoveForecast(f.id, `${f.targetMonth.slice(0, 4)}년 ${Number(f.targetMonth.slice(5, 7))}월 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>
                           </div>
                         </div>
                         <div className="ptm-prod-bottom">
@@ -1831,7 +1854,7 @@ export default function PTMemberManager() {
                           <div className="ptm-actions">
                             <button className="ptm-icon-btn" title="예약 관리" onClick={() => setResSheetProductId(p.id)}><CalendarClock size={14} /></button>
                             <button className="ptm-icon-btn" onClick={() => openEditProduct(p)}><Pencil size={14} /></button>
-                            <button className="ptm-icon-btn" onClick={() => removeProduct(p.id)}><Trash2 size={14} /></button>
+                            <button className="ptm-icon-btn" onClick={() => requestRemoveProduct(p)}><Trash2 size={14} /></button>
                           </div>
                         </div>
                         <div className="ptm-gauge-row">
@@ -2525,6 +2548,30 @@ export default function PTMemberManager() {
             <button className="ptm-series-btn" onClick={() => applySeriesChoice("this")}>이 예약만 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn danger" onClick={() => applySeriesChoice("future")}>이후 모든 반복 예약 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn ghost" onClick={() => setSeriesPrompt(null)}>그만두기</button>
+          </div>
+        </div>
+      )}
+
+      {confirmState && (
+        <div className="ptm-overlay" onClick={() => setConfirmState(null)}>
+          <div className="ptm-sheet ptm-series-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">정말 삭제하시겠습니까?</span>
+              <button className="ptm-icon-btn" onClick={() => setConfirmState(null)}><X size={16} /></button>
+            </div>
+            <p className="ptm-series-desc">{confirmState.message}</p>
+            <div className="ptm-confirm-actions">
+              <button autoFocus className="ptm-series-btn" onClick={() => setConfirmState(null)}>취소</button>
+              <button
+                className="ptm-series-btn danger"
+                onClick={() => {
+                  confirmState.onConfirm();
+                  setConfirmState(null);
+                }}
+              >
+                {confirmState.confirmLabel}
+              </button>
+            </div>
           </div>
         </div>
       )}

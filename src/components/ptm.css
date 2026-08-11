@@ -217,6 +217,10 @@
 .ptm-series-btn.danger:hover { border-color:var(--coral); }
 .ptm-series-btn.ghost { background:transparent; border-color:transparent; color:var(--ink-dim); margin-bottom:0; }
 
+.ptm-confirm-actions { display:flex; gap:8px; }
+.ptm-confirm-actions .ptm-series-btn { margin-bottom:0; }
+.ptm-confirm-actions .ptm-series-btn:focus-visible { outline:2px solid var(--amber); outline-offset:2px; }
+
 .ptm-detail-sheet { max-width:560px; }
 .ptm-bulk-help { font-size:12.5px; color:var(--ink-dim); line-height:1.6; background:var(--panel-2); border:1px solid var(--line); border-radius:9px; padding:10px 12px; margin-bottom:12px; }
 .ptm-bulk-help code { background:var(--panel); border:1px solid var(--line); border-radius:5px; padding:1px 5px; }
