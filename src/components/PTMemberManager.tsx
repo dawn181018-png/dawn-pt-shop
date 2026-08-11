@@ -227,6 +227,18 @@ export default function PTMemberManager() {
   const cancelHideHoverInfo = () => {
     if (hoverHideTimer.current) clearTimeout(hoverHideTimer.current);
   };
+  const [hasHoverPointer, setHasHoverPointer] = useState(() =>
+    typeof window === "undefined" || !window.matchMedia
+      ? true
+      : window.matchMedia("(hover: hover) and (pointer: fine)").matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(hover: hover) and (pointer: fine)");
+    const update = () => setHasHoverPointer(mq.matches);
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
   const [resForm, setResForm] = useState({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
 
   const [weekStart, setWeekStart] = useState(mondayOf(today()));
@@ -1155,8 +1167,10 @@ export default function PTMemberManager() {
                             onDragEnd={() => { setDragResId(null); setDragOverDate(null); setGridHover(null); }}
                             onClick={(e) => { e.stopPropagation(); setHoverInfo(null); setCtxMenu({ x: e.clientX, y: e.clientY, reservation: r }); }}
                             onMouseMove={(e) => e.stopPropagation()}
-                            onMouseEnter={(e) => { setGridHover(null); showHoverInfo(r, e.clientX, e.clientY); }}
-                            onMouseLeave={scheduleHideHoverInfo}>
+                            {...(hasHoverPointer ? {
+                              onMouseEnter: (e) => { setGridHover(null); showHoverInfo(r, e.clientX, e.clientY); },
+                              onMouseLeave: scheduleHideHoverInfo,
+                            } : {})}>
                             {r.totalSessions !== null && (
                               <span className="ptm-block-badge">{r.totalSessions}/{r.remainCount}</span>
                             )}
