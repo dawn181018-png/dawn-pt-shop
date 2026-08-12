@@ -125,6 +125,51 @@ const statusLabel = { scheduled: "예약됨", done: "완료", noshow: "노쇼", 
 const paymentMethodLabel = { card: "카드", cash: "현금", transfer: "계좌이체" };
 const urgencyRank = { critical: 0, warn: 1, ok: 2 };
 
+// 매출 계획(재등록 관리) 화면의 "주요 운동시간대" / "주당 평균 횟수" 계산용.
+// 자정~새벽(0-5시)은 밤 늦게 이어지는 활동으로 보고 "야간" 구간에 포함시킨다(hour+24 트릭).
+const TIME_SLOTS = [
+  { label: "아침 (6-9시)", start: 6, end: 9 },
+  { label: "오전 (9-12시)", start: 9, end: 12 },
+  { label: "오후 (12-17시)", start: 12, end: 17 },
+  { label: "저녁 (17-21시)", start: 17, end: 21 },
+  { label: "야간 (21시 이후)", start: 21, end: 30 },
+];
+const getTimeSlotLabel = (time) => {
+  const h = Number((time || "").split(":")[0]);
+  if (Number.isNaN(h)) return null;
+  const hour = h < 6 ? h + 24 : h;
+  return (TIME_SLOTS.find((s) => hour >= s.start && hour < s.end) || TIME_SLOTS[TIME_SLOTS.length - 1]).label;
+};
+// doneReservations: 이미 status === "done"으로 필터링된, 특정 고객의 예약 목록
+function computeAttendanceStats(doneReservations) {
+  if (!doneReservations || doneReservations.length === 0) {
+    return { timeSlotLabel: "-", weeklyAvgLabel: "-", recentVisits: [] };
+  }
+  const sorted = [...doneReservations].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+
+  const slotCounts = {};
+  sorted.forEach((r) => {
+    const label = getTimeSlotLabel(r.time);
+    if (label) slotCounts[label] = (slotCounts[label] || 0) + 1;
+  });
+  let timeSlotLabel = "-", maxCount = 0;
+  TIME_SLOTS.forEach((s) => {
+    const c = slotCounts[s.label] || 0;
+    if (c > maxCount) { maxCount = c; timeSlotLabel = s.label; }
+  });
+
+  // 기간: 최근 12주(84일). 다만 첫 완료 예약일이 그보다 최근이면(=등록 12주 미만) 첫 완료일부터 오늘까지로 좁힌다.
+  const firstDoneDate = sorted[0].date;
+  const windowStart = addDays(today(), -84);
+  const periodStart = firstDoneDate > windowStart ? firstDoneDate : windowStart;
+  const periodWeeks = Math.max(1, daysBetween(today(), periodStart) / 7);
+  const countInPeriod = sorted.filter((r) => r.date >= periodStart).length;
+  const weeklyAvgLabel = `주 ${(countInPeriod / periodWeeks).toFixed(1)}회`;
+
+  const recentVisits = sorted.slice(-5).reverse().map((r) => r.date);
+  return { timeSlotLabel, weeklyAvgLabel, recentVisits };
+}
+
 const HOUR_START = 6, HOUR_END = 23, HOUR_PX = 36;
 const timeTopPx = (time) => { const [h, m] = time.split(":").map(Number); return ((h - HOUR_START) * 60 + m) * (HOUR_PX / 60); };
 const durHeightPx = (duration) => Math.max(22, duration * (HOUR_PX / 60));
@@ -974,6 +1019,14 @@ export default function PTMemberManager() {
   // 등록된 고객 전체를 기본으로 보여준다 (별도로 "추가"할 필요 없음). 잔여세션을 보고
   // 그 자리에서 재등록 계획(예상세션/예상금액)을 세울 수 있고, 이번달 실제 등록금액은
   // 해당 월에 새로 등록된 상품 금액을 합산해 자동으로 계산한다.
+  const doneReservationsByCustomer = useMemo(() => {
+    const map = {};
+    reservations.forEach((r) => {
+      if (r.status === "done" && r.customerId) (map[r.customerId] || (map[r.customerId] = [])).push(r);
+    });
+    return map;
+  }, [reservations]);
+
   const forecastRows = useMemo(() => {
     return customers
       .filter((c) => !c.isDormant && products.some((p) => p.customerId === c.id))
@@ -990,14 +1043,16 @@ export default function PTMemberManager() {
         const expectedSessions = f ? f.expectedSessions : null;
         const expectedAmount = f ? Number(f.expectedAmount || 0) : 0;
         const gap = Math.max(0, expectedAmount - actual);
+        const { timeSlotLabel, weeklyAvgLabel, recentVisits } = computeAttendanceStats(doneReservationsByCustomer[c.id]);
         return {
           forecastId: f ? f.id : null, customerId: c.id, customerName: c.name, customerPhone: c.phone,
-          totalSummary, remainSummary, minRemain, expectedSessions, expectedAmount, note: f ? f.note : "",
+          totalSummary, remainSummary, minRemain, timeSlotLabel, weeklyAvgLabel, recentVisits,
+          expectedSessions, expectedAmount, note: f ? f.note : "",
           actual, gap, achieved: expectedAmount > 0 && actual >= expectedAmount,
         };
       })
       .sort((a, b) => (a.minRemain ?? 9999) - (b.minRemain ?? 9999));
-  }, [customers, products, renewalForecasts, forecastMonth]);
+  }, [customers, products, renewalForecasts, forecastMonth, doneReservationsByCustomer]);
 
   const filteredForecastRows = useMemo(() => {
     if (!forecastQuery.trim()) return forecastRows;
@@ -1428,12 +1483,18 @@ export default function PTMemberManager() {
               <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
             ) : (
               <table className="ptm-table ptm-table-compact">
-                <thead><tr><th>고객명</th><th>연락처</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
+                <thead><tr><th>고객명</th><th>연락처</th><th>주요 운동시간대</th><th>주당 평균 횟수</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
                 <tbody>
-                  {filteredForecastRows.map((r) => (
+                  {filteredForecastRows.map((r) => {
+                    const visitTitle = r.recentVisits.length
+                      ? `최근 방문: ${r.recentVisits.map((d) => koDate(d)).join(", ")}`
+                      : "완료 처리된 예약 기록이 없어요";
+                    return (
                     <tr key={r.customerId} className={r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
                       <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>{r.customerName}</td>
                       <td>{r.customerPhone || "-"}</td>
+                      <td title={visitTitle}>{r.timeSlotLabel}</td>
+                      <td title={visitTitle}>{r.weeklyAvgLabel}</td>
                       <td>{r.totalSummary}</td>
                       <td>{r.remainSummary}</td>
                       <td>{r.expectedSessions ?? "-"}</td>
@@ -1448,7 +1509,8 @@ export default function PTMemberManager() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             )}
