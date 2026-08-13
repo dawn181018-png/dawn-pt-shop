@@ -199,3 +199,9 @@ create policy "signatures_owner_update" on storage.objects for update to authent
 drop policy if exists "signatures_owner_delete" on storage.objects;
 create policy "signatures_owner_delete" on storage.objects for delete to authenticated
   using (bucket_id = 'signatures' and (storage.foldername(name))[1] = auth.uid()::text);
+
+-- ---------- 운동일지 (workout note) ----------
+-- 출석(완료) 서명 직전에 남기는 "오늘 운동 내용" 메모. 기존 테이블/데이터는 전혀 건드리지 않는다:
+-- nullable 컬럼 추가(no default)만 하므로 기존 행은 workout_note = NULL이 되고, 그 외에는 아무 영향이 없다.
+-- 재실행해도 안전하다(idempotent).
+alter table reservations add column if not exists workout_note text;

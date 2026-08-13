@@ -11,12 +11,13 @@ export default function SignatureModal({
 }: {
   title: string;
   onCancel: () => void;
-  onSubmit: (blob: Blob) => Promise<void>;
+  onSubmit: (blob: Blob, workoutNote: string) => Promise<void>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePad | null>(null);
   const [isEmpty, setIsEmpty] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [workoutNote, setWorkoutNote] = useState("");
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -54,7 +55,7 @@ export default function SignatureModal({
     try {
       const dataUrl = pad.toDataURL("image/png");
       const blob = await (await fetch(dataUrl)).blob();
-      await onSubmit(blob);
+      await onSubmit(blob, workoutNote.trim());
     } finally {
       setSaving(false);
     }
@@ -66,6 +67,16 @@ export default function SignatureModal({
         <div className="ptm-sheet-head">
           <span className="ptm-sheet-title">{title}</span>
           <button className="ptm-icon-btn" onClick={onCancel}><X size={16} /></button>
+        </div>
+        <div className="ptm-field">
+          <label>오늘 운동 내용 (선택)</label>
+          <textarea
+            rows={3}
+            value={workoutNote}
+            onChange={(e) => setWorkoutNote(e.target.value)}
+            placeholder="예: 하체, 등 / 또는 오늘 진행한 세부 운동 내용을 자세히 적어주세요"
+            disabled={saving}
+          />
         </div>
         <div className="ptm-signature-hint">아래 영역에 서명해주세요</div>
         <div className="ptm-signature-canvas-wrap">
