@@ -13,6 +13,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
+import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import "./ptm.css";
 
 function SignatureThumb({ path }) {
@@ -257,6 +258,7 @@ export default function PTMemberManager() {
 
   const [customerDetailId, setCustomerDetailId] = useState(null);
   const [customerDetailTab, setCustomerDetailTab] = useState("home");
+  const [expandedWorkoutNotes, setExpandedWorkoutNotes] = useState({});
 
   // ---- 공용 삭제 확인 다이얼로그 ----
   const [confirmState, setConfirmState] = useState(null); // { message, confirmLabel, onConfirm }
@@ -731,11 +733,11 @@ export default function PTMemberManager() {
   const requestCompleteReservation = (r) => setSignatureRes(r);
   // 서명 직후, 수기 PT 세션 카드를 대체하는 "몇 회 중 몇 회 사용" 요약을 한 번 보여준다.
   const [sessionCardResId, setSessionCardResId] = useState(null);
-  const submitSignatureAndComplete = async (blob) => {
+  const submitSignatureAndComplete = async (blob, workoutNote) => {
     if (!signatureRes) return;
     try {
       const path = await db.uploadSignature(signatureRes.id, blob);
-      await setReservationStatus(signatureRes.id, "done", { signatureUrl: path });
+      await setReservationStatus(signatureRes.id, "done", { signatureUrl: path, workoutNote: workoutNote || null });
       setSessionCardResId(signatureRes.id);
       setSignatureRes(null);
     } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
@@ -1836,6 +1838,7 @@ export default function PTMemberManager() {
                 <button className={`ptm-detail-tab ${customerDetailTab === "home" ? "active" : ""}`} onClick={() => setCustomerDetailTab("home")}>홈</button>
                 <button className={`ptm-detail-tab ${customerDetailTab === "products" ? "active" : ""}`} onClick={() => setCustomerDetailTab("products")}>이용권</button>
                 <button className={`ptm-detail-tab ${customerDetailTab === "sales" ? "active" : ""}`} onClick={() => setCustomerDetailTab("sales")}>판매내역</button>
+                <button className={`ptm-detail-tab ${customerDetailTab === "workoutLog" ? "active" : ""}`} onClick={() => setCustomerDetailTab("workoutLog")}>운동일지</button>
               </div>
 
               {customerDetailTab === "home" && (
@@ -1980,6 +1983,49 @@ export default function PTMemberManager() {
                       )}
                     </div>
                   </>
+                );
+              })()}
+
+              {customerDetailTab === "workoutLog" && (() => {
+                const logs = getCustomerWorkoutLogs(allReservations, cust.id);
+                const NOTE_PREVIEW_LEN = 80;
+                return (
+                  <div className="ptm-prod-list" style={{ marginTop: 0 }}>
+                    {logs.length === 0 ? (
+                      <div className="ptm-no-product-msg">기록된 운동 내용이 없어요</div>
+                    ) : (
+                      logs.map((log) => {
+                        const tags = matchBodyPartTags(log.note);
+                        const isLong = log.note.length > NOTE_PREVIEW_LEN;
+                        const expanded = !!expandedWorkoutNotes[log.reservationId];
+                        const shownNote = isLong && !expanded ? `${log.note.slice(0, NOTE_PREVIEW_LEN)}…` : log.note;
+                        return (
+                          <div className="ptm-prod-row" key={log.reservationId}>
+                            <div className="ptm-prod-top">
+                              <span className="ptm-prod-name">{koDate(log.date)} {log.time}</span>
+                              {tags.length > 0 && (
+                                <div className="ptm-actions">
+                                  {tags.map((tag) => (
+                                    <span className="ptm-badge" key={tag}>{tag}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="ptm-res-memo" style={{ whiteSpace: "pre-wrap" }}>{shownNote}</div>
+                            {isLong && (
+                              <button
+                                className="ptm-icon-btn"
+                                style={{ width: "auto", padding: "2px 0", fontSize: 12, color: "var(--ink-dim)" }}
+                                onClick={() => setExpandedWorkoutNotes((prev) => ({ ...prev, [log.reservationId]: !expanded }))}
+                              >
+                                {expanded ? "접기" : "더보기"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 );
               })()}
             </div>

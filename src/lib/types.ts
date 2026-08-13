@@ -44,6 +44,7 @@ export interface Reservation {
   status: ReservationStatus;
   type: ReservationType;
   signatureUrl?: string | null; // Storage 내 서명 이미지 경로 (signed URL이 아니라 경로를 저장)
+  workoutNote?: string | null; // 출석 서명 직전에 남긴 "오늘 운동 내용" 메모
 }
 
 export interface CatalogItem {
