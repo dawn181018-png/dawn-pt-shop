@@ -205,3 +205,33 @@ create policy "signatures_owner_delete" on storage.objects for delete to authent
 -- nullable 컬럼 추가(no default)만 하므로 기존 행은 workout_note = NULL이 되고, 그 외에는 아무 영향이 없다.
 -- 재실행해도 안전하다(idempotent).
 alter table reservations add column if not exists workout_note text;
+
+-- ---------- customers.gender (상품판매 화면의 신규 고객 등록 폼용) ----------
+-- nullable 컬럼 추가만 하므로 기존 행은 gender = NULL이 되고 그 외에는 아무 영향이 없다. 재실행해도 안전하다(idempotent).
+alter table customers add column if not exists gender text check (gender in ('male', 'female'));
+
+-- ---------- 상품판매 계약서 서명 (contract_signatures) ----------
+-- "상품판매" 화면에서 PT 상품을 신규/재등록 판매하며 함께 받는 계약서 서명 1건당 1행.
+-- 새 테이블만 추가하며 기존 테이블(customers/products/reservations)은 전혀 건드리지 않는다.
+create table if not exists contract_signatures (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  customer_id uuid not null references customers(id) on delete cascade,
+  product_id uuid references products(id) on delete set null,
+  is_new_customer boolean not null default false,
+  signature_url text not null,
+  contract_version text not null default 'v1',
+  signed_at timestamptz not null default now(),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_contract_signatures_owner on contract_signatures(owner_id);
+create index if not exists idx_contract_signatures_customer on contract_signatures(customer_id);
+create index if not exists idx_contract_signatures_product on contract_signatures(product_id);
+
+alter table contract_signatures enable row level security;
+
+create policy "contract_signatures_owner_all" on contract_signatures
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+
+grant select, insert, update, delete on public.contract_signatures to authenticated;

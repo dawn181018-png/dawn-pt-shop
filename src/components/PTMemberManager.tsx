@@ -8,11 +8,12 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp, Target,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
+import ProductSaleWizard from "./ProductSaleWizard";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import "./ptm.css";
 
@@ -1159,6 +1160,7 @@ export default function PTMemberManager() {
         <button className={`ptm-tab ${view === "accounting" ? "active" : ""}`} onClick={() => setView("accounting")}><Receipt size={15} /> 회계관리</button>
         <button className={`ptm-tab ${view === "forecast" ? "active" : ""}`} onClick={() => setView("forecast")}><Target size={15} /> 매출 계획</button>
         <button className={`ptm-tab ${view === "stats" ? "active" : ""}`} onClick={() => setView("stats")}><TrendingUp size={15} /> 통계분석</button>
+        <button className={`ptm-tab ${view === "sale" ? "active" : ""}`} onClick={() => setView("sale")}><ShoppingBag size={15} /> 상품판매</button>
         <button className={`ptm-tab ${view === "payroll" ? "active" : ""}`} onClick={() => setView("payroll")}><Wallet size={15} /> 페이롤</button>
       </div>
 
@@ -1744,6 +1746,18 @@ export default function PTMemberManager() {
             </table>
           </div>
         </>
+      )}
+
+      {view === "sale" && (
+        <ProductSaleWizard
+          customers={customers}
+          catalog={catalog}
+          onSaleComplete={(customer, product) => {
+            setCustomers((cur) => (cur.some((c) => c.id === customer.id) ? cur.map((c) => (c.id === customer.id ? customer : c)) : [...cur, customer]));
+            setProducts((cur) => [...cur, product]);
+          }}
+          flash={flash}
+        />
       )}
 
       {view === "payroll" && (

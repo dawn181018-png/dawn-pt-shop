@@ -1,3 +1,5 @@
+export type Gender = "male" | "female";
+
 export interface Customer {
   id: string;
   name: string;
@@ -5,6 +7,7 @@ export interface Customer {
   birthdate?: string;
   email?: string;
   memo?: string;
+  gender?: Gender | null;
   isDormant?: boolean;
   createdAt?: number;
 }
@@ -75,5 +78,17 @@ export interface RenewalForecast {
   status: ForecastStatus;
   actualAmount?: number;
   actualProductId?: string | null;
+  createdAt?: number;
+}
+
+// "상품판매" 화면에서 PT 상품을 신규/재등록 판매하며 함께 받는 계약서 서명 기록.
+export interface ContractSignature {
+  id: string;
+  customerId: string;
+  productId?: string | null;
+  isNewCustomer: boolean;
+  signatureUrl: string; // Storage 내 서명 이미지 경로 (signed URL이 아니라 경로를 저장)
+  contractVersion: string;
+  signedAt: string;
   createdAt?: number;
 }
