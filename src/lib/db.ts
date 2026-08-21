@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -21,6 +21,9 @@ function mapSettings(row: Record<string, unknown>): PayrollSettings {
 }
 function mapForecast(row: Record<string, unknown>): RenewalForecast {
   return withEpochCreatedAt(toCamel<RenewalForecast>(row));
+}
+function mapContractSignature(row: Record<string, unknown>): ContractSignature {
+  return withEpochCreatedAt(toCamel<ContractSignature>(row));
 }
 
 function must<T>(data: T | null, error: { message: string } | null): T {
@@ -198,4 +201,25 @@ export async function updateRenewalForecast(id: string, data: Partial<RenewalFor
 export async function deleteRenewalForecast(id: string): Promise<void> {
   const { error } = await supabase.from("renewal_forecasts").delete().eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// ---------- contract_signatures (상품판매 계약서 서명) ----------
+// 서명 이미지는 출석 서명과 같은 'signatures' 버킷의 contracts/ 하위 경로에 저장하고,
+// signed_url 발급은 기존 getSignatureUrl을 그대로 재사용한다(경로만 다를 뿐 버킷/정책은 동일).
+export async function uploadContractSignature(customerId: string, blob: Blob): Promise<string> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("로그인이 필요합니다");
+  const path = `${user.id}/contracts/${customerId}-${Date.now()}.png`;
+  const { error } = await supabase.storage.from("signatures").upload(path, blob, {
+    contentType: "image/png",
+    upsert: true,
+  });
+  if (error) throw new Error(error.message);
+  return path;
+}
+export async function insertContractSignature(data: Partial<ContractSignature>): Promise<ContractSignature> {
+  const { data: row, error } = await supabase.from("contract_signatures").insert(toSnake(data)).select().single();
+  return mapContractSignature(must(row, error));
 }
