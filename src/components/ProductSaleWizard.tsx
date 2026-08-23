@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, Check, ChevronLeft } from "lucide-react";
 import SignaturePad from "signature_pad";
 import * as db from "@/lib/db";
+import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 
 const toLocalDateStr = (d) => {
   const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
@@ -16,6 +17,7 @@ const toLocalDateStr = (d) => {
 };
 const today = () => toLocalDateStr(new Date());
 const addMonths = (dateStr, n) => { const d = new Date(dateStr); d.setMonth(d.getMonth() + Number(n)); return toLocalDateStr(d); };
+const addDays = (dateStr, n) => { const d = new Date(dateStr); d.setDate(d.getDate() + Number(n)); return toLocalDateStr(d); };
 const fmtNum = (n) => { const num = Number(n); return isNaN(num) ? "" : num.toLocaleString("ko-KR"); };
 const parseNum = (str) => { const digits = String(str).replace(/[^0-9]/g, ""); return digits === "" ? 0 : Number(digits); };
 const formatPhone = (v) => {
@@ -102,11 +104,13 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
     setCatalogPick(id);
     const item = catalog.find((c) => c.id === id);
     if (!item) return;
+    const type = categoryToProductType(item.category);
     setProductForm({
       ...productForm,
-      name: item.name, type: "session",
+      name: item.name, type,
       totalSessions: item.sessions, usedSessions: 0,
-      startDate: today(), endDate: addMonths(today(), item.months),
+      startDate: today(),
+      endDate: type === "period" && item.periodUnit === "day" ? addDays(today(), item.months) : addMonths(today(), item.months),
       sessionDuration: item.sessionDuration || 50,
       listPrice: item.price, price: item.price, paidAmount: item.price,
     });
@@ -279,7 +283,7 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
               <select value={catalogPick} onChange={(e) => applyCatalogItem(e.target.value)}>
                 <option value="">직접 입력</option>
                 {catalog.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} ({c.sessions}회 · {c.months}개월 · {c.sessionDuration || 50}분 · {Number(c.price || 0).toLocaleString()}원)</option>
+                  <option key={c.id} value={c.id}>{c.name} ({formatCatalogSummary(c)})</option>
                 ))}
               </select>
             </div>

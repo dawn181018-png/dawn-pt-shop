@@ -15,6 +15,7 @@ import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
 import ProductSaleWizard from "./ProductSaleWizard";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
+import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import "./ptm.css";
 
 function SignatureThumb({ path }) {
@@ -42,7 +43,7 @@ const emptyProduct = {
   sessionDuration: 50, listPrice: 0, price: 0, paidAmount: 0, paymentMethod: "card",
   createdAt: toLocalDateStr(new Date()),
 };
-const emptyCatalogItem = { name: "", sessions: 10, months: 1, price: 0, sessionDuration: 50 };
+const emptyCatalogItem = { name: "", category: "daily_pt", sessions: 10, months: 1, periodUnit: "month", price: 0, sessionDuration: 50 };
 const defaultSettings = { baseSalary: 300000, commissionRate: 10, deductionRate: 3.3 };
 
 const today = () => toLocalDateStr(new Date());
@@ -317,6 +318,7 @@ export default function PTMemberManager() {
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [editingCatalogId, setEditingCatalogId] = useState(null);
   const [catalogForm, setCatalogForm] = useState(emptyCatalogItem);
+  const [catalogCategoryTab, setCatalogCategoryTab] = useState("all");
   const [productCatalogPick, setProductCatalogPick] = useState("");
 
   const [acctPeriod, setAcctPeriod] = useState("day"); // day | week | month
@@ -1344,8 +1346,15 @@ export default function PTMemberManager() {
       {view === "catalog" && (
         <>
           <div className="ptm-week-toolbar">
-            <div className="ptm-week-range">PT 이용권 목록</div>
+            <div className="ptm-week-range">이용권 목록</div>
             <button className="ptm-quick-add" onClick={openNewCatalog}><Plus size={16} /> 이용권 만들기</button>
+          </div>
+
+          <div className="ptm-tabs" style={{ marginBottom: 14 }}>
+            <button className={`ptm-tab ${catalogCategoryTab === "all" ? "active" : ""}`} onClick={() => setCatalogCategoryTab("all")}>전체</button>
+            {CATALOG_CATEGORIES.map((cat) => (
+              <button key={cat} className={`ptm-tab ${catalogCategoryTab === cat ? "active" : ""}`} onClick={() => setCatalogCategoryTab(cat)}>{CATEGORY_LABELS[cat]}</button>
+            ))}
           </div>
 
           {catalog.length === 0 ? (
@@ -1355,12 +1364,15 @@ export default function PTMemberManager() {
             </div>
           ) : (
             <div className="ptm-list">
-              {[...catalog].sort((a, b) => a.sessions - b.sessions || a.months - b.months).map((item) => (
+              {[...catalog]
+                .filter((item) => catalogCategoryTab === "all" || item.category === catalogCategoryTab)
+                .sort((a, b) => a.sessions - b.sessions || a.months - b.months)
+                .map((item) => (
                 <div className="ptm-card" key={item.id}>
                   <div className="ptm-card-top" style={{ cursor: "default" }}>
                     <div>
-                      <div className="ptm-name-row"><span className="ptm-name">{item.name}</span></div>
-                      <div className="ptm-prod-count">{item.sessions}회 · {item.months}개월 · {item.sessionDuration || 50}분 · {Number(item.price || 0).toLocaleString()}원</div>
+                      <div className="ptm-name-row"><span className="ptm-name">{item.name}</span><span className="ptm-badge">{CATEGORY_LABELS[item.category] || CATEGORY_LABELS.daily_pt}</span></div>
+                      <div className="ptm-prod-count">{formatCatalogSummary(item)}</div>
                     </div>
                     <div className="ptm-actions">
                       <button className="ptm-icon-btn" onClick={() => openEditCatalog(item)}><Pencil size={14} /></button>
@@ -2119,11 +2131,13 @@ export default function PTMemberManager() {
                     setProductCatalogPick(id);
                     const item = catalog.find((c) => c.id === id);
                     if (item) {
+                      const type = categoryToProductType(item.category);
                       setProductForm({
                         ...productForm,
-                        name: item.name, type: "session",
+                        name: item.name, type,
                         totalSessions: item.sessions, usedSessions: 0,
-                        startDate: today(), endDate: addMonths(today(), item.months),
+                        startDate: today(),
+                        endDate: type === "period" && item.periodUnit === "day" ? addDays(today(), item.months) : addMonths(today(), item.months),
                         sessionDuration: item.sessionDuration || 50,
                         listPrice: item.price, price: item.price, paidAmount: item.price,
                       });
@@ -2132,7 +2146,7 @@ export default function PTMemberManager() {
                 >
                   <option value="">직접 입력</option>
                   {catalog.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name} ({c.sessions}회 · {c.months}개월 · {c.sessionDuration || 50}분 · {Number(c.price || 0).toLocaleString()}원)</option>
+                    <option key={c.id} value={c.id}>{c.name} ({formatCatalogSummary(c)})</option>
                   ))}
                 </select>
               </div>
@@ -2432,23 +2446,49 @@ export default function PTMemberManager() {
               <span className="ptm-sheet-title">{editingCatalogId ? "이용권 수정" : "새 이용권 만들기"}</span>
               <button className="ptm-icon-btn" onClick={() => setShowCatalogForm(false)}><X size={16} /></button>
             </div>
+            <div className="ptm-field"><label>카테고리</label>
+              <select value={catalogForm.category} onChange={(e) => setCatalogForm({ ...catalogForm, category: e.target.value })}>
+                {CATALOG_CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
+                ))}
+              </select>
+            </div>
             <div className="ptm-field"><label>이용권 이름</label>
               <input value={catalogForm.name} onChange={(e) => setCatalogForm({ ...catalogForm, name: e.target.value })} placeholder="예: PT 10회 1개월" />
             </div>
-            <div className="ptm-row3">
-              <div className="ptm-field"><label>횟수</label>
-                <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessions} onChange={(e) => setCatalogForm({ ...catalogForm, sessions: Number(e.target.value) })} />
+            {isCountBased(catalogForm.category) ? (
+              <div className="ptm-row3">
+                <div className="ptm-field"><label>횟수</label>
+                  <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessions} onChange={(e) => setCatalogForm({ ...catalogForm, sessions: Number(e.target.value) })} />
+                </div>
+                <div className="ptm-field"><label>기간(개월)</label>
+                  <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.months} onChange={(e) => setCatalogForm({ ...catalogForm, months: Number(e.target.value) })} />
+                </div>
+                <div className="ptm-field"><label>규정 가격(원)</label>
+                  <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(catalogForm.price)} onChange={(e) => setCatalogForm({ ...catalogForm, price: parseNum(e.target.value) })} />
+                </div>
               </div>
-              <div className="ptm-field"><label>기간(개월)</label>
-                <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.months} onChange={(e) => setCatalogForm({ ...catalogForm, months: Number(e.target.value) })} />
+            ) : (
+              <div className="ptm-row3">
+                <div className="ptm-field"><label>기간</label>
+                  <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.months} onChange={(e) => setCatalogForm({ ...catalogForm, months: Number(e.target.value) })} />
+                </div>
+                <div className="ptm-field"><label>단위</label>
+                  <div className="ptm-type-toggle">
+                    <button className={`ptm-type-btn ${catalogForm.periodUnit === "month" ? "active" : ""}`} onClick={() => setCatalogForm({ ...catalogForm, periodUnit: "month" })}>개월</button>
+                    <button className={`ptm-type-btn ${catalogForm.periodUnit === "day" ? "active" : ""}`} onClick={() => setCatalogForm({ ...catalogForm, periodUnit: "day" })}>일</button>
+                  </div>
+                </div>
+                <div className="ptm-field"><label>규정 가격(원)</label>
+                  <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(catalogForm.price)} onChange={(e) => setCatalogForm({ ...catalogForm, price: parseNum(e.target.value) })} />
+                </div>
               </div>
-              <div className="ptm-field"><label>규정 가격(원)</label>
-                <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(catalogForm.price)} onChange={(e) => setCatalogForm({ ...catalogForm, price: parseNum(e.target.value) })} />
+            )}
+            {isCountBased(catalogForm.category) && (
+              <div className="ptm-field"><label>1회 세션 시간(분)</label>
+                <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessionDuration} onChange={(e) => setCatalogForm({ ...catalogForm, sessionDuration: Number(e.target.value) })} placeholder="예: 50, 90, 100" />
               </div>
-            </div>
-            <div className="ptm-field"><label>1회 세션 시간(분)</label>
-              <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessionDuration} onChange={(e) => setCatalogForm({ ...catalogForm, sessionDuration: Number(e.target.value) })} placeholder="예: 50, 90, 100" />
-            </div>
+            )}
             <button className="ptm-save-btn" onClick={saveCatalogItem}>{editingCatalogId ? "수정 완료" : "이용권 등록"}</button>
           </div>
         </div>

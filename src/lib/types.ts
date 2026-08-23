@@ -50,11 +50,17 @@ export interface Reservation {
   workoutNote?: string | null; // 출석 서명 직전에 남긴 "오늘 운동 내용" 메모
 }
 
+export type CatalogCategory = "daily_pt" | "premium" | "membership" | "locker";
+export type PeriodUnit = "month" | "day";
+
 export interface CatalogItem {
   id: string;
   name: string;
+  category: CatalogCategory;
   sessions: number;
   months: number;
+  periodUnit: PeriodUnit;
+  sessionDuration?: number;
   price: number;
   createdAt?: number;
 }

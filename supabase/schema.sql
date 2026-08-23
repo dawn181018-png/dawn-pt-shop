@@ -235,3 +235,15 @@ create policy "contract_signatures_owner_all" on contract_signatures
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
 grant select, insert, update, delete on public.contract_signatures to authenticated;
+
+-- ---------- catalog_items 카테고리 (이용권 관리 화면 카테고리 탭용) ----------
+-- 기존 테이블/데이터는 전혀 건드리지 않는다: not null default 컬럼 추가라 기존 행도 즉시
+-- 'daily_pt' / 'month'로 백필되고, 그 외에는 아무 영향이 없다. 재실행해도 안전하다(idempotent).
+alter table catalog_items add column if not exists category text not null default 'daily_pt'
+  check (category in ('daily_pt', 'premium', 'membership', 'locker'));
+alter table catalog_items add column if not exists period_unit text not null default 'month'
+  check (period_unit in ('month', 'day'));
+
+-- 데이터 마이그레이션: 기존 "PT n회" 이용권은 위 컬럼 추가 시 이미 기본값 'daily_pt'로 채워지므로
+-- 그대로 두고, "Premium Conditioning" 이용권만 'premium'으로 재분류한다.
+update catalog_items set category = 'premium' where name ilike 'premium%' and category = 'daily_pt';
