@@ -832,19 +832,22 @@ export default function PTMemberManager() {
 
   // ---- 드롭다운으로 예약 시간 정확히 수정 ----
   const [timeEditRes, setTimeEditRes] = useState(null);
-  const [timeEditForm, setTimeEditForm] = useState({ date: "", hour: "09", minute: "00", duration: 50 });
+  const [timeEditForm, setTimeEditForm] = useState({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
   const openTimeEdit = (r) => {
     const [h, m] = r.time.split(":");
     setTimeEditRes(r);
-    setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50 });
+    setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50, title: r.type === "misc" ? (r.memo || "") : "" });
   };
   const saveTimeEdit = async () => {
     if (!timeEditRes) return;
     try {
+      const isMisc = timeEditRes.type === "misc";
+      if (isMisc && !timeEditForm.title.trim()) { flash("제목을 입력해주세요"); return; }
       const updated = await db.updateReservation(timeEditRes.id, {
         date: timeEditForm.date,
         time: `${timeEditForm.hour}:${timeEditForm.minute}`,
         duration: Number(timeEditForm.duration) || 50,
+        ...(isMisc ? { memo: timeEditForm.title.trim() } : {}),
       });
       setReservations((prev) => prev.map((r) => (r.id === timeEditRes.id ? updated : r)));
       flash("예약 일정이 변경됨");
@@ -2580,7 +2583,7 @@ export default function PTMemberManager() {
                 <>
                   <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
                   <div className="ptm-ctx-divider" />
-                  <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>날짜·시간 수정</button>
+                  <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>제목·날짜·시간 수정</button>
                   <div className="ptm-ctx-divider" />
                   <button className="ptm-ctx-item danger" onClick={() => { requestDeleteReservation(r); setCtxMenu(null); }}>일정 삭제</button>
                 </>
@@ -2672,10 +2675,16 @@ export default function PTMemberManager() {
         <div className="ptm-overlay" onClick={() => setTimeEditRes(null)}>
           <div className="ptm-sheet" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="ptm-sheet-head">
-              <span className="ptm-sheet-title">날짜·시간 수정</span>
+              <span className="ptm-sheet-title">{timeEditRes.type === "misc" ? "기타 일정 수정" : "날짜·시간 수정"}</span>
               <button className="ptm-icon-btn" onClick={() => setTimeEditRes(null)}><X size={16} /></button>
             </div>
-            <div className="ptm-no-product-msg" style={{ marginTop: -6 }}>{timeEditRes.customerName} · {timeEditRes.productName}</div>
+            {timeEditRes.type === "misc" ? (
+              <div className="ptm-field"><label>제목</label>
+                <input value={timeEditForm.title} onChange={(e) => setTimeEditForm({ ...timeEditForm, title: e.target.value })} placeholder="예: 팀 미팅, 외부 일정" autoFocus />
+              </div>
+            ) : (
+              <div className="ptm-no-product-msg" style={{ marginTop: -6 }}>{timeEditRes.customerName} · {timeEditRes.productName}</div>
+            )}
             <div className="ptm-field"><label>날짜</label>
               <input type="date" value={timeEditForm.date} onChange={(e) => setTimeEditForm({ ...timeEditForm, date: e.target.value })} />
             </div>
