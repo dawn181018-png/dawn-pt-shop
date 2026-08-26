@@ -247,3 +247,35 @@ alter table catalog_items add column if not exists period_unit text not null def
 -- 데이터 마이그레이션: 기존 "PT n회" 이용권은 위 컬럼 추가 시 이미 기본값 'daily_pt'로 채워지므로
 -- 그대로 두고, "Premium Conditioning" 이용권만 'premium'으로 재분류한다.
 update catalog_items set category = 'premium' where name ilike 'premium%' and category = 'daily_pt';
+
+-- ---------- 회원용 마이페이지 (customers <-> auth.users 연결) ----------
+-- 회원이 매직링크(OTP)로 로그인했을 때, 어떤 auth 계정이 어떤 customers 행 본인인지 연결하는 컬럼.
+-- nullable 컬럼 추가(no default)만 하므로 기존 행은 auth_user_id = NULL이 되고, 그 외에는 아무 영향이
+-- 없다. 재실행해도 안전하다(idempotent). 트레이너 계정은 이 컬럼과 무관하다(항상 NULL).
+alter table customers add column if not exists auth_user_id uuid references auth.users(id);
+
+-- 한 auth 계정이 여러 customers 행에 동시에 연결되는 것을 방지 (NULL은 여러 개 허용되므로 기존 행엔 영향 없음).
+create unique index if not exists idx_customers_auth_user_id on customers(auth_user_id) where auth_user_id is not null;
+
+-- 회원 본인 데이터 조회용 RLS: 기존 "owner_id = auth.uid()" 정책(트레이너용)은 그대로 두고,
+-- customers.auth_user_id로 본인이 연결된 회원 계정에 한해 SELECT만 추가로 허용한다.
+-- 같은 테이블에 여러 permissive 정책이 있으면 OR로 결합되므로 트레이너용 정책과 서로 간섭하지 않고,
+-- insert/update/delete는 이 정책들에 없으므로 회원 계정은 읽기만 가능하다.
+drop policy if exists "customers_member_select_own" on customers;
+create policy "customers_member_select_own" on customers
+  for select to authenticated
+  using (auth_user_id = auth.uid());
+
+drop policy if exists "products_member_select_own" on products;
+create policy "products_member_select_own" on products
+  for select to authenticated
+  using (exists (
+    select 1 from customers c where c.id = products.customer_id and c.auth_user_id = auth.uid()
+  ));
+
+drop policy if exists "reservations_member_select_own" on reservations;
+create policy "reservations_member_select_own" on reservations
+  for select to authenticated
+  using (exists (
+    select 1 from customers c where c.id = reservations.customer_id and c.auth_user_id = auth.uid()
+  ));
