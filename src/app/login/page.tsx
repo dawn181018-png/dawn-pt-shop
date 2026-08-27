@@ -42,7 +42,7 @@ export default async function LoginPage({
           required
           placeholder="you@example.com"
           style={{
-            width: "100%", background: "#f3f5fa", border: "1px solid #dde3ee",
+            width: "100%", background: "#f3f5fa", border: "1px solid #dde3ee", color: "#1f2937",
             borderRadius: 8, padding: "9px 10px", fontSize: 14, marginBottom: 12,
           }}
         />
