@@ -22,7 +22,8 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
 
     if (lookupError) {
       console.error("[mypage-login] customers 조회 실패:", lookupError.message);
-      return { ok: false, error: "확인 중 오류가 발생했어요. 잠시 후 다시 시도해주세요" };
+      // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
+      return { ok: false, error: `[진단용] customers 조회 실패: ${lookupError.message}` };
     }
     if (!matched) return { ok: false, error: "등록된 회원 정보가 없습니다" };
 
@@ -40,6 +41,7 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[mypage-login] 예상치 못한 오류:", message);
-    return { ok: false, error: "서버 설정 오류로 로그인 링크를 보내지 못했어요. 잠시 후 다시 시도해주세요" };
+    // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
+    return { ok: false, error: `[진단용] 예상치 못한 오류: ${message}` };
   }
 }
