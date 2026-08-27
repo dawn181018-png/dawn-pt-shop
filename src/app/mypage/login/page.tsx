@@ -13,15 +13,20 @@ export default function MypageLoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    const fd = new FormData();
-    fd.set("email", email);
-    const result = await requestMypageLink(fd);
-    setLoading(false);
-    if (!result.ok) {
-      setError(result.error);
-      return;
+    try {
+      const fd = new FormData();
+      fd.set("email", email);
+      const result = await requestMypageLink(fd);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      setSent(true);
+    } catch {
+      setError("네트워크 오류가 발생했어요. 다시 시도해주세요");
+    } finally {
+      setLoading(false);
     }
-    setSent(true);
   };
 
   return (
@@ -65,7 +70,7 @@ export default function MypageLoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               style={{
-                width: "100%", background: "#f3f5fa", border: "1px solid #dde3ee",
+                width: "100%", background: "#f3f5fa", border: "1px solid #dde3ee", color: "#1f2937",
                 borderRadius: 8, padding: "9px 10px", fontSize: 14, marginBottom: 12,
               }}
             />
