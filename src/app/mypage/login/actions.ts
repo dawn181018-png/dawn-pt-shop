@@ -39,12 +39,18 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
       },
     });
 
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      console.error("[mypage-login] signInWithOtp 실패:", error.name, error.status, error.message);
+      const detail = error.message || error.name || `status ${error.status}` || "unknown";
+      // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
+      return { ok: false, error: `[진단용] ${detail}` };
+    }
     return { ok: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[mypage-login] 예상치 못한 오류:", message);
-    return { ok: false, error: "서버 설정 오류로 로그인 링크를 보내지 못했어요. 잠시 후 다시 시도해주세요" };
+    const message = err instanceof Error ? err.message : JSON.stringify(err, Object.getOwnPropertyNames(err ?? {}));
+    console.error("[mypage-login] 예상치 못한 오류:", err);
+    // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
+    return { ok: false, error: `[진단용] 예상치 못한 오류: ${message}` };
   }
 }
 
