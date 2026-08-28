@@ -279,3 +279,17 @@ create policy "reservations_member_select_own" on reservations
   using (exists (
     select 1 from customers c where c.id = reservations.customer_id and c.auth_user_id = auth.uid()
   ));
+
+-- ---------- service_role(관리자 클라이언트, createAdminClient) 테이블 권한 ----------
+-- service_role은 RLS는 우회하지만, 테이블 단위 권한(GRANT)은 RLS와 별개라 이것도 명시적으로
+-- 필요하다. authenticated에게 준 것과 동일한 권한을 service_role에도 부여한다. 이미 있어도
+-- GRANT는 재실행해도 안전하다(에러 없이 그대로 재적용됨).
+grant usage on schema public to service_role;
+grant select, insert, update, delete on public.customers to service_role;
+grant select, insert, update, delete on public.catalog_items to service_role;
+grant select, insert, update, delete on public.products to service_role;
+grant select, insert, update, delete on public.reservations to service_role;
+grant select, insert, update, delete on public.payroll_settings to service_role;
+grant select, insert, update, delete on public.renewal_forecasts to service_role;
+grant select, insert, update, delete on public.contract_signatures to service_role;
+grant execute on function adjust_used_sessions(uuid, int) to service_role;
