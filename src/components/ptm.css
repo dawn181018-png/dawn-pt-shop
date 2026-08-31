@@ -88,6 +88,9 @@
 .ptm-add.ghost { background:var(--panel); color:var(--amber); border:1px solid var(--amber); }
 
 .ptm-list { display:flex; flex-direction:column; gap:10px; }
+.ptm-catalog-group { display:flex; flex-direction:column; gap:10px; }
+.ptm-catalog-group + .ptm-catalog-group { margin-top:14px; }
+.ptm-catalog-group .ptm-detail-section-title { margin-bottom:2px; padding-bottom:6px; border-bottom:1px solid var(--line); }
 .ptm-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
 .ptm-card-top { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; cursor:pointer; }
 .ptm-name-row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }

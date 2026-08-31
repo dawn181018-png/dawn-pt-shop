@@ -1414,10 +1414,40 @@ export default function PTMemberManager() {
               <div className="ptm-empty-title">등록된 이용권이 없어요</div>
               <div>자주 판매하는 PT 커리큘럼을 미리 등록해두면 고객 상품 등록할 때 바로 불러올 수 있어요</div>
             </div>
+          ) : catalogCategoryTab === "all" ? (
+            // "전체" 탭에서는 카테고리별로 섹션을 나눠서 보여줘, 데일리PT/프리미엄/회원권/사물함이
+            // 한 목록에 뒤섞이지 않고 한눈에 구분되도록 한다.
+            <div className="ptm-list">
+              {CATALOG_CATEGORIES.map((cat) => {
+                const items = [...catalog]
+                  .filter((item) => item.category === cat)
+                  .sort((a, b) => a.sessions - b.sessions || a.months - b.months);
+                if (items.length === 0) return null;
+                return (
+                  <div key={cat} className="ptm-catalog-group">
+                    <div className="ptm-detail-section-title">{CATEGORY_LABELS[cat]}</div>
+                    {items.map((item) => (
+                      <div className="ptm-card" key={item.id}>
+                        <div className="ptm-card-top" style={{ cursor: "default" }}>
+                          <div>
+                            <div className="ptm-name-row"><span className="ptm-name">{item.name}</span></div>
+                            <div className="ptm-prod-count">{formatCatalogSummary(item)}</div>
+                          </div>
+                          <div className="ptm-actions">
+                            <button className="ptm-icon-btn" onClick={() => openEditCatalog(item)}><Pencil size={14} /></button>
+                            <button className="ptm-icon-btn" onClick={() => removeCatalogItem(item.id)}><Trash2 size={14} /></button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className="ptm-list">
               {[...catalog]
-                .filter((item) => catalogCategoryTab === "all" || item.category === catalogCategoryTab)
+                .filter((item) => item.category === catalogCategoryTab)
                 .sort((a, b) => a.sessions - b.sessions || a.months - b.months)
                 .map((item) => (
                 <div className="ptm-card" key={item.id}>
