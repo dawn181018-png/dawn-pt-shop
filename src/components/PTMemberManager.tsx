@@ -1878,7 +1878,7 @@ export default function PTMemberManager() {
                         <div className="ptm-prod-top">
                           <div>
                             <span className="ptm-prod-name">{f.targetMonth.slice(0, 4)}년 {Number(f.targetMonth.slice(5, 7))}월</span>{" "}
-                            <span className={`ptm-res-badge ${f.status === "done" ? "done" : f.status === "missed" ? "cancelled" : ""}`}>{f.status === "pending" ? "대기" : f.status === "done" ? "완료" : "무산"}</span>
+                            <span className="ptm-res-badge">대기</span>
                           </div>
                           <div className="ptm-actions">
                             <button className="ptm-icon-btn" onClick={() => openEditForecast(f)}><Pencil size={14} /></button>
@@ -1888,7 +1888,6 @@ export default function PTMemberManager() {
                         <div className="ptm-prod-bottom">
                           <div className="ptm-price">
                             예상 {Number(f.expectedAmount || 0).toLocaleString()}원{f.expectedSessions ? ` · ${f.expectedSessions}회` : ""}
-                            {f.status === "done" && ` · 실제 ${Number(f.actualAmount || 0).toLocaleString()}원`}
                           </div>
                         </div>
                         {f.note && <div className="ptm-res-memo">{f.note}</div>}
