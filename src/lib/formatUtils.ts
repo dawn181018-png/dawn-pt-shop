@@ -42,4 +42,4 @@ export const formatPhone = (v: unknown): string => {
 };
 
 // date 타입 컬럼에 빈 문자열("")을 그대로 보내면 Postgres가 거부하므로 null로 치환
-export const emptyToNull = (v: unknown) => (v === "" || v === undefined ? null : v);
+export const emptyToNull = <T,>(v: T): T | null => (v === "" || v === undefined ? null : v);

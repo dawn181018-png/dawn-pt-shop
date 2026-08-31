@@ -1,8 +1,6 @@
-// @ts-nocheck
 // 기존 단일 파일 프로토타입(회원관리 시스템 코드.jsx)을 Next.js + Supabase 구조로 이식.
 // 원본은 window.storage(로컬 key-value)에 JSON 블롭을 저장했고, 여기서는 Supabase 테이블에
-// 행 단위로 저장한다. 다이나믹한 필드 구조를 그대로 유지하기 위해 이 파일은 타입체크를 끈다.
-// (점진적으로 안전한 부분부터 타입을 붙이는 중 — 전부 끝나기 전까지는 이 줄을 유지한다.)
+// 행 단위로 저장한다.
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -18,7 +16,7 @@ import ProductSaleWizard from "./ProductSaleWizard";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
-import type { Customer, Product, Reservation, CatalogItem, RenewalForecast } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -32,20 +30,37 @@ function SignatureThumb({ path }: { path?: string | null }) {
   return <img src={url} alt="서명" className="ptm-signature-thumb" onClick={() => window.open(url, "_blank")} />;
 }
 
-const emptyCustomer = { name: "", phone: "", birthdate: "", email: "", memo: "" };
-const emptyProduct = {
+// 폼 상태는 실제 엔티티 타입(Customer/Product 등)과는 다르게, id/customerId 같은 필드가 없거나
+// 날짜가 문자열(입력용)인 등 조금씩 모양이 다르다. 그래서 엔티티 타입을 그대로 쓰지 않고 폼 전용
+// 타입을 따로 둔다 — "새 폼"과 "기존 항목 불러와서 수정" 양쪽 다 이 타입 하나로 받을 수 있게,
+// 엔티티 쪽에서 없을 수 있는 필드는 optional로 둔다.
+type CustomerFormData = { name: string; phone?: string; birthdate?: string | null; email?: string; memo?: string };
+const emptyCustomer: CustomerFormData = { name: "", phone: "", birthdate: "", email: "", memo: "" };
+type ProductFormData = {
+  name: string; type: ProductType;
+  totalSessions: number; usedSessions: number;
+  startDate: string; endDate?: string | null;
+  sessionDuration: number; listPrice: number; price: number; paidAmount: number; paymentMethod: PaymentMethod;
+  createdAt?: string;
+};
+const emptyProduct: ProductFormData = {
   name: "", type: "session",
   totalSessions: 10, usedSessions: 0,
   startDate: toLocalDateStr(new Date()), endDate: "",
   sessionDuration: 50, listPrice: 0, price: 0, paidAmount: 0, paymentMethod: "card",
   createdAt: toLocalDateStr(new Date()),
 };
-const emptyCatalogItem = { name: "", category: "daily_pt", sessions: 10, months: 1, periodUnit: "month", price: 0, sessionDuration: 50 };
+type CatalogFormData = { name: string; category: CatalogCategory; sessions: number; months: number; periodUnit: PeriodUnit; price: number; sessionDuration?: number };
+const emptyCatalogItem: CatalogFormData = { name: "", category: "daily_pt", sessions: 10, months: 1, periodUnit: "month", price: 0, sessionDuration: 50 };
+// 숫자 입력칸(분/반복횟수)은 입력 중엔 문자열로 들어왔다가 실제로 쓸 때 Number()로 변환하는 방식이라
+// number | string 양쪽을 다 허용한다 — 이건 폼 입력의 자연스러운 특성이라 굳이 강제 변환하지 않는다.
+type ReservationFormData = { date: string; time: string; duration: number | string; memo?: string; repeat: string; repeatCount?: number | string };
 const defaultSettings = { baseSalary: 300000, commissionRate: 10, deductionRate: 3.3 };
+type PayrollFormData = { baseSalary: number; commissionRate: number | string; deductionRate: number | string };
 
 const nowTime = () => new Date().toTimeString().slice(0, 5);
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
-const repeatLabel = { none: "안함", daily: "매일", weekly: "매주", biweekly: "2주마다", monthly: "매월", yearly: "매년" };
+const repeatLabel: Record<string, string> = { none: "안함", daily: "매일", weekly: "매주", biweekly: "2주마다", monthly: "매월", yearly: "매년" };
 // 반복 선택 시 "취소 전까지 계속" 느낌을 주기 위해 기본으로 넉넉히 생성해두는 횟수 (나중에 직접 줄이거나 늘릴 수 있음)
 const defaultRepeatCount = { none: 1, daily: 90, weekly: 52, biweekly: 26, monthly: 24, yearly: 5 };
 // "매주"를 고르면 다음 달까지 쭉 뻗어나가지 않도록, 시작일이 속한 달 안에서만 반복되는 횟수로 기본값을 잡는다.
@@ -188,10 +203,22 @@ const timeToMin = (t: string): number => { const [h, m] = t.split(":").map(Numbe
 const isPastDateTime = (date: string, time: string): boolean => new Date(`${date}T${time}:00`).getTime() < Date.now();
 const minToTime = (min: number): string => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 
-type LaidOutReservation = Reservation & { start: number; end: number; col?: number; columnCount?: number };
+// allReservations useMemo가 예약(Reservation)에 화면 표시용 필드를 덧붙인 것. 스케줄 화면 대부분이
+// 이 확장된 모양을 다룬다 (예약 상세 시트 등 일부는 여전히 원본 Reservation을 그대로 다룬다).
+type DisplayReservation = Reservation & {
+  customerName: string;
+  productName: string;
+  unitPrice: number;
+  remainCount: number | null;
+  totalSessions: number | null;
+};
+// 예약 액션 함수들(취소/삭제/완료 요청)은 원본 Reservation과 DisplayReservation 양쪽에서 다 호출되므로,
+// customerName/productName은 있을 수도 없을 수도 있는 걸로 느슨하게 받는다.
+type ReservationLike = Reservation & { customerName?: string; productName?: string };
+type LaidOutReservation = DisplayReservation & { start: number; end: number; col?: number; columnCount?: number };
 
 // 같은 시간대에 겹치는 예약을 나란히 배치하기 위한 열(column) 계산
-function layoutDayReservations(dayRes: Reservation[]): LaidOutReservation[] {
+function layoutDayReservations(dayRes: DisplayReservation[]): LaidOutReservation[] {
   const events: LaidOutReservation[] = dayRes
     .map((r) => ({ ...r, start: timeToMin(r.time), end: timeToMin(r.time) + (r.duration || 50) }))
     .sort((a, b) => a.start - b.start || a.end - b.end);
@@ -237,12 +264,12 @@ export default function PTMemberManager() {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
-  const [customerForm, setCustomerForm] = useState(emptyCustomer);
+  const [customerForm, setCustomerForm] = useState<CustomerFormData>(emptyCustomer);
 
   const [showProductForm, setShowProductForm] = useState(false);
   const [productFormCustomerId, setProductFormCustomerId] = useState<string | null>(null);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
-  const [productForm, setProductForm] = useState(emptyProduct);
+  const [productForm, setProductForm] = useState<ProductFormData>(emptyProduct);
 
   const [customerDetailId, setCustomerDetailId] = useState<string | null>(null);
   const [customerDetailTab, setCustomerDetailTab] = useState("home");
@@ -253,10 +280,10 @@ export default function PTMemberManager() {
   const askConfirm = (message: string, onConfirm: () => void, confirmLabel = "삭제") => setConfirmState({ message, onConfirm, confirmLabel });
 
   const [resSheetProductId, setResSheetProductId] = useState<string | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; reservation: Reservation } | null>(null);
-  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; reservation: Reservation } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; reservation: LaidOutReservation } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; reservation: LaidOutReservation } | null>(null);
   const hoverHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showHoverInfo = (r: Reservation, x: number, y: number) => {
+  const showHoverInfo = (r: LaidOutReservation, x: number, y: number) => {
     if (hoverHideTimer.current) clearTimeout(hoverHideTimer.current);
     setHoverInfo({ x, y, reservation: r });
   };
@@ -278,7 +305,7 @@ export default function PTMemberManager() {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
-  const [resForm, setResForm] = useState({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
+  const [resForm, setResForm] = useState<ReservationFormData>({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
 
   const [weekStart, setWeekStart] = useState(mondayOf(today()));
   const [nowClock, setNowClock] = useState(() => new Date());
@@ -287,7 +314,7 @@ export default function PTMemberManager() {
     return () => clearInterval(timer);
   }, []);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [quickForm, setQuickForm] = useState({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
+  const [quickForm, setQuickForm] = useState<ReservationFormData & { customerId: string; productId: string }>({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
   const [quickSearch, setQuickSearch] = useState("");
   const [quickIsNew, setQuickIsNew] = useState(false);
   const [quickIsMisc, setQuickIsMisc] = useState(false);
@@ -297,13 +324,13 @@ export default function PTMemberManager() {
   const now = new Date();
   const [payYear, setPayYear] = useState(now.getFullYear());
   const [payMonth, setPayMonth] = useState(now.getMonth() + 1);
-  const [settings, setSettings] = useState(defaultSettings);
+  const [settings, setSettings] = useState<PayrollFormData>(defaultSettings);
   const [showSettings, setShowSettings] = useState(false);
 
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [showCatalogForm, setShowCatalogForm] = useState(false);
   const [editingCatalogId, setEditingCatalogId] = useState<string | null>(null);
-  const [catalogForm, setCatalogForm] = useState(emptyCatalogItem);
+  const [catalogForm, setCatalogForm] = useState<CatalogFormData>(emptyCatalogItem);
   const [catalogCategoryTab, setCatalogCategoryTab] = useState("all");
   const [productCatalogPick, setProductCatalogPick] = useState("");
 
@@ -313,7 +340,8 @@ export default function PTMemberManager() {
   const [acctQuery, setAcctQuery] = useState("");
 
   // ---- 재등록 예정(파이프라인) ----
-  const emptyForecast = { customerId: "", targetMonth: today().slice(0, 7), expectedSessions: "", expectedAmount: 0, note: "" };
+  const emptyForecast: { customerId: string; targetMonth: string; expectedSessions: number | string; expectedAmount: number; note: string } =
+    { customerId: "", targetMonth: today().slice(0, 7), expectedSessions: "", expectedAmount: 0, note: "" };
   const [renewalForecasts, setRenewalForecasts] = useState<RenewalForecast[]>([]);
   const [showForecastForm, setShowForecastForm] = useState(false);
   const [editingForecastId, setEditingForecastId] = useState<string | null>(null);
@@ -323,7 +351,7 @@ export default function PTMemberManager() {
   const emptyProspect = { name: "", expectedAmount: 0, note: "" };
   const [newProspectForm, setNewProspectForm] = useState(emptyProspect);
 
-  const flash = (msg) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
+  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
 
   useEffect(() => {
     (async () => {
@@ -351,7 +379,7 @@ export default function PTMemberManager() {
 
   // ---- Catalog ----
   const openNewCatalog = () => { setCatalogForm(emptyCatalogItem); setEditingCatalogId(null); setShowCatalogForm(true); };
-  const openEditCatalog = (item) => { setCatalogForm(item); setEditingCatalogId(item.id); setShowCatalogForm(true); };
+  const openEditCatalog = (item: CatalogItem) => { setCatalogForm(item); setEditingCatalogId(item.id); setShowCatalogForm(true); };
   const saveCatalogItem = async () => {
     if (!catalogForm.name.trim()) { flash("이용권 이름을 입력해주세요"); return; }
     try {
@@ -367,7 +395,7 @@ export default function PTMemberManager() {
       setShowCatalogForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const removeCatalogItem = async (id) => {
+  const removeCatalogItem = async (id: string) => {
     try {
       await db.deleteCatalogItem(id);
       setCatalog(catalog.filter((i) => i.id !== id));
@@ -376,21 +404,21 @@ export default function PTMemberManager() {
   };
 
   // ---- 재등록 예정(파이프라인) ----
-  const openNewForecast = (customerId) => {
+  const openNewForecast = (customerId?: string | null) => {
     setForecastForm({ ...emptyForecast, customerId: customerId || "", targetMonth: forecastMonth });
     setEditingForecastId(null);
     setShowForecastForm(true);
   };
-  const openEditForecast = (f) => {
+  const openEditForecast = (f: RenewalForecast) => {
     setForecastForm({
-      customerId: f.customerId, targetMonth: f.targetMonth,
+      customerId: f.customerId ?? "", targetMonth: f.targetMonth,
       expectedSessions: f.expectedSessions ?? "", expectedAmount: f.expectedAmount, note: f.note || "",
     });
     setEditingForecastId(f.id);
     setShowForecastForm(true);
   };
   // 재등록 예정 표의 한 행(row)을 편집 — 그 고객이 이 달 예정이 아직 없으면 새로 만들고, 있으면 수정한다.
-  const openForecastFor = (row) => {
+  const openForecastFor = (row: { customerId: string; forecastId?: string | null; expectedSessions?: number | null; expectedAmount?: number; note?: string }) => {
     setForecastForm({
       customerId: row.customerId, targetMonth: forecastMonth,
       expectedSessions: row.expectedSessions ?? "", expectedAmount: row.expectedAmount || 0, note: row.note || "",
@@ -421,14 +449,14 @@ export default function PTMemberManager() {
       setShowForecastForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const removeForecast = async (id) => {
+  const removeForecast = async (id: string) => {
     try {
       await db.deleteRenewalForecast(id);
       setRenewalForecasts(renewalForecasts.filter((f) => f.id !== id));
       flash("재등록 예정 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
-  const requestRemoveForecast = (id, message) => askConfirm(message, () => removeForecast(id));
+  const requestRemoveForecast = (id: string, message: string) => askConfirm(message, () => removeForecast(id));
 
   // ---- 신규 고객 명단(아직 등록 안 된 예정 고객) ----
   const addProspect = async () => {
@@ -446,10 +474,10 @@ export default function PTMemberManager() {
       flash("신규 고객 예정 등록됨");
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const updateProspectField = (id, field, value) => {
-    setRenewalForecasts((cur) => cur.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
+  const updateProspectField = (id: string, field: string, value: string | number) => {
+    setRenewalForecasts((cur) => cur.map((f) => (f.id === id ? ({ ...f, [field]: value } as RenewalForecast) : f)));
   };
-  const persistProspect = async (id) => {
+  const persistProspect = async (id: string) => {
     const f = renewalForecasts.find((x) => x.id === id);
     if (!f) return;
     try {
@@ -459,11 +487,11 @@ export default function PTMemberManager() {
       setRenewalForecasts((cur) => cur.map((x) => (x.id === id ? updated : x)));
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const handleProspectKeyDown = (e) => { if (e.key === "Enter") addProspect(); };
+  const handleProspectKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter") addProspect(); };
 
   // ---- Customers ----
   const openNewCustomer = () => { setCustomerForm(emptyCustomer); setEditingCustomerId(null); setShowCustomerForm(true); };
-  const openEditCustomer = (c) => { setCustomerForm(c); setEditingCustomerId(c.id); setShowCustomerForm(true); };
+  const openEditCustomer = (c: Customer) => { setCustomerForm(c); setEditingCustomerId(c.id); setShowCustomerForm(true); };
   const saveCustomer = async () => {
     if (!customerForm.name.trim()) { flash("이름을 입력해주세요"); return; }
     // customerForm이 고객 목록(요약 데이터 포함)에서 채워졌을 수 있으므로, DB에 실제로 있는
@@ -490,14 +518,14 @@ export default function PTMemberManager() {
       }
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const toggleDormant = async (c) => {
+  const toggleDormant = async (c: Customer) => {
     try {
       const updated = await db.updateCustomer(c.id, { isDormant: !c.isDormant });
       setCustomers(customers.map((x) => (x.id === c.id ? updated : x)));
       flash(updated.isDormant ? "휴면 상태로 변경됨 · 매출 계획에서 제외돼요" : "휴면 상태 해제됨");
     } catch (e) { flash("변경 실패, 다시 시도해주세요"); }
   };
-  const removeCustomer = async (id) => {
+  const removeCustomer = async (id: string) => {
     try {
       await db.deleteCustomer(id); // DB cascade가 관련 products/reservations도 함께 삭제
       setCustomers(customers.filter((c) => c.id !== id));
@@ -506,7 +534,7 @@ export default function PTMemberManager() {
       flash("고객 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
-  const requestRemoveCustomer = (c) => {
+  const requestRemoveCustomer = (c: Customer) => {
     const prodCount = products.filter((p) => p.customerId === c.id).length;
     const resCount = reservations.filter((r) => r.customerId === c.id).length;
     const parts = [];
@@ -526,8 +554,8 @@ export default function PTMemberManager() {
   const runBulkImport = async () => {
     if (bulkRows.length === 0) { flash("등록할 내용이 없어요"); return; }
     const existingPhones = new Set(customers.map((c) => c.phone).filter(Boolean));
-    const seenInBatch = new Set();
-    const toAdd = [];
+    const seenInBatch = new Set<string>();
+    const toAdd: Partial<Customer>[] = [];
     bulkRows.forEach((r) => {
       if (r.phone && (existingPhones.has(r.phone) || seenInBatch.has(r.phone))) return; // 이미 있는 전화번호는 건너뜀
       if (r.phone) seenInBatch.add(r.phone);
@@ -544,8 +572,8 @@ export default function PTMemberManager() {
   };
 
   // ---- Products ----
-  const openNewProduct = (customerId) => { setProductForm(emptyProduct); setProductFormCustomerId(customerId); setEditingProductId(null); setProductCatalogPick(""); setShowProductForm(true); };
-  const openEditProduct = (p) => {
+  const openNewProduct = (customerId: string) => { setProductForm(emptyProduct); setProductFormCustomerId(customerId); setEditingProductId(null); setProductCatalogPick(""); setShowProductForm(true); };
+  const openEditProduct = (p: Product) => {
     setProductForm({
       ...emptyProduct, ...p,
       listPrice: p.listPrice ?? p.price ?? 0,
@@ -556,18 +584,20 @@ export default function PTMemberManager() {
   };
   const saveProduct = async () => {
     if (!productForm.name.trim()) { flash("상품명을 입력해주세요"); return; }
+    // createdAt은 화면(폼)에선 날짜 문자열이지만 DB 쓰기 시점엔 timestamptz 문자열(ISO)로 보낸다 —
+    // 읽어올 때(Product.createdAt: number, epoch ms)와는 다른 "쓰기 전용" 모양이라 여기서만 캐스팅한다.
     const payload = {
       ...productForm,
       endDate: emptyToNull(productForm.endDate),
       createdAt: productForm.createdAt ? new Date(`${productForm.createdAt}T00:00:00`).toISOString() : new Date().toISOString(),
-    };
+    } as unknown as Partial<Product>;
     try {
       if (editingProductId) {
         const updated = await db.updateProduct(editingProductId, payload);
         setProducts(products.map((p) => (p.id === editingProductId ? updated : p)));
         flash("상품 정보 수정됨");
       } else {
-        const created = await db.insertProduct(productFormCustomerId, payload);
+        const created = await db.insertProduct(productFormCustomerId as string, payload);
         setProducts([...products, created]);
         // "재등록 예정" 탭의 실제 등록금액은 그 달 등록된 상품 금액을 바로 합산해서 보여주므로
         // 별도로 예정 레코드를 갱신할 필요가 없다 — 상품을 등록하는 순간 자동으로 반영된다.
@@ -576,7 +606,7 @@ export default function PTMemberManager() {
       setShowProductForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const removeProduct = async (id) => {
+  const removeProduct = async (id: string) => {
     try {
       await db.deleteProduct(id); // DB cascade가 관련 reservations도 함께 삭제
       setProducts(products.filter((p) => p.id !== id));
@@ -584,7 +614,7 @@ export default function PTMemberManager() {
       flash("상품 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
-  const requestRemoveProduct = (p) => {
+  const requestRemoveProduct = (p: Product) => {
     const resCount = reservations.filter((r) => r.productId === p.id).length;
     const parts = [];
     if (p.type === "session") parts.push(`잔여 ${Math.max(0, p.totalSessions - p.usedSessions)}회`);
@@ -592,7 +622,7 @@ export default function PTMemberManager() {
     const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
     askConfirm(`"${p.name}" 상품을 삭제할까요?${suffix}`, () => removeProduct(p.id));
   };
-  const bumpSession = async (id, delta) => {
+  const bumpSession = async (id: string, delta: number) => {
     const p = products.find((x) => x.id === id);
     if (!p || p.type !== "session") return;
     try {
@@ -600,7 +630,7 @@ export default function PTMemberManager() {
       setProducts(products.map((x) => (x.id === id ? updated : x)));
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const togglePaid = async (id) => {
+  const togglePaid = async (id: string) => {
     const p = products.find((x) => x.id === id);
     if (!p) return;
     try {
@@ -610,7 +640,7 @@ export default function PTMemberManager() {
   };
 
   // ---- Reservations ----
-  const pushReservation = async (customerId, productId, data, statusOverride, extra = {}) => {
+  const pushReservation = async (customerId: string | null, productId: string | null, data: ReservationFormData, statusOverride?: ReservationStatus, extra: Partial<Reservation> = {}) => {
     const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
     const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
     const seriesId = count > 1 ? newId() : null;
@@ -633,7 +663,7 @@ export default function PTMemberManager() {
     }
     return created.length;
   };
-  const addReservation = async (customerId, productId, statusOverride) => {
+  const addReservation = async (customerId: string, productId: string, statusOverride?: ReservationStatus) => {
     if (!resForm.date || !resForm.time) { flash("날짜/시간을 입력해주세요"); return; }
     try {
       const n = await pushReservation(customerId, productId, resForm, statusOverride);
@@ -649,7 +679,7 @@ export default function PTMemberManager() {
     setWalkInName("");
     setWalkInPhone("");
   };
-  const addQuickReservation = async (statusOverride) => {
+  const addQuickReservation = async (statusOverride?: ReservationStatus) => {
     try {
       if (quickIsMisc) {
         const title = (quickForm.memo || "").trim();
@@ -682,7 +712,7 @@ export default function PTMemberManager() {
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
   };
-  const handleGridClick = (e, date) => {
+  const handleGridClick = (e: React.MouseEvent<HTMLDivElement>, date: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const time = pxToTime(e.clientY - rect.top);
     setHoverInfo(null);
@@ -694,7 +724,7 @@ export default function PTMemberManager() {
     setWalkInPhone("");
     setShowQuickAdd(true);
   };
-  const setReservationStatus = async (resId, newStatus, extra = {}) => {
+  const setReservationStatus = async (resId: string, newStatus: ReservationStatus, extra: Partial<Reservation> = {}) => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     const was = countsAsUsed(r.status), will = countsAsUsed(newStatus);
@@ -718,11 +748,11 @@ export default function PTMemberManager() {
   };
 
   // ---- 출석(완료) 처리 전 서명 받기 ----
-  const [signatureRes, setSignatureRes] = useState<Reservation | null>(null);
-  const requestCompleteReservation = (r: Reservation) => setSignatureRes(r);
+  const [signatureRes, setSignatureRes] = useState<ReservationLike | null>(null);
+  const requestCompleteReservation = (r: ReservationLike) => setSignatureRes(r);
   // 서명 직후, 수기 PT 세션 카드를 대체하는 "몇 회 중 몇 회 사용" 요약을 한 번 보여준다.
   const [sessionCardResId, setSessionCardResId] = useState<string | null>(null);
-  const submitSignatureAndComplete = async (blob, workoutNote) => {
+  const submitSignatureAndComplete = async (blob: Blob, workoutNote: string) => {
     if (!signatureRes) return;
     try {
       const path = await db.uploadSignature(signatureRes.id, blob);
@@ -731,7 +761,7 @@ export default function PTMemberManager() {
       setSignatureRes(null);
     } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
   };
-  const deleteReservation = async (resId) => {
+  const deleteReservation = async (resId: string) => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     try {
@@ -750,17 +780,17 @@ export default function PTMemberManager() {
 
   // ---- 반복 예약: 이 예약만 / 이후 전체 선택 처리 ----
   const [seriesPrompt, setSeriesPrompt] = useState<{ reservation: Reservation; action: "cancel" | "delete" } | null>(null);
-  const requestCancelReservation = (r: Reservation) => {
+  const requestCancelReservation = (r: ReservationLike) => {
     if (r.seriesId) setSeriesPrompt({ reservation: r, action: "cancel" });
     else setReservationStatus(r.id, "cancelled");
   };
-  const requestDeleteReservation = (r: Reservation) => {
+  const requestDeleteReservation = (r: ReservationLike) => {
     if (r.seriesId) { setSeriesPrompt({ reservation: r, action: "delete" }); return; }
     const label = r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`;
     askConfirm(`${koDate(r.date)} ${r.time} "${label}" 예약을 삭제할까요?`, () => deleteReservation(r.id));
   };
-  const cancelSeriesFuture = async (seriesId, fromDate) => {
-    const deltaByProduct = {};
+  const cancelSeriesFuture = async (seriesId: string, fromDate: string) => {
+    const deltaByProduct: Record<string, number> = {};
     reservations.forEach((r) => {
       if (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" && countsAsUsed(r.status) && r.productId) {
         deltaByProduct[r.productId] = (deltaByProduct[r.productId] || 0) - 1;
@@ -768,7 +798,7 @@ export default function PTMemberManager() {
     });
     try {
       await db.cancelReservationSeriesFrom(seriesId, fromDate);
-      setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" } : r)));
+      setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" as const } : r)));
       for (const pid of Object.keys(deltaByProduct)) {
         const updated = await db.adjustUsedSessions(pid, deltaByProduct[pid]);
         setProducts((prev) => prev.map((x) => (x.id === pid ? updated : x)));
@@ -776,8 +806,8 @@ export default function PTMemberManager() {
       flash("이후 반복 예약 전체 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   };
-  const deleteSeriesFuture = async (seriesId, fromDate) => {
-    const deltaByProduct = {};
+  const deleteSeriesFuture = async (seriesId: string, fromDate: string) => {
+    const deltaByProduct: Record<string, number> = {};
     reservations.forEach((r) => {
       if (r.seriesId === seriesId && r.date >= fromDate && countsAsUsed(r.status) && r.productId) deltaByProduct[r.productId] = (deltaByProduct[r.productId] || 0) - 1;
     });
@@ -791,15 +821,15 @@ export default function PTMemberManager() {
       flash("이후 반복 예약 전체 삭제됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   };
-  const applySeriesChoice = (scope) => {
+  const applySeriesChoice = (scope: string) => {
     if (!seriesPrompt) return;
     const { reservation: r, action } = seriesPrompt;
     if (scope === "this") {
       if (action === "cancel") setReservationStatus(r.id, "cancelled");
       else deleteReservation(r.id);
     } else {
-      if (action === "cancel") cancelSeriesFuture(r.seriesId, r.date);
-      else deleteSeriesFuture(r.seriesId, r.date);
+      if (action === "cancel") cancelSeriesFuture(r.seriesId as string, r.date);
+      else deleteSeriesFuture(r.seriesId as string, r.date);
     }
     setSeriesPrompt(null);
   };
@@ -817,9 +847,9 @@ export default function PTMemberManager() {
   };
 
   // ---- 드롭다운으로 예약 시간 정확히 수정 ----
-  const [timeEditRes, setTimeEditRes] = useState<Reservation | null>(null);
-  const [timeEditForm, setTimeEditForm] = useState({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
-  const openTimeEdit = (r) => {
+  const [timeEditRes, setTimeEditRes] = useState<ReservationLike | null>(null);
+  const [timeEditForm, setTimeEditForm] = useState<{ date: string; hour: string; minute: string; duration: number | string; title: string }>({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
+  const openTimeEdit = (r: ReservationLike) => {
     const [h, m] = r.time.split(":");
     setTimeEditRes(r);
     setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50, title: r.type === "misc" ? (r.memo || "") : "" });
@@ -929,7 +959,7 @@ export default function PTMemberManager() {
   const quickCustomerProducts = products.filter((p) => p.customerId === quickForm.customerId);
   // 잔여횟수가 남은 이용권 중 가장 먼저 등록한 것을 우선 사용 (재등록으로 이용권이 여러 개여도
   // 등록한 순서대로 차감되도록 기본 선택 — 필요하면 드롭다운에서 직접 바꿀 수 있다).
-  const pickActiveProductId = (customerId) => {
+  const pickActiveProductId = (customerId: string) => {
     const active = products
       .filter((p) => p.customerId === customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
@@ -937,7 +967,7 @@ export default function PTMemberManager() {
   };
 
   // ---- Payroll ----
-  const revenueForMonth = (y, m) => {
+  const revenueForMonth = (y: number, m: number) => {
     const key = monthKey(y, m);
     const done = allReservations.filter((r) => r.status === "done" && r.date.startsWith(key));
     const noshow = allReservations.filter((r) => r.status === "noshow" && r.date.startsWith(key));
@@ -961,7 +991,7 @@ export default function PTMemberManager() {
   // 고객별 "첫 상품"의 등록시각을 미리 구해두면, 그 시각과 같은 상품은 신규 등록, 다르면 재등록으로
   // 자동 판별할 수 있다 (사용자가 상품 등록할 때 신규/재등록을 직접 체크할 필요가 없음).
   const firstPurchaseAt = useMemo(() => {
-    const map = {};
+    const map: Record<string, number> = {};
     products.forEach((p) => {
       if (!(p.customerId in map) || (p.createdAt || 0) < map[p.customerId]) map[p.customerId] = p.createdAt || 0;
     });
@@ -970,7 +1000,7 @@ export default function PTMemberManager() {
 
   // "세션 매출"(완료 처리된 레슨 기준, 페이롤과 동일한 산정 방식)과
   // "등록 매출"(회계관리와 동일한, 상품을 등록/결제한 금액 기준)은 서로 다른 지표라 둘 다 보여준다.
-  const registrationRevenueForMonth = (y, m) => {
+  const registrationRevenueForMonth = (y: number, m: number) => {
     const key = monthKey(y, m);
     const monthProducts = products.filter((p) => p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(key));
     const newProducts = monthProducts.filter((p) => firstPurchaseAt[p.customerId] === p.createdAt);
@@ -1006,15 +1036,15 @@ export default function PTMemberManager() {
     const avgRegRevenue = window.reduce((s, x) => s + x.regRevenue, 0) / n;
     return { avgRevenue, avgSessions, avgRegRevenue };
   }, [statsTrend]);
-  const pctDiff = (cur, base) => (base ? Math.round(((cur - base) / base) * 100) : null);
-  const noshowRate = (r) => (r.sessionCount + r.noshowCount > 0 ? Math.round((r.noshowCount / (r.sessionCount + r.noshowCount)) * 100) : 0);
+  const pctDiff = (cur: number, base: number): number | null => (base ? Math.round(((cur - base) / base) * 100) : null);
+  const noshowRate = (r: { sessionCount: number; noshowCount: number }): number => (r.sessionCount + r.noshowCount > 0 ? Math.round((r.noshowCount / (r.sessionCount + r.noshowCount)) * 100) : 0);
 
   // ---- 재등록 예정(파이프라인) 파생 데이터 ----
   // 등록된 고객 전체를 기본으로 보여준다 (별도로 "추가"할 필요 없음). 잔여세션을 보고
   // 그 자리에서 재등록 계획(예상세션/예상금액)을 세울 수 있고, 이번달 실제 등록금액은
   // 해당 월에 새로 등록된 상품 금액을 합산해 자동으로 계산한다.
   const doneReservationsByCustomer = useMemo(() => {
-    const map = {};
+    const map: Record<string, Reservation[]> = {};
     reservations.forEach((r) => {
       if (r.status === "done" && r.customerId) (map[r.customerId] || (map[r.customerId] = [])).push(r);
     });
@@ -1079,7 +1109,7 @@ export default function PTMemberManager() {
     };
   }, [forecastRows, prospectRows]);
 
-  const shiftForecastMonth = (delta) => {
+  const shiftForecastMonth = (delta: number) => {
     const y = Number(forecastMonth.slice(0, 4)), m = Number(forecastMonth.slice(5, 7));
     const { y: ny, m: nm } = shiftMonthYM(y, m, delta);
     setForecastMonth(monthKey(ny, nm));
@@ -1131,7 +1161,7 @@ export default function PTMemberManager() {
     };
   }, [acctRows]);
 
-  const shiftAcctDate = (delta) => {
+  const shiftAcctDate = (delta: number) => {
     if (acctPeriod === "day") setAcctDate(addDays(acctDate, delta));
     else if (acctPeriod === "week") setAcctDate(addDays(acctDate, delta * 7));
     else {
@@ -1229,8 +1259,8 @@ export default function PTMemberManager() {
                         <div className="ptm-now-line" style={{ top: timeTopPx(`${String(nowClock.getHours()).padStart(2, "0")}:${String(nowClock.getMinutes()).padStart(2, "0")}`) }} />
                       )}
                       {dayRes.map((r) => {
-                        const widthPct = 100 / r.columnCount;
-                        const leftPct = r.col * widthPct;
+                        const widthPct = 100 / (r.columnCount ?? 1);
+                        const leftPct = (r.col ?? 0) * widthPct;
                         return (
                           <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}`}
                             style={{
@@ -1512,7 +1542,7 @@ export default function PTMemberManager() {
                       <td>
                         <div className="ptm-actions">
                           <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={() => openForecastFor(r)}><Pencil size={14} /></button>
-                          {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
+                          {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId as string, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
                         </div>
                       </td>
                     </tr>
@@ -1666,7 +1696,7 @@ export default function PTMemberManager() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
                   <YAxis stroke="#8a94a6" fontSize={11} width={40} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => v.toLocaleString() + "원"} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="regRevenue" radius={[4, 4, 0, 0]}>
                     {statsTrend.map((entry, idx) => <Cell key={idx} fill={idx === 11 ? "#3b6fe0" : "#1aa35a"} />)}
                   </Bar>
@@ -1680,7 +1710,7 @@ export default function PTMemberManager() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
                   <YAxis stroke="#8a94a6" fontSize={11} width={40} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => v.toLocaleString() + "원"} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
                     {statsTrend.map((entry, idx) => <Cell key={idx} fill={idx === 11 ? "#3b6fe0" : "#7c6fd6"} />)}
                   </Bar>
@@ -1707,7 +1737,7 @@ export default function PTMemberManager() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
                   <YAxis stroke="#8a94a6" fontSize={11} width={40} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => v.toLocaleString() + "원"} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="newRevenue" name="신규" stackId="a" radius={[4, 4, 0, 0]} fill="#3b6fe0" />
                   <Bar dataKey="renewRevenue" name="재등록" stackId="a" fill="#7c6fd6" />
                 </BarChart>
@@ -1755,7 +1785,7 @@ export default function PTMemberManager() {
         <ProductSaleWizard
           customers={customers}
           catalog={catalog}
-          onSaleComplete={(customer, product) => {
+          onSaleComplete={(customer: Customer, product: Product) => {
             setCustomers((cur) => (cur.some((c) => c.id === customer.id) ? cur.map((c) => (c.id === customer.id ? customer : c)) : [...cur, customer]));
             setProducts((cur) => [...cur, product]);
           }}
@@ -1796,7 +1826,7 @@ export default function PTMemberManager() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
                   <YAxis stroke="#8a94a6" fontSize={11} width={40} />
-                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => v.toLocaleString() + "원"} />
+                  <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="매출" fill="#3b6fe0" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -2091,7 +2121,7 @@ export default function PTMemberManager() {
             </div>
             <div className="ptm-row2">
               <div className="ptm-field"><label>생년월일</label>
-                <input type="date" value={customerForm.birthdate} onChange={(e) => setCustomerForm({ ...customerForm, birthdate: e.target.value })} />
+                <input type="date" value={customerForm.birthdate ?? ""} onChange={(e) => setCustomerForm({ ...customerForm, birthdate: e.target.value })} />
               </div>
               <div className="ptm-field"><label>이메일</label>
                 <input type="email" value={customerForm.email} onChange={(e) => setCustomerForm({ ...customerForm, email: e.target.value })} placeholder="example@email.com" />
@@ -2168,7 +2198,7 @@ export default function PTMemberManager() {
                   <input type="date" value={productForm.startDate} onChange={(e) => setProductForm({ ...productForm, startDate: e.target.value })} />
                 </div>
                 <div className="ptm-field"><label>종료일</label>
-                  <input type="date" value={productForm.endDate} onChange={(e) => setProductForm({ ...productForm, endDate: e.target.value })} />
+                  <input type="date" value={productForm.endDate ?? ""} onChange={(e) => setProductForm({ ...productForm, endDate: e.target.value })} />
                 </div>
                 <div className="ptm-field"><label>1회 시간(분)</label>
                   <input type="number" onFocus={(e) => e.target.select()} value={productForm.sessionDuration} onChange={(e) => setProductForm({ ...productForm, sessionDuration: Number(e.target.value) })} />
@@ -2437,7 +2467,7 @@ export default function PTMemberManager() {
               <button className="ptm-icon-btn" onClick={() => setShowCatalogForm(false)}><X size={16} /></button>
             </div>
             <div className="ptm-field"><label>카테고리</label>
-              <select value={catalogForm.category} onChange={(e) => setCatalogForm({ ...catalogForm, category: e.target.value })}>
+              <select value={catalogForm.category} onChange={(e) => setCatalogForm({ ...catalogForm, category: e.target.value as CatalogCategory })}>
                 {CATALOG_CATEGORIES.map((cat) => (
                   <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
                 ))}
@@ -2538,7 +2568,11 @@ export default function PTMemberManager() {
               className="ptm-save-btn"
               onClick={async () => {
                 try {
-                  const saved = await db.upsertSettings(settings);
+                  const saved = await db.upsertSettings({
+                    baseSalary: Number(settings.baseSalary) || 0,
+                    commissionRate: Number(settings.commissionRate) || 0,
+                    deductionRate: Number(settings.deductionRate) || 0,
+                  });
                   setSettings({ ...defaultSettings, ...saved });
                   setShowSettings(false);
                   flash("급여 설정 저장됨");
@@ -2617,7 +2651,7 @@ export default function PTMemberManager() {
               onMouseEnter={cancelHideHoverInfo}
               onMouseLeave={scheduleHideHoverInfo}
             >
-              <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{r.columnCount > 1 ? " · 동시예약" : ""}</div>
+              <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{(r.columnCount ?? 1) > 1 ? " · 동시예약" : ""}</div>
               <div className="ptm-hover-row"><span>구분</span><span>기타 일정</span></div>
               <div className="ptm-hover-row"><span>제목</span><span>{r.customerName}</span></div>
             </div>
@@ -2636,7 +2670,7 @@ export default function PTMemberManager() {
             onMouseEnter={cancelHideHoverInfo}
             onMouseLeave={scheduleHideHoverInfo}
           >
-            <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{r.columnCount > 1 ? " · 동시예약" : ""}</div>
+            <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{(r.columnCount ?? 1) > 1 ? " · 동시예약" : ""}</div>
             <div className="ptm-hover-row"><span>구분</span><span>개인레슨</span></div>
             <div className="ptm-hover-row"><span>속성</span><span>{!product ? "상담/신규" : product.type === "period" ? "기간제" : "횟수제"}</span></div>
             <div className="ptm-hover-row"><span>이름</span><span className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); setHoverInfo(null); }}>{r.customerName}</span></div>
@@ -2767,7 +2801,7 @@ export default function PTMemberManager() {
           const hIdx = i - manualUsedCount;
           return hIdx < historyCount ? { used: true, res: history[hIdx] } : { used: false, res: null };
         });
-        const renderSlotRows = (slotArr, offset) => slotArr.map((slot, i) => {
+        const renderSlotRows = (slotArr: { used: boolean; res: Reservation | null }[], offset: number) => slotArr.map((slot, i) => {
           const r = slot.res;
           return (
             <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
