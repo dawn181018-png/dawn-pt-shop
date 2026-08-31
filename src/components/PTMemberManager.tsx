@@ -878,8 +878,16 @@ export default function PTMemberManager() {
     return customers.map((c) => {
       const prods = products.filter((p) => p.customerId === c.id);
       const hasUnpaid = prods.some((p) => !isFullyPaid(p));
-      const worst = prods.length ? prods.reduce((acc, p) => (urgencyRank[urgency(p)] < urgencyRank[acc] ? urgency(p) : acc), "ok") : "none";
       const sessionProds = prods.filter((p) => p.type === "session");
+      const periodProds = prods.filter((p) => p.type === "period");
+      // "임박 상품" 판정은 이용권 하나하나가 아니라 고객 단위로 봐야 한다 — 재등록으로 이용권이
+      // 여러 개면, 예전 이용권이 거의 소진됐어도 새 이용권이 넉넉하면 시급한 게 아니다. 그래서
+      // 세션형은 잔여횟수를 전부 합산해서 판단하고(기간형은 이용권마다 만료일이 따로라 합산이
+      // 의미 없으므로 기존처럼 이용권 하나하나 중 가장 임박한 걸로 판단), 둘 중 더 급한 쪽을 쓴다.
+      const sessionRemainTotal = sessionProds.length ? sessionProds.reduce((s, p) => s + (p.totalSessions - p.usedSessions), 0) : null;
+      const sessionUrgency = sessionRemainTotal === null ? "ok" : sessionRemainTotal <= 1 ? "critical" : sessionRemainTotal <= 3 ? "warn" : "ok";
+      const periodUrgency = periodProds.length ? periodProds.reduce((acc, p) => (urgencyRank[urgency(p)] < urgencyRank[acc] ? urgency(p) : acc), "ok") : "ok";
+      const worst = prods.length ? (urgencyRank[sessionUrgency] < urgencyRank[periodUrgency] ? sessionUrgency : periodUrgency) : "none";
       const minRemain = sessionProds.length ? Math.min(...sessionProds.map((p) => p.totalSessions - p.usedSessions)) : null;
       const doneDates = reservations.filter((r) => r.customerId === c.id && r.status === "done").map((r) => r.date).sort();
       const lastVisit = doneDates.length ? doneDates[doneDates.length - 1] : null;
