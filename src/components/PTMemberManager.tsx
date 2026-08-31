@@ -2,6 +2,7 @@
 // 기존 단일 파일 프로토타입(회원관리 시스템 코드.jsx)을 Next.js + Supabase 구조로 이식.
 // 원본은 window.storage(로컬 key-value)에 JSON 블롭을 저장했고, 여기서는 Supabase 테이블에
 // 행 단위로 저장한다. 다이나믹한 필드 구조를 그대로 유지하기 위해 이 파일은 타입체크를 끈다.
+// (점진적으로 안전한 부분부터 타입을 붙이는 중 — 전부 끝나기 전까지는 이 줄을 유지한다.)
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -17,10 +18,11 @@ import ProductSaleWizard from "./ProductSaleWizard";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
+import type { Customer, Product, Reservation, CatalogItem, RenewalForecast } from "@/lib/types";
 import "./ptm.css";
 
-function SignatureThumb({ path }) {
-  const [url, setUrl] = useState(null);
+function SignatureThumb({ path }: { path?: string | null }) {
+  const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     if (path) db.getSignatureUrl(path).then((u) => { if (!cancelled) setUrl(u); });
@@ -48,16 +50,16 @@ const repeatLabel = { none: "안함", daily: "매일", weekly: "매주", biweekl
 const defaultRepeatCount = { none: 1, daily: 90, weekly: 52, biweekly: 26, monthly: 24, yearly: 5 };
 // "매주"를 고르면 다음 달까지 쭉 뻗어나가지 않도록, 시작일이 속한 달 안에서만 반복되는 횟수로 기본값을 잡는다.
 // (그 이후 반복은 다음 달 초에 다시 등록하는 방식 — 예약이 무한정 쌓여 조회 성능/1000행 제한에 영향을 주는 걸 방지)
-const getDefaultRepeatCount = (repeatType, dateStr) => {
+const getDefaultRepeatCount = (repeatType: string, dateStr: string): number => {
   if (repeatType === "weekly") {
     const startMonth = new Date(dateStr).getMonth();
     let n = 0;
     while (new Date(addDays(dateStr, 7 * n)).getMonth() === startMonth) n++;
     return Math.max(1, n);
   }
-  return defaultRepeatCount[repeatType];
+  return (defaultRepeatCount as Record<string, number>)[repeatType];
 };
-const addRepeatInterval = (dateStr, repeatType, n) => {
+const addRepeatInterval = (dateStr: string, repeatType: string, n: number): string => {
   if (repeatType === "daily") return addDays(dateStr, n);
   if (repeatType === "weekly") return addDays(dateStr, 7 * n);
   if (repeatType === "biweekly") return addDays(dateStr, 14 * n);
@@ -65,25 +67,25 @@ const addRepeatInterval = (dateStr, repeatType, n) => {
   if (repeatType === "yearly") return addMonths(dateStr, 12 * n);
   return dateStr;
 };
-const mondayOf = (dateStr) => { const d = new Date(dateStr); const day = d.getDay(); return addDays(dateStr, day === 0 ? -6 : 1 - day); };
-const koDate = (dateStr) => { const d = new Date(dateStr); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
-const parseBulkLine = (line) => {
+const mondayOf = (dateStr: string): string => { const d = new Date(dateStr); const day = d.getDay(); return addDays(dateStr, day === 0 ? -6 : 1 - day); };
+const koDate = (dateStr: string): string => { const d = new Date(dateStr); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
+const parseBulkLine = (line: string) => {
   const sep = line.includes("\t") ? "\t" : ",";
   const parts = line.split(sep).map((s) => s.trim());
   return { name: parts[0] || "", phone: parts[1] || "", birthdate: parts[2] || "", email: parts[3] || "", memo: parts[4] || "" };
 };
 const dayLabels = ["월", "화", "수", "목", "금", "토", "일"];
 const weekdayFull = ["일", "월", "화", "수", "목", "금", "토"];
-const firstOfMonth = (y, m) => `${y}-${String(m).padStart(2, "0")}-01`;
-const lastOfMonth = (y, m) => { const { y: ny, m: nm } = shiftMonthYM(y, m, 1); return addDays(firstOfMonth(ny, nm), -1); };
-const shiftMonthYM = (y, m, delta) => {
+const firstOfMonth = (y: number, m: number): string => `${y}-${String(m).padStart(2, "0")}-01`;
+const lastOfMonth = (y: number, m: number): string => { const { y: ny, m: nm } = shiftMonthYM(y, m, 1); return addDays(firstOfMonth(ny, nm), -1); };
+const shiftMonthYM = (y: number, m: number, delta: number): { y: number; m: number } => {
   const total = y * 12 + (m - 1) + delta;
   return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 + 1 };
 };
 
-function daysBetween(a, b) { return Math.ceil((new Date(a) - new Date(b)) / 86400000); }
-function daysUntil(dateStr) { return Math.ceil((new Date(dateStr) - new Date(today())) / 86400000); }
-function urgency(p) {
+function daysBetween(a: string, b: string): number { return Math.ceil((new Date(a).getTime() - new Date(b).getTime()) / 86400000); }
+function daysUntil(dateStr: string): number { return Math.ceil((new Date(dateStr).getTime() - new Date(today()).getTime()) / 86400000); }
+function urgency(p?: Product | null): "ok" | "critical" | "warn" {
   if (!p) return "ok";
   if (p.type === "session") {
     const remain = p.totalSessions - p.usedSessions;
@@ -91,34 +93,34 @@ function urgency(p) {
     if (remain <= 3) return "warn";
     return "ok";
   }
-  const remain = daysUntil(p.endDate);
+  const remain = daysUntil(p.endDate as string);
   if (remain <= 3) return "critical";
   if (remain <= 10) return "warn";
   return "ok";
 }
-function remainLabel(p) {
+function remainLabel(p: Product): string {
   if (p.type === "session") return `${p.totalSessions - p.usedSessions}회 남음 / 총 ${p.totalSessions}회`;
-  const remain = daysUntil(p.endDate);
+  const remain = daysUntil(p.endDate as string);
   return remain < 0 ? `만료 ${Math.abs(remain)}일 지남` : `${remain}일 남음`;
 }
-function shortRemain(p) {
+function shortRemain(p: Product): string {
   if (p.type === "session") return `${p.totalSessions - p.usedSessions}회`;
-  const remain = daysUntil(p.endDate);
+  const remain = daysUntil(p.endDate as string);
   return remain < 0 ? "만료" : `${remain}일`;
 }
-function progressPct(p) {
+function progressPct(p: Product): number {
   if (p.type === "session") return Math.max(0, Math.min(100, (p.usedSessions / p.totalSessions) * 100));
-  const total = daysBetween(p.endDate, p.startDate) || 1;
+  const total = daysBetween(p.endDate as string, p.startDate) || 1;
   const used = daysBetween(today(), p.startDate);
   return Math.max(0, Math.min(100, (used / total) * 100));
 }
-const countsAsUsed = (status) => status === "done" || status === "noshow";
-const getPaidAmount = (p) => (p.paidAmount !== undefined ? Number(p.paidAmount) || 0 : (p.paid ? Number(p.price || 0) : 0));
-const getUnpaidAmount = (p) => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
-const isFullyPaid = (p) => getUnpaidAmount(p) <= 0;
-const statusLabel = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
-const paymentMethodLabel = { card: "카드", cash: "현금", transfer: "계좌이체" };
-const urgencyRank = { critical: 0, warn: 1, ok: 2 };
+const countsAsUsed = (status: string): boolean => status === "done" || status === "noshow";
+const getPaidAmount = (p: Partial<Product> & { paid?: boolean }): number => (p.paidAmount !== undefined ? Number(p.paidAmount) || 0 : (p.paid ? Number(p.price || 0) : 0));
+const getUnpaidAmount = (p: Partial<Product> & { paid?: boolean }): number => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
+const isFullyPaid = (p: Partial<Product> & { paid?: boolean }): boolean => getUnpaidAmount(p) <= 0;
+const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
+const paymentMethodLabel: Record<string, string> = { card: "카드", cash: "현금", transfer: "계좌이체" };
+const urgencyRank: Record<string, number> = { critical: 0, warn: 1, ok: 2 };
 
 // 매출 계획(재등록 관리) 화면의 "주요 운동시간대" / "주당 평균 횟수" 계산용.
 // 자정~새벽(0-5시)은 밤 늦게 이어지는 활동으로 보고 "야간" 구간에 포함시킨다(hour+24 트릭).
@@ -129,20 +131,20 @@ const TIME_SLOTS = [
   { label: "저녁 (17-21시)", start: 17, end: 21 },
   { label: "야간 (21시 이후)", start: 21, end: 30 },
 ];
-const getTimeSlotLabel = (time) => {
+const getTimeSlotLabel = (time?: string | null): string | null => {
   const h = Number((time || "").split(":")[0]);
   if (Number.isNaN(h)) return null;
   const hour = h < 6 ? h + 24 : h;
   return (TIME_SLOTS.find((s) => hour >= s.start && hour < s.end) || TIME_SLOTS[TIME_SLOTS.length - 1]).label;
 };
 // doneReservations: 이미 status === "done"으로 필터링된, 특정 고객의 예약 목록
-function computeAttendanceStats(doneReservations) {
+function computeAttendanceStats(doneReservations?: Reservation[] | null) {
   if (!doneReservations || doneReservations.length === 0) {
-    return { timeSlotLabel: "-", weeklyAvgLabel: "-", recentVisits: [] };
+    return { timeSlotLabel: "-", weeklyAvgLabel: "-", recentVisits: [] as string[] };
   }
   const sorted = [...doneReservations].sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 
-  const slotCounts = {};
+  const slotCounts: Record<string, number> = {};
   sorted.forEach((r) => {
     const label = getTimeSlotLabel(r.time);
     if (label) slotCounts[label] = (slotCounts[label] || 0) + 1;
@@ -166,33 +168,35 @@ function computeAttendanceStats(doneReservations) {
 }
 
 const HOUR_START = 6, HOUR_END = 23, HOUR_PX = 36;
-const timeTopPx = (time) => { const [h, m] = time.split(":").map(Number); return ((h - HOUR_START) * 60 + m) * (HOUR_PX / 60); };
-const durHeightPx = (duration) => Math.max(22, duration * (HOUR_PX / 60));
+const timeTopPx = (time: string): number => { const [h, m] = time.split(":").map(Number); return ((h - HOUR_START) * 60 + m) * (HOUR_PX / 60); };
+const durHeightPx = (duration: number): number => Math.max(22, duration * (HOUR_PX / 60));
 // 그리드 클릭/드래그로 시간을 잡을 땐 정각·30분 단위로만 스냅한다.
 // 15분/20분처럼 세밀한 시간은 예약 등록 후 "날짜·시간 수정"에서 5분 단위로 조정하면 된다.
-const pxToTime = (offsetY) => {
+const pxToTime = (offsetY: number): string => {
   let totalMin = HOUR_START * 60 + offsetY / (HOUR_PX / 60);
   totalMin = Math.round(totalMin / 30) * 30;
   totalMin = Math.max(HOUR_START * 60, Math.min(HOUR_END * 60 - 30, totalMin));
   const h = Math.floor(totalMin / 60), m = totalMin % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
-const shiftMonth = (y, m, delta) => {
+const shiftMonth = (y: number, m: number, delta: number): { y: number; m: number } => {
   const total = y * 12 + (m - 1) + delta;
   return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 + 1 };
 };
-const monthKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
-const timeToMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
-const isPastDateTime = (date, time) => new Date(`${date}T${time}:00`).getTime() < Date.now();
-const minToTime = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+const monthKey = (y: number, m: number): string => `${y}-${String(m).padStart(2, "0")}`;
+const timeToMin = (t: string): number => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const isPastDateTime = (date: string, time: string): boolean => new Date(`${date}T${time}:00`).getTime() < Date.now();
+const minToTime = (min: number): string => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+
+type LaidOutReservation = Reservation & { start: number; end: number; col?: number; columnCount?: number };
 
 // 같은 시간대에 겹치는 예약을 나란히 배치하기 위한 열(column) 계산
-function layoutDayReservations(dayRes) {
-  const events = dayRes
+function layoutDayReservations(dayRes: Reservation[]): LaidOutReservation[] {
+  const events: LaidOutReservation[] = dayRes
     .map((r) => ({ ...r, start: timeToMin(r.time), end: timeToMin(r.time) + (r.duration || 50) }))
     .sort((a, b) => a.start - b.start || a.end - b.end);
-  const result = [];
-  let cluster = null;
+  const result: { events: LaidOutReservation[]; maxEnd: number }[] = [];
+  let cluster: { events: LaidOutReservation[]; maxEnd: number } | null = null;
   events.forEach((ev) => {
     if (cluster && ev.start < cluster.maxEnd) {
       cluster.events.push(ev);
@@ -202,9 +206,9 @@ function layoutDayReservations(dayRes) {
       result.push(cluster);
     }
   });
-  const laidOut = [];
+  const laidOut: LaidOutReservation[] = [];
   result.forEach((c) => {
-    const colEnds = [];
+    const colEnds: number[] = [];
     c.events.forEach((ev) => {
       let placed = false;
       for (let i = 0; i < colEnds.length; i++) {
@@ -219,40 +223,40 @@ function layoutDayReservations(dayRes) {
 }
 
 export default function PTMemberManager() {
-  const [customers, setCustomers] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [reservations, setReservations] = useState([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState("schedule");
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("urgent");
-  const [quickFilter, setQuickFilter] = useState(null); // remain5 | remain10 | inactive10 | inactive20 | dormant | null
+  const [quickFilter, setQuickFilter] = useState<string | null>(null); // remain5 | remain10 | inactive10 | inactive20 | dormant | null
   const [toast, setToast] = useState("");
 
   const [showCustomerForm, setShowCustomerForm] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkText, setBulkText] = useState("");
-  const [editingCustomerId, setEditingCustomerId] = useState(null);
+  const [editingCustomerId, setEditingCustomerId] = useState<string | null>(null);
   const [customerForm, setCustomerForm] = useState(emptyCustomer);
 
   const [showProductForm, setShowProductForm] = useState(false);
-  const [productFormCustomerId, setProductFormCustomerId] = useState(null);
-  const [editingProductId, setEditingProductId] = useState(null);
+  const [productFormCustomerId, setProductFormCustomerId] = useState<string | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productForm, setProductForm] = useState(emptyProduct);
 
-  const [customerDetailId, setCustomerDetailId] = useState(null);
+  const [customerDetailId, setCustomerDetailId] = useState<string | null>(null);
   const [customerDetailTab, setCustomerDetailTab] = useState("home");
-  const [expandedWorkoutNotes, setExpandedWorkoutNotes] = useState({});
+  const [expandedWorkoutNotes, setExpandedWorkoutNotes] = useState<Record<string, boolean>>({});
 
   // ---- 공용 삭제 확인 다이얼로그 ----
-  const [confirmState, setConfirmState] = useState(null); // { message, confirmLabel, onConfirm }
-  const askConfirm = (message, onConfirm, confirmLabel = "삭제") => setConfirmState({ message, onConfirm, confirmLabel });
+  const [confirmState, setConfirmState] = useState<{ message: string; onConfirm: () => void; confirmLabel: string } | null>(null);
+  const askConfirm = (message: string, onConfirm: () => void, confirmLabel = "삭제") => setConfirmState({ message, onConfirm, confirmLabel });
 
-  const [resSheetProductId, setResSheetProductId] = useState(null);
-  const [ctxMenu, setCtxMenu] = useState(null); // { x, y, reservation }
-  const [hoverInfo, setHoverInfo] = useState(null); // { x, y, reservation }
-  const hoverHideTimer = useRef(null);
-  const showHoverInfo = (r, x, y) => {
+  const [resSheetProductId, setResSheetProductId] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; reservation: Reservation } | null>(null);
+  const [hoverInfo, setHoverInfo] = useState<{ x: number; y: number; reservation: Reservation } | null>(null);
+  const hoverHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showHoverInfo = (r: Reservation, x: number, y: number) => {
     if (hoverHideTimer.current) clearTimeout(hoverHideTimer.current);
     setHoverInfo({ x, y, reservation: r });
   };
@@ -296,9 +300,9 @@ export default function PTMemberManager() {
   const [settings, setSettings] = useState(defaultSettings);
   const [showSettings, setShowSettings] = useState(false);
 
-  const [catalog, setCatalog] = useState([]);
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [showCatalogForm, setShowCatalogForm] = useState(false);
-  const [editingCatalogId, setEditingCatalogId] = useState(null);
+  const [editingCatalogId, setEditingCatalogId] = useState<string | null>(null);
   const [catalogForm, setCatalogForm] = useState(emptyCatalogItem);
   const [catalogCategoryTab, setCatalogCategoryTab] = useState("all");
   const [productCatalogPick, setProductCatalogPick] = useState("");
@@ -310,9 +314,9 @@ export default function PTMemberManager() {
 
   // ---- 재등록 예정(파이프라인) ----
   const emptyForecast = { customerId: "", targetMonth: today().slice(0, 7), expectedSessions: "", expectedAmount: 0, note: "" };
-  const [renewalForecasts, setRenewalForecasts] = useState([]);
+  const [renewalForecasts, setRenewalForecasts] = useState<RenewalForecast[]>([]);
   const [showForecastForm, setShowForecastForm] = useState(false);
-  const [editingForecastId, setEditingForecastId] = useState(null);
+  const [editingForecastId, setEditingForecastId] = useState<string | null>(null);
   const [forecastForm, setForecastForm] = useState(emptyForecast);
   const [forecastMonth, setForecastMonth] = useState(today().slice(0, 7));
   const [forecastQuery, setForecastQuery] = useState("");
@@ -714,10 +718,10 @@ export default function PTMemberManager() {
   };
 
   // ---- 출석(완료) 처리 전 서명 받기 ----
-  const [signatureRes, setSignatureRes] = useState(null);
-  const requestCompleteReservation = (r) => setSignatureRes(r);
+  const [signatureRes, setSignatureRes] = useState<Reservation | null>(null);
+  const requestCompleteReservation = (r: Reservation) => setSignatureRes(r);
   // 서명 직후, 수기 PT 세션 카드를 대체하는 "몇 회 중 몇 회 사용" 요약을 한 번 보여준다.
-  const [sessionCardResId, setSessionCardResId] = useState(null);
+  const [sessionCardResId, setSessionCardResId] = useState<string | null>(null);
   const submitSignatureAndComplete = async (blob, workoutNote) => {
     if (!signatureRes) return;
     try {
@@ -745,12 +749,12 @@ export default function PTMemberManager() {
   };
 
   // ---- 반복 예약: 이 예약만 / 이후 전체 선택 처리 ----
-  const [seriesPrompt, setSeriesPrompt] = useState(null); // { reservation, action: 'cancel' | 'delete' }
-  const requestCancelReservation = (r) => {
+  const [seriesPrompt, setSeriesPrompt] = useState<{ reservation: Reservation; action: "cancel" | "delete" } | null>(null);
+  const requestCancelReservation = (r: Reservation) => {
     if (r.seriesId) setSeriesPrompt({ reservation: r, action: "cancel" });
     else setReservationStatus(r.id, "cancelled");
   };
-  const requestDeleteReservation = (r) => {
+  const requestDeleteReservation = (r: Reservation) => {
     if (r.seriesId) { setSeriesPrompt({ reservation: r, action: "delete" }); return; }
     const label = r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`;
     askConfirm(`${koDate(r.date)} ${r.time} "${label}" 예약을 삭제할까요?`, () => deleteReservation(r.id));
@@ -801,10 +805,10 @@ export default function PTMemberManager() {
   };
 
   // ---- 드래그로 예약 시간/요일 이동 ----
-  const [dragResId, setDragResId] = useState(null);
-  const [dragOverDate, setDragOverDate] = useState(null);
-  const [gridHover, setGridHover] = useState(null); // { x, y, date, time }
-  const moveReservation = async (resId, newDate, newTime) => {
+  const [dragResId, setDragResId] = useState<string | null>(null);
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [gridHover, setGridHover] = useState<{ x: number; y: number; date: string; time: string } | null>(null);
+  const moveReservation = async (resId: string, newDate: string, newTime: string) => {
     try {
       const updated = await db.updateReservation(resId, { date: newDate, time: newTime });
       setReservations((prev) => prev.map((r) => (r.id === resId ? updated : r)));
@@ -813,7 +817,7 @@ export default function PTMemberManager() {
   };
 
   // ---- 드롭다운으로 예약 시간 정확히 수정 ----
-  const [timeEditRes, setTimeEditRes] = useState(null);
+  const [timeEditRes, setTimeEditRes] = useState<Reservation | null>(null);
   const [timeEditForm, setTimeEditForm] = useState({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
   const openTimeEdit = (r) => {
     const [h, m] = r.time.split(":");
