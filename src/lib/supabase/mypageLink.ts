@@ -21,15 +21,15 @@ export async function linkMypageMember(supabase: Awaited<ReturnType<typeof creat
     .maybeSingle();
 
   if (!alreadyLinked) {
+    // 같은 이메일을 쓰는 미연결 고객이 2명 이상이면 임의로 아무나 연결하지 않는다 —
+    // requestMypageLink에서 이미 이 경우를 걸러내지만, 방어적으로 여기서도 한 번 더 확인한다.
     const { data: matched } = await admin
       .from("customers")
       .select("id")
       .ilike("email", user.email ?? "")
-      .is("auth_user_id", null)
-      .limit(1)
-      .maybeSingle();
-    if (!matched) return; // 매칭 실패 - /mypage 쪽에서 안내 후 로그아웃 처리
-    await admin.from("customers").update({ auth_user_id: user.id }).eq("id", matched.id);
+      .is("auth_user_id", null);
+    if (!matched || matched.length !== 1) return; // 매칭 실패/중복 - /mypage 쪽에서 안내 후 로그아웃 처리
+    await admin.from("customers").update({ auth_user_id: user.id }).eq("id", matched[0].id);
   }
 
   await admin.auth.admin.updateUserById(user.id, { app_metadata: { role: "member" } });

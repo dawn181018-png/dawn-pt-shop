@@ -14,18 +14,23 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
   try {
     // 로그인 전 이메일 매칭이라 일반 클라이언트로는 customers를 조회할 RLS 권한이 없다 -> admin 클라이언트 필요.
     const admin = createAdminClient();
+    // limit(1)로 하나만 가져오면 같은 이메일을 쓰는 고객이 여러 명일 때(예: 가족이 이메일을 공유하는
+    // 경우) 어느 쪽이 연결될지 예측할 수 없어 다른 사람의 예약/결제 정보가 보일 위험이 있다.
+    // 그래서 전체를 가져와 몇 건인지 먼저 확인한다.
     const { data: matched, error: lookupError } = await admin
       .from("customers")
       .select("id")
-      .ilike("email", email)
-      .limit(1)
-      .maybeSingle();
+      .ilike("email", email);
 
     if (lookupError) {
       console.error("[mypage-login] customers 조회 실패:", lookupError.message);
       return { ok: false, error: "확인 중 오류가 발생했어요. 잠시 후 다시 시도해주세요" };
     }
-    if (!matched) return { ok: false, error: "등록된 회원 정보가 없습니다" };
+    if (!matched || matched.length === 0) return { ok: false, error: "등록된 회원 정보가 없습니다" };
+    if (matched.length > 1) {
+      console.error("[mypage-login] 이메일 중복 매칭:", email, matched.length, "건");
+      return { ok: false, error: "이 이메일로 등록된 회원 정보가 여러 건이라 자동으로 확인할 수 없어요. 담당 트레이너에게 문의해주세요" };
+    }
 
     // 링크 클릭 방식은 메일 앱 내장 브라우저에서 PKCE 세션 저장소가 달라져 실패하는 경우가 많아,
     // 이메일에 같이 오는 인증 코드(숫자)를 입력받는 방식을 기본으로 쓴다. emailRedirectTo는 혹시
