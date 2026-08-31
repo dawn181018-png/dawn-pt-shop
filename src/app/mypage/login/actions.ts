@@ -41,16 +41,12 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
 
     if (error) {
       console.error("[mypage-login] signInWithOtp 실패:", error.name, error.status, error.message);
-      const detail = error.message || error.name || `status ${error.status}` || "unknown";
-      // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
-      return { ok: false, error: `[진단용] ${detail}` };
+      return { ok: false, error: "인증 코드 전송에 실패했어요. 잠시 후 다시 시도해주세요" };
     }
     return { ok: true };
   } catch (err) {
-    const message = err instanceof Error ? err.message : JSON.stringify(err, Object.getOwnPropertyNames(err ?? {}));
     console.error("[mypage-login] 예상치 못한 오류:", err);
-    // TODO: 원인 확인되면 사용자 노출용 일반 메시지로 되돌리기
-    return { ok: false, error: `[진단용] 예상치 못한 오류: ${message}` };
+    return { ok: false, error: "확인 중 오류가 발생했어요. 잠시 후 다시 시도해주세요" };
   }
 }
 

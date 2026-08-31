@@ -1436,7 +1436,7 @@ export default function PTMemberManager() {
                 <tbody>
                   {acctRows.map((r) => (
                     <tr key={r.id}>
-                      <td>{koDate(toLocalDateStr(new Date(r.createdAt || Date.now())))}</td>
+                      <td>{koDate(toLocalDateStr(new Date(r.createdAt || now.getTime())))}</td>
                       <td>{r.customerName}</td>
                       <td>{r.phone || "-"}</td>
                       <td>{r.name}</td>
@@ -1620,7 +1620,7 @@ export default function PTMemberManager() {
             </div>
           </div>
           <div className="ptm-no-product-msg" style={{ marginTop: -6, marginBottom: 14 }}>
-            등록 매출은 이용권을 등록·결제한 시점 기준이고, 세션 매출은 그 레슨을 실제로 "완료" 처리한 시점 기준이라 서로 다를 수 있어요.
+            등록 매출은 이용권을 등록·결제한 시점 기준이고, 세션 매출은 그 레슨을 실제로 &ldquo;완료&rdquo; 처리한 시점 기준이라 서로 다를 수 있어요.
           </div>
 
           <div className="ptm-stats-compare">
@@ -1875,7 +1875,7 @@ export default function PTMemberManager() {
               {customerDetailTab === "home" && (
                 <>
                   <div className="ptm-detail-stats">
-                    <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{koDate(toLocalDateStr(new Date(cust.createdAt || Date.now())))}</div><div className="ptm-detail-stat-label">등록일</div></div>
+                    <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{koDate(toLocalDateStr(new Date(cust.createdAt || now.getTime())))}</div><div className="ptm-detail-stat-label">등록일</div></div>
                     <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{custProducts.length}개</div><div className="ptm-detail-stat-label">보유 상품</div></div>
                     <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{totalPaid.toLocaleString()}원</div><div className="ptm-detail-stat-label">누적 결제금액</div></div>
                     <div className="ptm-detail-stat" style={totalUnpaid > 0 ? { color: "var(--coral)" } : {}}><div className="ptm-detail-stat-num">{totalUnpaid.toLocaleString()}원</div><div className="ptm-detail-stat-label">미수금</div></div>
