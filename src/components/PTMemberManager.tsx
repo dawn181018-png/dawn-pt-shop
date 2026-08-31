@@ -2289,7 +2289,7 @@ export default function PTMemberManager() {
                     <span className={`ptm-res-badge ${r.status}`}>{statusLabel[r.status]}</span>
                   </div>
                   {r.memo && <div className="ptm-res-memo">{r.memo}</div>}
-                  {r.signatureUrl && <SignatureThumb path={r.signatureUrl} />}
+                  {r.status === "noshow" ? <span className="ptm-noshow-mark">NO SHOW</span> : r.signatureUrl && <SignatureThumb path={r.signatureUrl} />}
                   <div className="ptm-res-actions">
                     {r.status !== "done" && <button className="ptm-res-btn" onClick={() => requestCompleteReservation(r)}><Check size={12} /> 완료</button>}
                     {r.status !== "noshow" && <button className="ptm-res-btn" onClick={() => setReservationStatus(r.id, "noshow")}><UserX size={12} /> 노쇼</button>}
@@ -2763,7 +2763,7 @@ export default function PTMemberManager() {
         const customer = res && customers.find((c) => c.id === res.customerId);
         if (!res || !product || !customer) return null;
         const history = [...reservations]
-          .filter((r) => r.productId === product.id && r.status === "done")
+          .filter((r) => r.productId === product.id && (r.status === "done" || r.status === "noshow"))
           .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
         const remaining = Math.max(0, product.totalSessions - product.usedSessions);
         // 총 등록 횟수만큼 자리를 미리 깔아두고(수기 사인지처럼) 앞에서부터 채워, 등록한 세션 전체와
@@ -2788,7 +2788,7 @@ export default function PTMemberManager() {
             <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
               <td>{offset + i + 1}</td>
               <td>{r ? `${koDate(r.date)} ${r.time}` : "-"}</td>
-              <td>{r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : (slot.used ? "check" : "-")}</td>
+              <td>{r && r.status === "noshow" ? <span className="ptm-noshow-mark">NO SHOW</span> : r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : (slot.used ? "check" : "-")}</td>
             </tr>
           );
         });
@@ -2836,7 +2836,7 @@ export default function PTMemberManager() {
                         <tr key={r.id} className={r.id === res.id ? "ptm-session-card-highlight" : ""}>
                           <td>{i + 1}</td>
                           <td>{koDate(r.date)} {r.time}</td>
-                          <td>{r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : "-"}</td>
+                          <td>{r.status === "noshow" ? <span className="ptm-noshow-mark">NO SHOW</span> : r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : "-"}</td>
                         </tr>
                       ))}
                     </tbody>

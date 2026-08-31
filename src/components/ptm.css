@@ -267,6 +267,7 @@
 .ptm-signature-actions .ptm-save-btn { flex:1; }
 .ptm-signature-actions .ptm-save-btn:disabled { opacity:0.5; cursor:not-allowed; }
 .ptm-signature-thumb { display:block; max-width:160px; max-height:70px; border:1px solid var(--line); border-radius:6px; background:#ffffff; margin-top:6px; cursor:pointer; }
+.ptm-noshow-mark { display:inline-block; color:var(--coral); font-weight:800; font-size:13px; letter-spacing:0.3px; }
 
 @media (max-width:600px) { .ptm-signature-canvas { height:200px; } }
 
