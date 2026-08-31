@@ -1,4 +1,3 @@
-// @ts-nocheck
 // "상품판매" 탭: PT 상품을 신규/재등록 판매하면서 계약서 서명까지 한 번에 진행하는 3단계 화면.
 // 1) 고객 검색(재등록) 또는 신규 등록  2) 상품(이용권) 선택 및 가격/결제 입력  3) 계약서 숙지 후 서명
 // 고객/상품/서명은 3단계에서 서명을 완료한 순간에만 한 번에 DB에 반영한다 — 중간에 화면을 닫으면
@@ -11,11 +10,20 @@ import SignaturePad from "signature_pad";
 import * as db from "@/lib/db";
 import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
+import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, Gender } from "@/lib/types";
 
-const isPhoneLike = (v) => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
+const isPhoneLike = (v: string): boolean => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
 
-const emptyCustomerForm = { name: "", gender: "", phone: "", birthdate: "" };
-const emptyProductForm = {
+// 이 화면 전용 폼 모양(엔티티 타입과 다르게 id 없음, 날짜가 문자열, gender가 빈 문자열 허용 등).
+type SaleCustomerForm = { name: string; gender: string; phone: string; birthdate: string };
+type SaleProductForm = {
+  name: string; type: ProductType;
+  totalSessions: number; usedSessions: number;
+  startDate: string; endDate: string;
+  sessionDuration: number; listPrice: number; price: number; paidAmount: number; paymentMethod: PaymentMethod;
+};
+const emptyCustomerForm: SaleCustomerForm = { name: "", gender: "", phone: "", birthdate: "" };
+const emptyProductForm: SaleProductForm = {
   name: "", type: "session",
   totalSessions: 10, usedSessions: 0,
   startDate: today(), endDate: "",
@@ -46,21 +54,28 @@ const CONTRACT_SECTIONS = [
   },
 ];
 
-export default function ProductSaleWizard({ customers, catalog, onSaleComplete, flash }) {
+type ProductSaleWizardProps = {
+  customers: Customer[];
+  catalog: CatalogItem[];
+  onSaleComplete: (customer: Customer, product: Product, isNewCustomer: boolean) => void;
+  flash: (msg: string) => void;
+};
+
+export default function ProductSaleWizard({ customers, catalog, onSaleComplete, flash }: ProductSaleWizardProps) {
   const [step, setStep] = useState(1);
 
   // ---- 1단계: 고객 검색/등록 ----
   const [query, setQuery] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState(null); // 기존 고객을 선택하면 채워짐(재등록)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null); // 기존 고객을 선택하면 채워짐(재등록)
   const [isNewCustomer, setIsNewCustomer] = useState(false);
-  const [customerForm, setCustomerForm] = useState(emptyCustomerForm);
+  const [customerForm, setCustomerForm] = useState<SaleCustomerForm>(emptyCustomerForm);
 
   const matches = useMemo(() => {
     if (!query.trim()) return [];
     return customers.filter((c) => c.name.includes(query) || (c.phone || "").includes(query)).slice(0, 8);
   }, [customers, query]);
 
-  const pickExistingCustomer = (c) => {
+  const pickExistingCustomer = (c: Customer) => {
     setSelectedCustomer(c);
     setIsNewCustomer(false);
     setCustomerForm({ name: c.name, gender: c.gender || "", phone: c.phone || "", birthdate: c.birthdate || "" });
@@ -83,9 +98,9 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
   };
 
   // ---- 2단계: 상품 선택/가격 ----
-  const [productForm, setProductForm] = useState(emptyProductForm);
+  const [productForm, setProductForm] = useState<SaleProductForm>(emptyProductForm);
   const [catalogPick, setCatalogPick] = useState("");
-  const applyCatalogItem = (id) => {
+  const applyCatalogItem = (id: string) => {
     setCatalogPick(id);
     const item = catalog.find((c) => c.id === id);
     if (!item) return;
@@ -107,8 +122,8 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
 
   // ---- 3단계: 계약서 숙지 + 서명 ----
   const [agreed, setAgreed] = useState(false);
-  const canvasRef = useRef(null);
-  const padRef = useRef(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const padRef = useRef<SignaturePad | null>(null);
   const [isSignatureEmpty, setIsSignatureEmpty] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -155,11 +170,12 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
     if (!pad || pad.isEmpty() || saving) return;
     setSaving(true);
     try {
-      let customer = selectedCustomer;
+      // isNewCustomer가 아니면 1단계에서 이미 고른 기존 고객이 반드시 있다(그래야 2단계로 넘어올 수 있음).
+      let customer = selectedCustomer as Customer;
       if (isNewCustomer) {
         customer = await db.insertCustomer({
           name: customerForm.name,
-          gender: emptyToNull(customerForm.gender),
+          gender: emptyToNull(customerForm.gender) as Gender | null,
           phone: customerForm.phone,
           birthdate: emptyToNull(customerForm.birthdate),
         });
