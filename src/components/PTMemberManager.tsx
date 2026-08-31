@@ -257,7 +257,7 @@ export default function PTMemberManager() {
   const [view, setView] = useState("schedule");
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("urgent");
-  const [quickFilter, setQuickFilter] = useState<string | null>(null); // remain5 | remain10 | inactive10 | inactive20 | dormant | null
+  const [quickFilter, setQuickFilter] = useState<string | null>(null); // remain5 | remain10 | inactive10 | inactive20 | dormant | urgent | unpaid | null
   const [toast, setToast] = useState("");
 
   const [showCustomerForm, setShowCustomerForm] = useState(false);
@@ -896,6 +896,8 @@ export default function PTMemberManager() {
     else if (quickFilter === "inactive10") list = list.filter((c) => c.daysSinceVisit >= 10);
     else if (quickFilter === "inactive20") list = list.filter((c) => c.daysSinceVisit >= 20);
     else if (quickFilter === "dormant") list = list.filter((c) => c.isDormant);
+    else if (quickFilter === "urgent") list = list.filter((c) => c.worst !== "ok" && c.worst !== "none");
+    else if (quickFilter === "unpaid") list = list.filter((c) => c.hasUnpaid);
     if (sortMode === "urgent") list = [...list].sort((a, b) => (urgencyRank[a.worst] ?? 3) - (urgencyRank[b.worst] ?? 3));
     else if (sortMode === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name, "ko"));
     else list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
@@ -1298,10 +1300,28 @@ export default function PTMemberManager() {
         <>
           <div className="ptm-stats">
             <div className="ptm-stat"><div className="ptm-stat-num">{stats.total}</div><div className="ptm-stat-label">전체 고객</div></div>
-            <div className={`ptm-stat ${stats.lowSessions > 0 ? "warn" : ""}`}><div className="ptm-stat-num">{stats.lowSessions}</div><div className="ptm-stat-label">임박 상품</div></div>
-            <div className={`ptm-stat ${stats.unpaid > 0 ? "bad" : ""}`}><div className="ptm-stat-num">{stats.unpaid}</div><div className="ptm-stat-label">미수금</div></div>
-            <div className="ptm-stat"><div className="ptm-stat-num">{stats.todayCount}</div><div className="ptm-stat-label">오늘 예약</div></div>
-            <div className={`ptm-stat clickable ${quickFilter === "dormant" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "dormant" ? null : "dormant")}>
+            <div
+              className={`ptm-stat clickable ${stats.lowSessions > 0 ? "warn" : ""} ${quickFilter === "urgent" ? "active" : ""}`}
+              title="잔여 3회 이하(횟수제) 또는 종료 10일 이내(기간제) 이용권을 가진 고객"
+              onClick={() => setQuickFilter(quickFilter === "urgent" ? null : "urgent")}
+            >
+              <div className="ptm-stat-num">{stats.lowSessions}</div><div className="ptm-stat-label">임박 상품</div>
+            </div>
+            <div
+              className={`ptm-stat clickable ${stats.unpaid > 0 ? "bad" : ""} ${quickFilter === "unpaid" ? "active" : ""}`}
+              title="이용권 대금을 다 못 받은 고객"
+              onClick={() => setQuickFilter(quickFilter === "unpaid" ? null : "unpaid")}
+            >
+              <div className="ptm-stat-num">{stats.unpaid}</div><div className="ptm-stat-label">미수금</div>
+            </div>
+            <div
+              className="ptm-stat clickable"
+              title="오늘 예정된 예약 — 클릭하면 스케줄 화면으로 이동해요"
+              onClick={() => { setWeekStart(mondayOf(today())); setView("schedule"); }}
+            >
+              <div className="ptm-stat-num">{stats.todayCount}</div><div className="ptm-stat-label">오늘 예약</div>
+            </div>
+            <div className={`ptm-stat clickable ${quickFilter === "dormant" ? "active" : ""}`} title="트레이너가 직접 휴면으로 표시한 고객" onClick={() => setQuickFilter(quickFilter === "dormant" ? null : "dormant")}>
               <div className="ptm-stat-num">{stats.dormant}</div><div className="ptm-stat-label">휴면 고객</div>
             </div>
           </div>
