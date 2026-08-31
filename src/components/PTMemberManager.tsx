@@ -953,9 +953,12 @@ export default function PTMemberManager() {
     const total = customers.length;
     const lowSessions = customerSummary.filter((c) => c.worst !== "ok" && c.worst !== "none").length;
     const unpaid = customerSummary.filter((c) => c.hasUnpaid).length;
+    // 취소된 건은 오늘 일정이 아니므로 총 건수에서 제외하고, 그중 아직 예정(완료/노쇼 처리 전)인
+    // 건수를 따로 세서 "총/예정"으로 함께 보여준다.
+    const todayTotal = todaySchedule.filter((r) => r.status !== "cancelled").length;
     const todayCount = todaySchedule.filter((r) => r.status === "scheduled").length;
     const dormant = customers.filter((c) => c.isDormant).length;
-    return { total, lowSessions, unpaid, todayCount, dormant };
+    return { total, lowSessions, unpaid, todayTotal, todayCount, dormant };
   }, [customers, customerSummary, todaySchedule]);
 
   const resSheetProduct = products.find((p) => p.id === resSheetProductId);
@@ -1324,10 +1327,10 @@ export default function PTMemberManager() {
             </div>
             <div
               className="ptm-stat clickable"
-              title="오늘 예정된 예약 — 클릭하면 스케줄 화면으로 이동해요"
+              title={`오늘 총 ${stats.todayTotal}건 중 ${stats.todayCount}건 예정(아직 완료/노쇼 처리 전) — 클릭하면 스케줄 화면으로 이동해요`}
               onClick={() => { setWeekStart(mondayOf(today())); setView("schedule"); }}
             >
-              <div className="ptm-stat-num">{stats.todayCount}</div><div className="ptm-stat-label">오늘 예약</div>
+              <div className="ptm-stat-num">{stats.todayTotal}/{stats.todayCount}</div><div className="ptm-stat-label">오늘 예약 (총/예정)</div>
             </div>
             <div className={`ptm-stat clickable ${quickFilter === "dormant" ? "active" : ""}`} title="트레이너가 직접 휴면으로 표시한 고객" onClick={() => setQuickFilter(quickFilter === "dormant" ? null : "dormant")}>
               <div className="ptm-stat-num">{stats.dormant}</div><div className="ptm-stat-label">휴면 고객</div>
