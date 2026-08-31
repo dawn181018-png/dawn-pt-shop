@@ -1076,7 +1076,8 @@ export default function PTMemberManager() {
         // 잔여횟수를 모두 합산한다 (예전 이용권이 거의 소진돼도 새 이용권이 넉넉하면 시급하지 않음).
         const totalRemain = ticketCount ? sessionProducts.reduce((s, p) => s + (p.totalSessions - p.usedSessions), 0) : null;
         const remainDetail = ticketCount ? sessionProducts.map((p) => `${p.totalSessions - p.usedSessions}회`).join(" / ") : "-";
-        const remainSummary = totalRemain !== null ? `${totalRemain}회${ticketCount > 1 ? ` (이용권 ${ticketCount}개 보유)` : ""}` : "-";
+        const remainSessionsShort = ticketCount ? sessionProducts.map((p) => `${p.totalSessions - p.usedSessions}s`).join("/") : "";
+        const remainSummary = totalRemain !== null ? `${totalRemain}회${ticketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
         const actual = monthProducts.reduce((s, p) => s + Number(p.price || 0), 0);
         const expectedSessions = f ? f.expectedSessions : null;
