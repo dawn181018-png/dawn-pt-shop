@@ -16,6 +16,7 @@ import SignatureModal from "./SignatureModal";
 import ProductSaleWizard from "./ProductSaleWizard";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
+import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import "./ptm.css";
 
 function SignatureThumb({ path }) {
@@ -29,12 +30,6 @@ function SignatureThumb({ path }) {
   return <img src={url} alt="서명" className="ptm-signature-thumb" onClick={() => window.open(url, "_blank")} />;
 }
 
-// epoch/Date 절대시각을 "브라우저 로컬 기준" 날짜 문자열로 변환.
-// toISOString()은 UTC 기준이라, UTC+9(한국)에서도 자정~오전 9시 사이엔 하루 전 날짜로 밀리는 버그가 있었다.
-function toLocalDateStr(d) {
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
 const emptyCustomer = { name: "", phone: "", birthdate: "", email: "", memo: "" };
 const emptyProduct = {
   name: "", type: "session",
@@ -46,10 +41,7 @@ const emptyProduct = {
 const emptyCatalogItem = { name: "", category: "daily_pt", sessions: 10, months: 1, periodUnit: "month", price: 0, sessionDuration: 50 };
 const defaultSettings = { baseSalary: 300000, commissionRate: 10, deductionRate: 3.3 };
 
-const today = () => toLocalDateStr(new Date());
 const nowTime = () => new Date().toTimeString().slice(0, 5);
-const addDays = (dateStr, n) => { const d = new Date(dateStr); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-const addMonths = (dateStr, n) => { const d = new Date(dateStr); d.setMonth(d.getMonth() + Number(n)); return d.toISOString().slice(0, 10); };
 const newId = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`);
 const repeatLabel = { none: "안함", daily: "매일", weekly: "매주", biweekly: "2주마다", monthly: "매월", yearly: "매년" };
 // 반복 선택 시 "취소 전까지 계속" 느낌을 주기 위해 기본으로 넉넉히 생성해두는 횟수 (나중에 직접 줄이거나 늘릴 수 있음)
@@ -190,16 +182,6 @@ const shiftMonth = (y, m, delta) => {
   return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 + 1 };
 };
 const monthKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
-const fmtNum = (n) => { const num = Number(n); return isNaN(num) ? "" : num.toLocaleString("ko-KR"); };
-const parseNum = (str) => { const digits = String(str).replace(/[^0-9]/g, ""); return digits === "" ? 0 : Number(digits); };
-const formatPhone = (v) => {
-  const digits = String(v).replace(/[^0-9]/g, "").slice(0, 11);
-  if (digits.length < 4) return digits;
-  if (digits.length < 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
-};
-// date 타입 컬럼에 빈 문자열("")을 그대로 보내면 Postgres가 거부하므로 null로 치환
-const emptyToNull = (v) => (v === "" || v === undefined ? null : v);
 const timeToMin = (t) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const isPastDateTime = (date, time) => new Date(`${date}T${time}:00`).getTime() < Date.now();
 const minToTime = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;

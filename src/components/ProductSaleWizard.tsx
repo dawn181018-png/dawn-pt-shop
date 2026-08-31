@@ -10,23 +10,8 @@ import { Search, Check, ChevronLeft } from "lucide-react";
 import SignaturePad from "signature_pad";
 import * as db from "@/lib/db";
 import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
+import { today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 
-const toLocalDateStr = (d) => {
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-const today = () => toLocalDateStr(new Date());
-const addMonths = (dateStr, n) => { const d = new Date(dateStr); d.setMonth(d.getMonth() + Number(n)); return toLocalDateStr(d); };
-const addDays = (dateStr, n) => { const d = new Date(dateStr); d.setDate(d.getDate() + Number(n)); return toLocalDateStr(d); };
-const fmtNum = (n) => { const num = Number(n); return isNaN(num) ? "" : num.toLocaleString("ko-KR"); };
-const parseNum = (str) => { const digits = String(str).replace(/[^0-9]/g, ""); return digits === "" ? 0 : Number(digits); };
-const formatPhone = (v) => {
-  const digits = String(v).replace(/[^0-9]/g, "").slice(0, 11);
-  if (digits.length < 4) return digits;
-  if (digits.length < 8) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
-};
-const emptyToNull = (v) => (v === "" || v === undefined ? null : v);
 const isPhoneLike = (v) => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
 
 const emptyCustomerForm = { name: "", gender: "", phone: "", birthdate: "" };
