@@ -2077,7 +2077,7 @@ export default function PTMemberManager() {
                           <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th></tr></thead>
                           <tbody>
                             {[...custProducts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((p) => (
-                              <tr key={p.id}>
+                              <tr key={p.id} className="ptm-row-clickable" onClick={() => openEditProduct(p)}>
                                 <td>{koDate(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
                                 <td>{p.name}</td>
                                 <td>{Number(p.listPrice ?? p.price ?? 0).toLocaleString()}원</td>
