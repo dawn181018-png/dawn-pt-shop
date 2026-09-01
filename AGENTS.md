@@ -8,12 +8,16 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 The owner runs this project solo, often mid-PT-session on a phone, and can't babysit permission prompts. `.claude/settings.json` is configured accordingly (`defaultMode: "auto"`, broad `allow` list for routine dev work). Match that spirit in how you work:
 
-- **Don't ask before**: editing/reading/writing files, adding features, UI changes, `npm install`, running tests, `git add`/`git commit`, and other everyday dev work. Just do it.
+- **Don't ask before**: editing/reading/writing files, adding features, UI changes, `npm install`, running tests, `git add`/`git commit`, `git push` to `main`, and other everyday dev work. Just do it. (Owner explicitly lifted the push-confirmation requirement on 2026-09-01 — see below.)
+- **Regular `git push` no longer needs confirmation.** Push to `main` right after committing, then always check the Vercel deploy status and report success/failure back in plain language — don't just say "pushed."
 - **Do stop and ask first** — every time, no standing approval — for anything that could destroy or irreversibly change existing data:
   - `DROP TABLE`, `TRUNCATE`, unconditional `DELETE FROM` (no `WHERE`), dropping/recreating a column or table, any direct write to the production Supabase database outside normal app code paths
-  - `git push --force` (or any history-rewriting push)
+  - `git push --force` (or any history-rewriting push) — this stays a stop-and-ask case, the owner only lifted confirmation for regular pushes
   - bulk/recursive file or folder deletion
-  - **Regular `git push` is also a stop-and-ask case here** — even though it's not "destructive," a push to `main` triggers the Vercel production deploy the owner's live gym uses, so confirm in chat before every push regardless of how routine everything else is.
+
+## Reporting back to the owner
+
+The owner is non-technical and does not read code — file:line references and diff-style summaries don't land. After making a change, report in plain language: what was wrong/what was added (one line), what to check on screen (one line). Skip code references entirely unless the owner asks to see the code.
 
 ## Self-check before schema/deploy work
 
