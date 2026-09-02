@@ -38,6 +38,13 @@ function progressPct(p: Product) {
   const used = Math.ceil((new Date(today()).getTime() - new Date(p.startDate).getTime()) / 86400000);
   return Math.max(0, Math.min(100, (used / total) * 100));
 }
+function isDepleted(p: Product): boolean {
+  if (p.type === "session") return p.totalSessions - p.usedSessions <= 0;
+  return daysUntil(p.endDate || today()) < 0;
+}
+function sortProductsByUsage(list: Product[]): Product[] {
+  return [...list].sort((a, b) => Number(isDepleted(a)) - Number(isDepleted(b)));
+}
 
 const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
 
@@ -90,10 +97,11 @@ export default function MyPageView({
           {products.length === 0 ? (
             <div className="ptm-no-product-msg">등록된 이용권이 없어요</div>
           ) : (
-            products.map((p) => {
+            sortProductsByUsage(products).map((p) => {
               const u = urgency(p);
+              const depleted = isDepleted(p);
               return (
-                <div className="ptm-prod-row" key={p.id}>
+                <div className={`ptm-prod-row${depleted ? " depleted" : ""}`} key={p.id}>
                   <div className="ptm-prod-top">
                     <span className="ptm-prod-name">{p.name}</span>{" "}
                     <span className="ptm-badge">{p.type === "session" ? "횟수권" : "기간권"}</span>

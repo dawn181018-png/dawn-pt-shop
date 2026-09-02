@@ -129,6 +129,13 @@ function progressPct(p: Product): number {
   const used = daysBetween(today(), p.startDate);
   return Math.max(0, Math.min(100, (used / total) * 100));
 }
+function isDepleted(p: Product): boolean {
+  if (p.type === "session") return p.totalSessions - p.usedSessions <= 0;
+  return daysUntil(p.endDate as string) < 0;
+}
+function sortProductsByUsage(list: Product[]): Product[] {
+  return [...list].sort((a, b) => Number(isDepleted(a)) - Number(isDepleted(b)));
+}
 const countsAsUsed = (status: string): boolean => status === "done" || status === "noshow";
 const getPaidAmount = (p: Partial<Product> & { paid?: boolean }): number => (p.paidAmount !== undefined ? Number(p.paidAmount) || 0 : (p.paid ? Number(p.price || 0) : 0));
 const getUnpaidAmount = (p: Partial<Product> & { paid?: boolean }): number => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
@@ -2013,11 +2020,12 @@ export default function PTMemberManager() {
               {customerDetailTab === "products" && (
                 <div className="ptm-prod-list" style={{ marginTop: 0 }}>
                   {custProducts.length === 0 && <div className="ptm-no-product-msg">등록된 상품이 없어요</div>}
-                  {custProducts.map((p) => {
+                  {sortProductsByUsage(custProducts).map((p) => {
                     const u = urgency(p);
+                    const depleted = isDepleted(p);
                     const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
                     return (
-                      <div className="ptm-prod-row" key={p.id}>
+                      <div className={`ptm-prod-row${depleted ? " depleted" : ""}`} key={p.id}>
                         <div className="ptm-prod-top">
                           <div>
                             <span className="ptm-prod-name">{p.name}</span>{" "}
