@@ -98,3 +98,26 @@ export interface ContractSignature {
   signedAt: string;
   createdAt?: number;
 }
+
+// 한 이용권(product)의 잔여 횟수를 다른 고객에게 넘긴 이력 — 수령인이 여러 명이면 건마다 한 행씩 생긴다.
+export interface PassTransfer {
+  id: string;
+  sourceProductId: string;
+  sourceCustomerId: string;
+  recipientCustomerId: string;
+  recipientProductId: string;
+  sessionsTransferred: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  createdAt?: number;
+}
+
+// 양도 모달에서 수령인 한 명을 입력받는 형태 — 기존 고객이면 customerId, 신규면 newCustomerName/Phone.
+export type TransferRecipientInput = {
+  customerId?: string;
+  newCustomerName?: string;
+  newCustomerPhone?: string;
+  sessions: number;
+  amount: number;
+  paymentMethod: PaymentMethod;
+};

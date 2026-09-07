@@ -293,3 +293,96 @@ grant select, insert, update, delete on public.payroll_settings to service_role;
 grant select, insert, update, delete on public.renewal_forecasts to service_role;
 grant select, insert, update, delete on public.contract_signatures to service_role;
 grant execute on function adjust_used_sessions(uuid, int) to service_role;
+
+-- ---------- 이용권 양도(pass_transfers) ----------
+-- 한 이용권의 잔여 횟수를 여러 고객에게 나눠서 넘기는 기능의 이력 테이블.
+-- source_product_id/recipient_product_id로 "이 이용권에서 양도된 내역"과
+-- "이 이용권이 양도로 받은 것"을 둘 다 조회할 수 있어 products 테이블 자체는 건드리지 않는다.
+create table if not exists pass_transfers (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  source_product_id uuid not null references products(id) on delete cascade,
+  source_customer_id uuid not null references customers(id) on delete cascade,
+  recipient_customer_id uuid not null references customers(id) on delete cascade,
+  recipient_product_id uuid not null references products(id) on delete cascade,
+  sessions_transferred int not null check (sessions_transferred > 0),
+  amount numeric not null default 0,
+  payment_method text not null default 'card' check (payment_method in ('card', 'cash', 'transfer')),
+  created_at timestamptz not null default now()
+);
+alter table pass_transfers enable row level security;
+drop policy if exists "pass_transfers_owner_all" on pass_transfers;
+create policy "pass_transfers_owner_all" on pass_transfers
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+grant select, insert, update, delete on pass_transfers to authenticated;
+grant select, insert, update, delete on pass_transfers to service_role;
+
+-- 원본 이용권의 잔여 횟수 검증, 수령인별 고객/이용권 생성, 이력 기록, 원본 차감을
+-- 하나의 트랜잭션으로 처리한다(중간에 실패하면 전부 롤백). p_recipients는
+-- [{customer_id, new_customer_name, new_customer_phone, sessions, amount, payment_method}, ...] 배열.
+create or replace function transfer_pass(p_source_product_id uuid, p_recipients jsonb)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_product products%rowtype;
+  v_remaining int;
+  v_total_requested int := 0;
+  v_recipient jsonb;
+  v_customer_id uuid;
+  v_new_product products%rowtype;
+  v_results jsonb := '[]'::jsonb;
+begin
+  select * into v_product from products
+    where id = p_source_product_id and owner_id = v_owner
+    for update;
+  if not found then raise exception '이용권을 찾을 수 없습니다'; end if;
+  if v_product.type <> 'session' then raise exception '횟수제 이용권만 양도할 수 있습니다'; end if;
+
+  v_remaining := v_product.total_sessions - v_product.used_sessions;
+  select coalesce(sum((r->>'sessions')::int), 0) into v_total_requested
+    from jsonb_array_elements(p_recipients) r;
+
+  if v_total_requested <= 0 then raise exception '양도할 횟수를 입력해주세요'; end if;
+  if v_total_requested > v_remaining then
+    raise exception '배분한 횟수(%)가 잔여 횟수(%)를 초과합니다', v_total_requested, v_remaining;
+  end if;
+
+  for v_recipient in select * from jsonb_array_elements(p_recipients) loop
+    if (v_recipient->>'sessions')::int <= 0 then raise exception '양도 횟수는 1 이상이어야 합니다'; end if;
+
+    if (v_recipient->>'customer_id') is not null then
+      v_customer_id := (v_recipient->>'customer_id')::uuid;
+      perform 1 from customers where id = v_customer_id and owner_id = v_owner;
+      if not found then raise exception '수령인 고객을 찾을 수 없습니다'; end if;
+    else
+      insert into customers (owner_id, name, phone)
+        values (v_owner, v_recipient->>'new_customer_name', v_recipient->>'new_customer_phone')
+        returning id into v_customer_id;
+    end if;
+
+    insert into products (owner_id, customer_id, name, type, total_sessions, used_sessions,
+      start_date, end_date, session_duration, list_price, price, paid_amount, payment_method)
+    values (v_owner, v_customer_id, v_product.name, 'session', (v_recipient->>'sessions')::int, 0,
+      current_date, null, v_product.session_duration,
+      coalesce((v_recipient->>'amount')::numeric, 0), coalesce((v_recipient->>'amount')::numeric, 0),
+      coalesce((v_recipient->>'amount')::numeric, 0), coalesce(v_recipient->>'payment_method', 'card'))
+    returning * into v_new_product;
+
+    insert into pass_transfers (owner_id, source_product_id, source_customer_id, recipient_customer_id,
+      recipient_product_id, sessions_transferred, amount, payment_method)
+    values (v_owner, p_source_product_id, v_product.customer_id, v_customer_id, v_new_product.id,
+      (v_recipient->>'sessions')::int, coalesce((v_recipient->>'amount')::numeric, 0), coalesce(v_recipient->>'payment_method', 'card'));
+
+    v_results := v_results || jsonb_build_object('product', to_jsonb(v_new_product), 'customerId', v_customer_id);
+  end loop;
+
+  update products set used_sessions = used_sessions + v_total_requested where id = p_source_product_id;
+
+  return jsonb_build_object('recipients', v_results, 'totalTransferred', v_total_requested);
+end;
+$$;
+grant execute on function transfer_pass(uuid, jsonb) to authenticated;
+grant execute on function transfer_pass(uuid, jsonb) to service_role;

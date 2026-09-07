@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -24,6 +24,9 @@ function mapForecast(row: Record<string, unknown>): RenewalForecast {
 }
 function mapContractSignature(row: Record<string, unknown>): ContractSignature {
   return withEpochCreatedAt(toCamel<ContractSignature>(row));
+}
+function mapPassTransfer(row: Record<string, unknown>): PassTransfer {
+  return withEpochCreatedAt(toCamel<PassTransfer>(row));
 }
 
 function must<T>(data: T | null, error: { message: string } | null): T {
@@ -222,4 +225,27 @@ export async function uploadContractSignature(customerId: string, blob: Blob): P
 export async function insertContractSignature(data: Partial<ContractSignature>): Promise<ContractSignature> {
   const { data: row, error } = await supabase.from("contract_signatures").insert(toSnake(data)).select().single();
   return mapContractSignature(must(row, error));
+}
+
+// ---------- pass_transfers (이용권 양도) ----------
+export async function listPassTransfers(): Promise<PassTransfer[]> {
+  const { data, error } = await supabase.from("pass_transfers").select("*").order("created_at", { ascending: true });
+  return must(data, error).map(mapPassTransfer);
+}
+// 잔여 횟수 검증 + 수령인별 고객/이용권 생성 + 이력 기록 + 원본 차감을 DB 함수(transfer_pass) 안에서
+// 하나의 트랜잭션으로 처리한다 — 중간에 실패하면 전부 롤백되고, 잔여 횟수 재검증도 서버(DB)에서 다시 한다.
+export async function transferPass(sourceProductId: string, recipients: TransferRecipientInput[]): Promise<{ totalTransferred: number }> {
+  const { data, error } = await supabase.rpc("transfer_pass", {
+    p_source_product_id: sourceProductId,
+    p_recipients: recipients.map((r) => ({
+      customer_id: r.customerId ?? null,
+      new_customer_name: r.newCustomerName ?? null,
+      new_customer_phone: r.newCustomerPhone ?? null,
+      sessions: r.sessions,
+      amount: r.amount,
+      payment_method: r.paymentMethod,
+    })),
+  });
+  if (error) throw new Error(error.message);
+  return data as { totalTransferred: number };
 }

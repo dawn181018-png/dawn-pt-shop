@@ -7,16 +7,17 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
 import ProductSaleWizard from "./ProductSaleWizard";
+import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, PassTransfer } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -278,6 +279,9 @@ export default function PTMemberManager() {
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productForm, setProductForm] = useState<ProductFormData>(emptyProduct);
 
+  const [passTransfers, setPassTransfers] = useState<PassTransfer[]>([]);
+  const [transferSourceProductId, setTransferSourceProductId] = useState<string | null>(null);
+
   const [customerDetailId, setCustomerDetailId] = useState<string | null>(null);
   const [customerDetailTab, setCustomerDetailTab] = useState("home");
   const [expandedWorkoutNotes, setExpandedWorkoutNotes] = useState<Record<string, boolean>>({});
@@ -363,19 +367,21 @@ export default function PTMemberManager() {
   useEffect(() => {
     (async () => {
       try {
-        const [customersData, productsData, reservationsData, catalogData, settingsData, forecastsData] = await Promise.all([
+        const [customersData, productsData, reservationsData, catalogData, settingsData, forecastsData, passTransfersData] = await Promise.all([
           db.listCustomers(),
           db.listProducts(),
           db.listReservations(),
           db.listCatalog(),
           db.getSettings(),
           db.listRenewalForecasts(),
+          db.listPassTransfers(),
         ]);
         setCustomers(customersData);
         setProducts(productsData);
         setReservations(reservationsData);
         setCatalog(catalogData);
         setRenewalForecasts(forecastsData);
+        setPassTransfers(passTransfersData);
         if (settingsData) setSettings({ ...defaultSettings, ...settingsData });
       } catch (e) {
         flash("데이터를 불러오지 못했어요");
@@ -624,6 +630,15 @@ export default function PTMemberManager() {
       }
       setShowProductForm(false);
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  // 양도는 고객/이용권을 여러 개 한 번에 만들 수 있어 낙관적 상태 갱신 대신 통째로 다시 불러온다.
+  const refetchAfterTransfer = async () => {
+    const [customersData, productsData, passTransfersData] = await Promise.all([
+      db.listCustomers(), db.listProducts(), db.listPassTransfers(),
+    ]);
+    setCustomers(customersData);
+    setProducts(productsData);
+    setPassTransfers(passTransfersData);
   };
   const removeProduct = async (id: string) => {
     try {
@@ -2036,16 +2051,27 @@ export default function PTMemberManager() {
                     const u = urgency(p);
                     const depleted = isDepleted(p);
                     const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
+                    const remaining = p.totalSessions - p.usedSessions;
+                    const incomingTransfer = passTransfers.find((t) => t.recipientProductId === p.id);
+                    const outgoingTransfers = passTransfers.filter((t) => t.sourceProductId === p.id);
                     return (
                       <div className={`ptm-prod-row${depleted ? " depleted" : ""}`} key={p.id}>
                         <div className="ptm-prod-top">
                           <div>
                             <span className="ptm-prod-name">{p.name}</span>{" "}
                             <span className="ptm-badge">{p.type === "session" ? "횟수권" : "기간권"}</span>{" "}
-                            <span className={`ptm-badge ${isFullyPaid(p) ? "" : "unpaid"}`} onClick={() => togglePaid(p.id)} style={{ cursor: "pointer" }}>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</span>
+                            <span className={`ptm-badge ${isFullyPaid(p) ? "" : "unpaid"}`} onClick={() => togglePaid(p.id)} style={{ cursor: "pointer" }}>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</span>{" "}
+                            {incomingTransfer && (
+                              <span className="ptm-badge" title={`원본: ${customers.find((c) => c.id === incomingTransfer.sourceCustomerId)?.name || "알 수 없음"}`}>
+                                양도받음 · {customers.find((c) => c.id === incomingTransfer.sourceCustomerId)?.name || "알 수 없음"}
+                              </span>
+                            )}
                           </div>
                           <div className="ptm-actions">
                             <button className="ptm-icon-btn" title="예약 관리" onClick={() => setResSheetProductId(p.id)}><CalendarClock size={14} /></button>
+                            {p.type === "session" && remaining > 0 && (
+                              <button className="ptm-icon-btn" title="이용권 양도" onClick={() => setTransferSourceProductId(p.id)}><ArrowRightLeft size={14} /></button>
+                            )}
                             <button className="ptm-icon-btn" onClick={() => openEditProduct(p)}><Pencil size={14} /></button>
                             <button className="ptm-icon-btn" onClick={() => requestRemoveProduct(p)}><Trash2 size={14} /></button>
                           </div>
@@ -2066,6 +2092,13 @@ export default function PTMemberManager() {
                             </div>
                           )}
                         </div>
+                        {outgoingTransfers.length > 0 && (
+                          <div className="ptm-prod-count">
+                            {outgoingTransfers.map((t) => (
+                              <div key={t.id}>→ {customers.find((c) => c.id === t.recipientCustomerId)?.name || "알 수 없음"} {t.sessionsTransferred}회 · {Number(t.amount).toLocaleString()}원 · {t.createdAt ? koDate(toLocalDateStr(new Date(t.createdAt))) : ""}</div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2857,6 +2890,20 @@ export default function PTMemberManager() {
           onSubmit={submitSignatureAndComplete}
         />
       )}
+
+      {transferSourceProductId && (() => {
+        const sourceProduct = products.find((p) => p.id === transferSourceProductId);
+        if (!sourceProduct) return null;
+        return (
+          <PassTransferModal
+            customers={customers}
+            sourceProduct={sourceProduct}
+            onClose={() => setTransferSourceProductId(null)}
+            onComplete={refetchAfterTransfer}
+            flash={flash}
+          />
+        );
+      })()}
 
       {sessionCardResId && (() => {
         const res = reservations.find((r) => r.id === sessionCardResId);
