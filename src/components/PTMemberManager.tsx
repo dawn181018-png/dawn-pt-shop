@@ -675,10 +675,19 @@ export default function PTMemberManager() {
 
   // ---- Reservations ----
   const pushReservation = async (customerId: string | null, productId: string | null, data: ReservationFormData, statusOverride?: ReservationStatus, extra: Partial<Reservation> = {}) => {
+    const status = statusOverride || "scheduled";
+    // 소진된 이용권으로 곧장 출석/결석 처리하며 예약을 만들면 세션이 초과 차감되므로 미리 막는다.
+    // (정상 UI에서는 select 단계에서 이미 소진된 이용권을 고를 수 없어 도달하지 않는 2차 방어선)
+    if (countsAsUsed(status) && productId) {
+      const p = products.find((x) => x.id === productId);
+      if (p && p.type === "session" && p.totalSessions - p.usedSessions <= 0) {
+        flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
+        return 0;
+      }
+    }
     const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
     const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
     const seriesId = count > 1 ? newId() : null;
-    const status = statusOverride || "scheduled";
     const rows = Array.from({ length: count }, (_, i) => ({
       customerId, productId, seriesId,
       date: i === 0 ? data.date : addRepeatInterval(data.date, repeat, i),
@@ -701,6 +710,7 @@ export default function PTMemberManager() {
     if (!resForm.date || !resForm.time) { flash("날짜/시간을 입력해주세요"); return; }
     try {
       const n = await pushReservation(customerId, productId, resForm, statusOverride);
+      if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
@@ -739,8 +749,9 @@ export default function PTMemberManager() {
         return;
       }
       if (!quickForm.customerId) { flash("고객을 선택해주세요"); return; }
-      if (!quickForm.productId) { flash("이용권을 선택해주세요"); return; }
-      const n = await pushReservation(quickForm.customerId, quickForm.productId, quickForm, statusOverride);
+      if (quickAvailableProducts.length > 0 && !quickForm.productId) { flash("이용권을 선택해주세요"); return; }
+      const n = await pushReservation(quickForm.customerId, emptyToNull(quickForm.productId), quickForm, statusOverride);
+      if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setShowQuickAdd(false);
       resetQuickAddState();
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
@@ -765,18 +776,37 @@ export default function PTMemberManager() {
     let delta = 0;
     if (will && !was) delta = 1;
     if (!will && was) delta = -1;
+
+    // 세션을 새로 차감해야 하는 전환(완료/노쇼)인데 연결된 이용권이 이미 소진됐다면,
+    // 그 고객의 다른 유효한(잔여 있는) 이용권으로 자동 전환을 시도하고, 없으면 완료 자체를 막는다.
+    let targetProductId = r.productId;
+    if (delta === 1 && r.productId) {
+      const linked = products.find((x) => x.id === r.productId);
+      if (linked && linked.type === "session" && linked.totalSessions - linked.usedSessions <= 0) {
+        const alt = products
+          .filter((p) => p.customerId === r.customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
+          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0]; // 등록순 — pickActiveProductId와 동일한 규칙
+        if (!alt) {
+          flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
+          return;
+        }
+        targetProductId = alt.id;
+      }
+    }
+
     try {
-      const updatedRes = await db.updateReservation(resId, { status: newStatus, ...extra });
+      const updatedRes = await db.updateReservation(resId, { status: newStatus, productId: targetProductId, ...extra });
       setReservations((prev) => prev.map((x) => (x.id === resId ? updatedRes : x)));
-      if (delta !== 0 && r.productId) {
-        const p = products.find((x) => x.id === r.productId);
+      if (delta !== 0 && targetProductId) {
+        const p = products.find((x) => x.id === targetProductId);
         if (p && p.type === "session") {
           const updatedProduct = await db.adjustUsedSessions(p.id, delta);
           setProducts((prev) => prev.map((x) => (x.id === p.id ? updatedProduct : x)));
         }
       }
-      if (newStatus === "done") flash("완료 처리 · 세션 1회 차감");
-      else if (newStatus === "noshow") flash("노쇼 처리 · 세션 1회 차감");
+      const switched = targetProductId !== r.productId;
+      if (newStatus === "done") flash(switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
+      else if (newStatus === "noshow") flash(switched ? "노쇼 처리 · 다른 이용권으로 전환되어 차감됨" : "노쇼 처리 · 세션 1회 차감");
       else if (newStatus === "cancelled") flash("예약 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   };
@@ -963,7 +993,7 @@ export default function PTMemberManager() {
       return {
         ...r,
         customerName: customer ? customer.name : "(삭제된 고객)",
-        productName: product ? product.name : (r.productId ? "(삭제된 상품)" : "상담(신규)"),
+        productName: product ? product.name : (r.productId ? "(삭제된 상품)" : "상담"),
         unitPrice: product && product.type === "session" && product.totalSessions ? Math.round(product.price / product.totalSessions) : 0,
         remainCount: product && product.type === "session" ? product.totalSessions - product.usedSessions : null,
         totalSessions: product && product.type === "session" ? product.totalSessions : null,
@@ -1004,6 +1034,8 @@ export default function PTMemberManager() {
   }, [customers, quickSearch]);
   const quickCustomer = customers.find((c) => c.id === quickForm.customerId);
   const quickCustomerProducts = products.filter((p) => p.customerId === quickForm.customerId);
+  // 소진된(횟수 0/기간 만료) 이용권은 예약용으로 고를 수 없게 미리 걸러낸다.
+  const quickAvailableProducts = quickCustomerProducts.filter((p) => !isDepleted(p));
   // 잔여횟수가 남은 이용권 중 가장 먼저 등록한 것을 우선 사용 (재등록으로 이용권이 여러 개여도
   // 등록한 순서대로 차감되도록 기본 선택 — 필요하면 드롭다운에서 직접 바꿀 수 있다).
   const pickActiveProductId = (customerId: string) => {
@@ -2370,44 +2402,52 @@ export default function PTMemberManager() {
               <span className="ptm-sheet-title">{resSheetCustomer.name} · {resSheetProduct.name}</span>
               <button className="ptm-icon-btn" onClick={() => setResSheetProductId(null)}><X size={16} /></button>
             </div>
-            <div className="ptm-res-add-row">
-              <div className="ptm-field"><label>날짜</label>
-                <input type="date" value={resForm.date} onChange={(e) => setResForm({ ...resForm, date: e.target.value })} />
+            {isDepleted(resSheetProduct) ? (
+              <div className="ptm-no-product-msg" style={{ marginBottom: 14 }}>
+                이 이용권은 잔여 횟수가 없어 새 예약을 추가할 수 없어요 — 이용권을 재등록하거나, 스케줄 화면에서 상담 예약으로 잡아주세요.
               </div>
-              <div className="ptm-field"><label>시간</label>
-                <input type="time" value={resForm.time} onChange={(e) => setResForm({ ...resForm, time: e.target.value })} />
-              </div>
-              <div className="ptm-field" style={{ maxWidth: 70 }}><label>분</label>
-                <input type="number" onFocus={(e) => e.target.select()} value={resForm.duration} onChange={(e) => setResForm({ ...resForm, duration: e.target.value })} />
-              </div>
-              <button className="ptm-res-add-btn" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id)}><Plus size={16} /></button>
-            </div>
-            {resForm.repeat === "none" && isPastDateTime(resForm.date, resForm.time) && (
-              <div className="ptm-res-actions" style={{ marginTop: -8, marginBottom: 14 }}>
-                <span className="ptm-no-product-msg" style={{ padding: 0 }}>이미 지난 시간 →</span>
-                <button className="ptm-res-btn" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id, "done")}><Check size={12} /> 출석으로 등록</button>
-                <button className="ptm-res-btn danger" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id, "noshow")}><UserX size={12} /> 결석으로 등록</button>
-              </div>
-            )}
-            <div className="ptm-repeat-row">
-              <div className="ptm-field"><label>반복</label>
-                <select value={resForm.repeat} onChange={(e) => setResForm({ ...resForm, repeat: e.target.value, repeatCount: getDefaultRepeatCount(e.target.value, resForm.date) })}>
-                  <option value="none">안함</option>
-                  <option value="daily">매일</option>
-                  <option value="weekly">매주</option>
-                  <option value="biweekly">2주마다</option>
-                  <option value="monthly">매월</option>
-                  <option value="yearly">매년</option>
-                </select>
-              </div>
-              {resForm.repeat !== "none" && (
-                <div className="ptm-field" style={{ maxWidth: 110 }}><label>반복 횟수</label>
-                  <input type="number" min="1" onFocus={(e) => e.target.select()} value={resForm.repeatCount} onChange={(e) => setResForm({ ...resForm, repeatCount: e.target.value })} />
+            ) : (
+              <>
+                <div className="ptm-res-add-row">
+                  <div className="ptm-field"><label>날짜</label>
+                    <input type="date" value={resForm.date} onChange={(e) => setResForm({ ...resForm, date: e.target.value })} />
+                  </div>
+                  <div className="ptm-field"><label>시간</label>
+                    <input type="time" value={resForm.time} onChange={(e) => setResForm({ ...resForm, time: e.target.value })} />
+                  </div>
+                  <div className="ptm-field" style={{ maxWidth: 70 }}><label>분</label>
+                    <input type="number" onFocus={(e) => e.target.select()} value={resForm.duration} onChange={(e) => setResForm({ ...resForm, duration: e.target.value })} />
+                  </div>
+                  <button className="ptm-res-add-btn" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id)}><Plus size={16} /></button>
                 </div>
-              )}
-            </div>
-            {resForm.repeat !== "none" && (
-              <div className="ptm-discount-note">{repeatLabel[resForm.repeat]} 간격으로 총 {Math.max(1, Number(resForm.repeatCount) || 1)}회 예약이 등록돼요</div>
+                {resForm.repeat === "none" && isPastDateTime(resForm.date, resForm.time) && (
+                  <div className="ptm-res-actions" style={{ marginTop: -8, marginBottom: 14 }}>
+                    <span className="ptm-no-product-msg" style={{ padding: 0 }}>이미 지난 시간 →</span>
+                    <button className="ptm-res-btn" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id, "done")}><Check size={12} /> 출석으로 등록</button>
+                    <button className="ptm-res-btn danger" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id, "noshow")}><UserX size={12} /> 결석으로 등록</button>
+                  </div>
+                )}
+                <div className="ptm-repeat-row">
+                  <div className="ptm-field"><label>반복</label>
+                    <select value={resForm.repeat} onChange={(e) => setResForm({ ...resForm, repeat: e.target.value, repeatCount: getDefaultRepeatCount(e.target.value, resForm.date) })}>
+                      <option value="none">안함</option>
+                      <option value="daily">매일</option>
+                      <option value="weekly">매주</option>
+                      <option value="biweekly">2주마다</option>
+                      <option value="monthly">매월</option>
+                      <option value="yearly">매년</option>
+                    </select>
+                  </div>
+                  {resForm.repeat !== "none" && (
+                    <div className="ptm-field" style={{ maxWidth: 110 }}><label>반복 횟수</label>
+                      <input type="number" min="1" onFocus={(e) => e.target.select()} value={resForm.repeatCount} onChange={(e) => setResForm({ ...resForm, repeatCount: e.target.value })} />
+                    </div>
+                  )}
+                </div>
+                {resForm.repeat !== "none" && (
+                  <div className="ptm-discount-note">{repeatLabel[resForm.repeat]} 간격으로 총 {Math.max(1, Number(resForm.repeatCount) || 1)}회 예약이 등록돼요</div>
+                )}
+              </>
             )}
             {reservations.filter((r) => r.productId === resSheetProduct.id).length === 0 ? (
               <div className="ptm-res-empty">등록된 예약이 없어요</div>
@@ -2499,8 +2539,8 @@ export default function PTMemberManager() {
 
             {!quickIsNew && quickForm.customerId && (
               <div className="ptm-field"><label>예약할 이용권 (등록순으로 잔여 있는 것을 자동 선택 — 필요하면 직접 변경)</label>
-                {quickCustomerProducts.length === 0 ? (
-                  <div className="ptm-no-product-msg">등록된 상품이 없어요 — 고객관리에서 먼저 상품을 등록해주세요</div>
+                {quickAvailableProducts.length === 0 ? (
+                  <div className="ptm-no-product-msg">현재 사용 가능한 이용권이 없어요 — 세션 차감 없는 상담 예약으로 등록됩니다</div>
                 ) : (
                   <select
                     value={quickForm.productId}
@@ -2510,7 +2550,7 @@ export default function PTMemberManager() {
                     }}
                   >
                     <option value="">상품 선택</option>
-                    {quickCustomerProducts.map((p) => (
+                    {quickAvailableProducts.map((p) => (
                       <option key={p.id} value={p.id}>
                         {p.name} ({p.type === "session" ? `잔여 ${p.totalSessions - p.usedSessions}/${p.totalSessions}` : `~${p.endDate}`} · {Number(p.price || 0).toLocaleString()}원)
                       </option>
@@ -2787,7 +2827,7 @@ export default function PTMemberManager() {
           >
             <div className="ptm-hover-head">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}{(r.columnCount ?? 1) > 1 ? " · 동시예약" : ""}</div>
             <div className="ptm-hover-row"><span>구분</span><span>개인레슨</span></div>
-            <div className="ptm-hover-row"><span>속성</span><span>{!product ? "상담/신규" : product.type === "period" ? "기간제" : "횟수제"}</span></div>
+            <div className="ptm-hover-row"><span>속성</span><span>{!product ? "상담" : product.type === "period" ? "기간제" : "횟수제"}</span></div>
             <div className="ptm-hover-row"><span>이름</span><span className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); setHoverInfo(null); }}>{r.customerName}</span></div>
             <div className="ptm-hover-row"><span>예약상태</span><span>{statusLabel[r.status]}</span></div>
             <div className="ptm-hover-row"><span>전화번호</span><span>{cust?.phone || "-"}</span></div>
