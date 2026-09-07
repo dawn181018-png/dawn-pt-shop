@@ -389,13 +389,25 @@ export default function PTMemberManager() {
   const openEditCatalog = (item: CatalogItem) => { setCatalogForm(item); setEditingCatalogId(item.id); setShowCatalogForm(true); };
   const saveCatalogItem = async () => {
     if (!catalogForm.name.trim()) { flash("이용권 이름을 입력해주세요"); return; }
+    // 수정 시 catalogForm에는 openEditCatalog(item)에서 넘어온 id/createdAt(epoch ms 숫자)이
+    // 그대로 남아있는데, DB의 created_at은 timestamptz라서 숫자를 그대로 보내면 저장이 거부된다.
+    // 화면에서 실제로 입력받는 필드만 골라 보내서 이 문제를 피한다.
+    const payload: CatalogFormData = {
+      name: catalogForm.name,
+      category: catalogForm.category,
+      sessions: catalogForm.sessions,
+      months: catalogForm.months,
+      periodUnit: catalogForm.periodUnit,
+      price: catalogForm.price,
+      sessionDuration: catalogForm.sessionDuration,
+    };
     try {
       if (editingCatalogId) {
-        const updated = await db.updateCatalogItem(editingCatalogId, catalogForm);
+        const updated = await db.updateCatalogItem(editingCatalogId, payload);
         setCatalog(catalog.map((i) => (i.id === editingCatalogId ? updated : i)));
         flash("이용권 수정됨");
       } else {
-        const created = await db.insertCatalogItem(catalogForm);
+        const created = await db.insertCatalogItem(payload);
         setCatalog([...catalog, created]);
         flash("이용권 등록됨");
       }
