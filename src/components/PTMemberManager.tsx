@@ -364,6 +364,31 @@ export default function PTMemberManager() {
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
 
+  // 소진된 이용권을 대신할, 그 고객의 등록순으로 가장 먼저 등록된 유효한(잔여 있는) 이용권을 찾는다.
+  // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
+  const findAlternativeProduct = (customerId: string | null, productList: Product[]): Product | undefined =>
+    productList
+      .filter((p) => p.customerId === customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+  // 완료 처리를 기다리지 않고, 예약됨(scheduled) 상태인 예약이 이미 소진된 이용권을 물고 있으면
+  // 그 고객의 다른 유효한 이용권으로 조용히 재연결한다 — 새 이용권을 등록하는 시점과 앱을 새로
+  // 불러올 때(자동 새로고침) 둘 다에서 호출해, 재등록 후 남은 반복예약이 계속 옛 이용권에
+  // 묶여 있는 채로 방치되지 않게 한다.
+  const reconnectScheduledReservations = async (reservationList: Reservation[], productList: Product[]) => {
+    const fixes = reservationList
+      .filter((r) => r.status === "scheduled" && r.productId)
+      .map((r) => {
+        const linked = productList.find((p) => p.id === r.productId);
+        if (!linked || linked.type !== "session" || linked.totalSessions - linked.usedSessions > 0) return null;
+        const alt = findAlternativeProduct(r.customerId, productList);
+        return alt ? { id: r.id, productId: alt.id } : null;
+      })
+      .filter((f): f is { id: string; productId: string } => f !== null);
+    if (fixes.length === 0) return;
+    const updated = await Promise.all(fixes.map((f) => db.updateReservation(f.id, { productId: f.productId })));
+    setReservations((prev) => prev.map((r) => updated.find((u) => u.id === r.id) || r));
+  };
+
   useEffect(() => {
     (async () => {
       try {
@@ -383,6 +408,7 @@ export default function PTMemberManager() {
         setRenewalForecasts(forecastsData);
         setPassTransfers(passTransfersData);
         if (settingsData) setSettings({ ...defaultSettings, ...settingsData });
+        await reconnectScheduledReservations(reservationsData, productsData);
       } catch (e) {
         flash("데이터를 불러오지 못했어요");
       }
@@ -626,6 +652,8 @@ export default function PTMemberManager() {
         setProducts([...products, created]);
         // "재등록 예정" 탭의 실제 등록금액은 그 달 등록된 상품 금액을 바로 합산해서 보여주므로
         // 별도로 예정 레코드를 갱신할 필요가 없다 — 상품을 등록하는 순간 자동으로 반영된다.
+        // 이 고객이 이전 이용권 소진으로 예약됨 상태에 발이 묶여 있었다면, 방금 등록한 이 이용권으로 바로 이어준다.
+        await reconnectScheduledReservations(reservations, [...products, created]);
         flash("상품 등록됨");
       }
       setShowProductForm(false);
@@ -783,9 +811,7 @@ export default function PTMemberManager() {
     if (delta === 1 && r.productId) {
       const linked = products.find((x) => x.id === r.productId);
       if (linked && linked.type === "session" && linked.totalSessions - linked.usedSessions <= 0) {
-        const alt = products
-          .filter((p) => p.customerId === r.customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
-          .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0]; // 등록순 — pickActiveProductId와 동일한 규칙
+        const alt = findAlternativeProduct(r.customerId, products);
         if (!alt) {
           flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
           return;
@@ -1913,9 +1939,11 @@ export default function PTMemberManager() {
         <ProductSaleWizard
           customers={customers}
           catalog={catalog}
-          onSaleComplete={(customer: Customer, product: Product) => {
+          onSaleComplete={async (customer: Customer, product: Product) => {
             setCustomers((cur) => (cur.some((c) => c.id === customer.id) ? cur.map((c) => (c.id === customer.id ? customer : c)) : [...cur, customer]));
             setProducts((cur) => [...cur, product]);
+            // 재등록으로 새 이용권이 생겼으니, 이전 이용권 소진으로 발 묶여 있던 예약됨 상태의 예약을 바로 이어준다.
+            await reconnectScheduledReservations(reservations, [...products, product]);
           }}
           flash={flash}
         />
