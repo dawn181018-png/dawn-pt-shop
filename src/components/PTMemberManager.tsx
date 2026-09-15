@@ -1162,14 +1162,18 @@ export default function PTMemberManager() {
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
-        const totalSummary = sessionProducts.length ? sessionProducts.map((p) => p.name).join(" / ") : "-";
+        // 매출 계획 화면은 "재등록 타이밍"을 보는 용도라, 이미 다 소진된(잔여 0) 이용권은
+        // 보유세션/잔여세션 표시에서 제외한다 (합산 계산은 아래 sessionProducts 전체 기준 그대로 유지).
+        const activeSessionProducts = sessionProducts.filter((p) => p.totalSessions - p.usedSessions > 0);
+        const totalSummary = activeSessionProducts.length ? activeSessionProducts.map((p) => p.name).join(" / ") : "보유 이용권 없음";
         const ticketCount = sessionProducts.length;
+        const activeTicketCount = activeSessionProducts.length;
         // 재등록 시급도는 이용권 개별이 아니라 고객 단위로 판단해야 하므로, 여러 이용권의
         // 잔여횟수를 모두 합산한다 (예전 이용권이 거의 소진돼도 새 이용권이 넉넉하면 시급하지 않음).
         const totalRemain = ticketCount ? sessionProducts.reduce((s, p) => s + (p.totalSessions - p.usedSessions), 0) : null;
-        const remainDetail = ticketCount ? sessionProducts.map((p) => `${p.totalSessions - p.usedSessions}회`).join(" / ") : "-";
-        const remainSessionsShort = ticketCount ? sessionProducts.map((p) => `${p.totalSessions - p.usedSessions}s`).join("/") : "";
-        const remainSummary = totalRemain !== null ? `${totalRemain}회${ticketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
+        const remainDetail = activeTicketCount ? activeSessionProducts.map((p) => `${p.totalSessions - p.usedSessions}회`).join(" / ") : "-";
+        const remainSessionsShort = activeTicketCount ? activeSessionProducts.map((p) => `${p.totalSessions - p.usedSessions}s`).join("/") : "";
+        const remainSummary = totalRemain !== null ? `${totalRemain}회${activeTicketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
         const actual = monthProducts.reduce((s, p) => s + Number(p.price || 0), 0);
         const expectedSessions = f ? f.expectedSessions : null;
@@ -1178,7 +1182,7 @@ export default function PTMemberManager() {
         const { timeSlotLabel, weeklyAvgLabel, recentVisits } = computeAttendanceStats(doneReservationsByCustomer[c.id]);
         return {
           forecastId: f ? f.id : null, customerId: c.id, customerName: c.name, customerPhone: c.phone,
-          totalSummary, remainSummary, remainDetail, ticketCount, totalRemain, timeSlotLabel, weeklyAvgLabel, recentVisits,
+          totalSummary, remainSummary, remainDetail, ticketCount, activeTicketCount, totalRemain, timeSlotLabel, weeklyAvgLabel, recentVisits,
           expectedSessions, expectedAmount, note: f ? f.note : "",
           actual, gap, achieved: expectedAmount > 0 && actual >= expectedAmount,
         };
@@ -1687,7 +1691,7 @@ export default function PTMemberManager() {
                       <td title={visitTitle}>{r.timeSlotLabel}</td>
                       <td title={visitTitle}>{r.weeklyAvgLabel}</td>
                       <td>{r.totalSummary}</td>
-                      <td title={r.ticketCount > 1 ? `이용권별 잔여: ${r.remainDetail}` : undefined}>{r.remainSummary}</td>
+                      <td title={r.activeTicketCount > 1 ? `이용권별 잔여: ${r.remainDetail}` : undefined}>{r.remainSummary}</td>
                       <td>{r.expectedSessions ?? "-"}</td>
                       <td>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</td>
                       <td style={r.actual > 0 ? { color: "var(--teal)" } : {}}>{r.actual > 0 ? `${r.actual.toLocaleString()}원` : "-"}</td>
