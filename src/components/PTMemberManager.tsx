@@ -963,6 +963,23 @@ export default function PTMemberManager() {
   const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
   const minuteOptions = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
 
+  // ---- 운동일지 작성/수정 (세션 완료 처리와 분리된, 메모만 갱신하는 경로) ----
+  const [workoutNoteEditRes, setWorkoutNoteEditRes] = useState<Reservation | null>(null);
+  const [workoutNoteDraft, setWorkoutNoteDraft] = useState("");
+  const openWorkoutNoteEditor = (r: Reservation) => {
+    setWorkoutNoteEditRes(r);
+    setWorkoutNoteDraft(r.workoutNote || "");
+  };
+  const saveWorkoutNote = async () => {
+    if (!workoutNoteEditRes) return;
+    try {
+      const updated = await db.updateReservation(workoutNoteEditRes.id, { workoutNote: workoutNoteDraft.trim() || null });
+      setReservations((prev) => prev.map((r) => (r.id === workoutNoteEditRes.id ? updated : r)));
+      flash("운동일지가 저장됨");
+    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    setWorkoutNoteEditRes(null);
+  };
+
   // ---- Derived ----
   const customerSummary = useMemo(() => {
     return customers.map((c) => {
@@ -2213,6 +2230,9 @@ export default function PTMemberManager() {
 
               {customerDetailTab === "workoutLog" && (() => {
                 const logs = getCustomerWorkoutLogs(allReservations, cust.id);
+                const noNoteReservations = allReservations
+                  .filter((r) => r.customerId === cust.id && r.status === "done" && !!r.signatureUrl && !(r.workoutNote || "").trim())
+                  .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
                 const NOTE_PREVIEW_LEN = 80;
                 return (
                   <div className="ptm-prod-list" style={{ marginTop: 0 }}>
@@ -2224,24 +2244,29 @@ export default function PTMemberManager() {
                         const isLong = log.note.length > NOTE_PREVIEW_LEN;
                         const expanded = !!expandedWorkoutNotes[log.reservationId];
                         const shownNote = isLong && !expanded ? `${log.note.slice(0, NOTE_PREVIEW_LEN)}…` : log.note;
+                        const logRes = allReservations.find((r) => r.id === log.reservationId);
                         return (
-                          <div className="ptm-prod-row" key={log.reservationId}>
+                          <div
+                            className="ptm-prod-row"
+                            key={log.reservationId}
+                            style={{ cursor: logRes ? "pointer" : undefined }}
+                            onClick={() => logRes && openWorkoutNoteEditor(logRes)}
+                          >
                             <div className="ptm-prod-top">
                               <span className="ptm-prod-name">{koDate(log.date)} {log.time}</span>
-                              {tags.length > 0 && (
-                                <div className="ptm-actions">
-                                  {tags.map((tag) => (
-                                    <span className="ptm-badge" key={tag}>{tag}</span>
-                                  ))}
-                                </div>
-                              )}
+                              <div className="ptm-actions">
+                                {tags.map((tag) => (
+                                  <span className="ptm-badge" key={tag}>{tag}</span>
+                                ))}
+                                <Pencil size={13} color="var(--ink-dim)" />
+                              </div>
                             </div>
                             <div className="ptm-res-memo" style={{ whiteSpace: "pre-wrap" }}>{shownNote}</div>
                             {isLong && (
                               <button
                                 className="ptm-icon-btn"
                                 style={{ width: "auto", padding: "2px 0", fontSize: 12, color: "var(--ink-dim)" }}
-                                onClick={() => setExpandedWorkoutNotes((prev) => ({ ...prev, [log.reservationId]: !expanded }))}
+                                onClick={(e) => { e.stopPropagation(); setExpandedWorkoutNotes((prev) => ({ ...prev, [log.reservationId]: !expanded })); }}
                               >
                                 {expanded ? "접기" : "더보기"}
                               </button>
@@ -2249,6 +2274,19 @@ export default function PTMemberManager() {
                           </div>
                         );
                       })
+                    )}
+                    {noNoteReservations.length > 0 && (
+                      <>
+                        <div className="ptm-detail-section-title" style={{ marginTop: 6 }}>운동일지 없는 완료 세션</div>
+                        {noNoteReservations.map((r) => (
+                          <div className="ptm-res-item" key={r.id}>
+                            <div className="ptm-res-item-top">
+                              <span className="ptm-res-date">{koDate(r.date)} {r.time}</span>
+                              <button className="ptm-res-btn" onClick={() => openWorkoutNoteEditor(r)}>작성하기</button>
+                            </div>
+                          </div>
+                        ))}
+                      </>
                     )}
                   </div>
                 );
@@ -2910,6 +2948,29 @@ export default function PTMemberManager() {
               <input type="number" min="1" onFocus={(e) => e.target.select()} value={timeEditForm.duration} onChange={(e) => setTimeEditForm({ ...timeEditForm, duration: e.target.value })} placeholder="50" />
             </div>
             <button className="ptm-save-btn" onClick={saveTimeEdit}>저장</button>
+          </div>
+        </div>
+      )}
+
+      {workoutNoteEditRes && (
+        <div className="ptm-overlay" onClick={() => setWorkoutNoteEditRes(null)}>
+          <div className="ptm-sheet" style={{ maxWidth: 420 }} onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">운동일지 {workoutNoteEditRes.workoutNote?.trim() ? "수정" : "작성"}</span>
+              <button className="ptm-icon-btn" onClick={() => setWorkoutNoteEditRes(null)}><X size={16} /></button>
+            </div>
+            <div className="ptm-no-product-msg" style={{ marginTop: -6 }}>{koDate(workoutNoteEditRes.date)} {workoutNoteEditRes.time}</div>
+            <div className="ptm-field">
+              <label>운동 내용</label>
+              <textarea
+                rows={5}
+                value={workoutNoteDraft}
+                onChange={(e) => setWorkoutNoteDraft(e.target.value)}
+                placeholder="오늘 진행한 운동 내용을 적어주세요"
+                autoFocus
+              />
+            </div>
+            <button className="ptm-save-btn" onClick={saveWorkoutNote}>저장</button>
           </div>
         </div>
       )}
