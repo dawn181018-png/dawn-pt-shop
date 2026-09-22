@@ -142,6 +142,21 @@ const getPaidAmount = (p: Partial<Product> & { paid?: boolean }): number => (p.p
 const getUnpaidAmount = (p: Partial<Product> & { paid?: boolean }): number => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
 const isFullyPaid = (p: Partial<Product> & { paid?: boolean }): boolean => getUnpaidAmount(p) <= 0;
 const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
+
+// ---- 이름 초성(첫 자음) 그룹핑 — "가나다순" 정렬 시 전화번호부처럼 구간 헤더를 보여주기 위함 ----
+const CHOSUNG_LIST = ["ㄱ", "ㄲ", "ㄴ", "ㄷ", "ㄸ", "ㄹ", "ㅁ", "ㅂ", "ㅃ", "ㅅ", "ㅆ", "ㅇ", "ㅈ", "ㅉ", "ㅊ", "ㅋ", "ㅌ", "ㅍ", "ㅎ"];
+const CHOSUNG_MERGE: Record<string, string> = { "ㄲ": "ㄱ", "ㄸ": "ㄷ", "ㅃ": "ㅂ", "ㅆ": "ㅅ", "ㅉ": "ㅈ" };
+const OTHER_GROUP = "기타";
+function isHangulSyllable(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return code >= 0xac00 && code <= 0xd7a3;
+}
+function nameGroup(name: string): string {
+  const ch = (name || "").trim().charAt(0);
+  if (!ch || !isHangulSyllable(ch)) return OTHER_GROUP;
+  const chosung = CHOSUNG_LIST[Math.floor((ch.charCodeAt(0) - 0xac00) / 588)];
+  return CHOSUNG_MERGE[chosung] || chosung;
+}
 const paymentMethodLabel: Record<string, string> = { card: "카드", cash: "현금", transfer: "계좌이체" };
 const urgencyRank: Record<string, number> = { critical: 0, warn: 1, ok: 2 };
 
@@ -1015,9 +1030,56 @@ export default function PTMemberManager() {
     else if (quickFilter === "unpaid") list = list.filter((c) => c.hasUnpaid);
     if (sortMode === "urgent") list = [...list].sort((a, b) => (urgencyRank[a.worst] ?? 3) - (urgencyRank[b.worst] ?? 3));
     else if (sortMode === "name") list = [...list].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    else if (sortMode === "chosung") {
+      const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name, "ko"));
+      // 초성이 없는(영문/숫자 등) 이름은 정렬 위치와 상관없이 "기타" 구간으로 맨 뒤에 모아준다.
+      const withChosung = sorted.filter((c) => nameGroup(c.name) !== OTHER_GROUP);
+      const others = sorted.filter((c) => nameGroup(c.name) === OTHER_GROUP);
+      list = [...withChosung, ...others];
+    }
     else list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return list;
   }, [customerSummary, query, sortMode, quickFilter]);
+
+  // 초성 그룹 헤더 렌더링용 — 검색 중이 아닐 때만 "가나다순"에서 사용
+  const chosungGroups = useMemo(() => {
+    if (sortMode !== "chosung" || query.trim()) return null;
+    const groups: { key: string; items: typeof filteredCustomers }[] = [];
+    filteredCustomers.forEach((c) => {
+      const key = nameGroup(c.name);
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) last.items.push(c);
+      else groups.push({ key, items: [c] });
+    });
+    return groups;
+  }, [filteredCustomers, sortMode, query]);
+
+  const renderCustomerCard = (c: (typeof filteredCustomers)[number]) => (
+    <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: c.isDormant ? 0.55 : 1 }}>
+      <div className="ptm-card-top">
+        <div>
+          <div className="ptm-name-row">
+            <span className="ptm-name">{c.name}</span>
+            {c.isDormant && <span className="ptm-badge dormant">휴면</span>}
+            {c.hasUnpaid && <span className="ptm-badge unpaid">미수금</span>}
+            {c.pendingForecast && <span className="ptm-badge forecast">재등록예정 {c.pendingForecast.targetMonth.slice(5, 7)}월 · {Number(c.pendingForecast.expectedAmount || 0).toLocaleString()}원</span>}
+          </div>
+          {c.phone && <div className="ptm-phone"><Phone size={11} /> {c.phone}</div>}
+          <div className="ptm-prod-count">
+            {c.products.length === 0 ? "등록된 상품 없음" : c.products.map((p) => `${p.name} · 잔여${shortRemain(p)}`).join(" / ")}
+            {(quickFilter === "inactive10" || quickFilter === "inactive20") && (
+              <span> · {c.lastVisit ? `마지막 방문 ${c.daysSinceVisit}일 전 (${c.lastVisit})` : "방문 기록 없음"}</span>
+            )}
+          </div>
+        </div>
+        <div className="ptm-actions">
+          <button className={`ptm-icon-btn ${c.isDormant ? "active" : ""}`} title={c.isDormant ? "휴면 해제" : "휴면 상태로 표시 (매출 계획에서 제외)"} onClick={(e) => { e.stopPropagation(); toggleDormant(c); }}><Moon size={14} /></button>
+          <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); openEditCustomer(c); }}><Pencil size={14} /></button>
+          <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); requestRemoveCustomer(c); }}><Trash2 size={14} /></button>
+        </div>
+      </div>
+    </div>
+  );
 
   const allReservations = useMemo(() => {
     return reservations.map((r) => {
@@ -1463,7 +1525,7 @@ export default function PTMemberManager() {
               <input placeholder="이름 또는 전화번호 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
             </div>
             <select className="ptm-sort" value={sortMode} onChange={(e) => setSortMode(e.target.value)}>
-              <option value="urgent">임박순</option><option value="name">이름순</option><option value="recent">최근등록순</option>
+              <option value="urgent">임박순</option><option value="name">이름순</option><option value="recent">최근등록순</option><option value="chosung">가나다순</option>
             </select>
             <button className="ptm-add" onClick={openNewCustomer}><Plus size={16} /> 고객 등록</button>
             <button className="ptm-add ghost" onClick={() => { setBulkText(""); setShowBulkImport(true); }}><Users size={16} /> 일괄 등록</button>
@@ -1478,32 +1540,14 @@ export default function PTMemberManager() {
             </div>
           ) : (
             <div className="ptm-list">
-              {filteredCustomers.map((c) => (
-                <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: c.isDormant ? 0.55 : 1 }}>
-                  <div className="ptm-card-top">
-                    <div>
-                      <div className="ptm-name-row">
-                        <span className="ptm-name">{c.name}</span>
-                        {c.isDormant && <span className="ptm-badge dormant">휴면</span>}
-                        {c.hasUnpaid && <span className="ptm-badge unpaid">미수금</span>}
-                        {c.pendingForecast && <span className="ptm-badge forecast">재등록예정 {c.pendingForecast.targetMonth.slice(5, 7)}월 · {Number(c.pendingForecast.expectedAmount || 0).toLocaleString()}원</span>}
-                      </div>
-                      {c.phone && <div className="ptm-phone"><Phone size={11} /> {c.phone}</div>}
-                      <div className="ptm-prod-count">
-                        {c.products.length === 0 ? "등록된 상품 없음" : c.products.map((p) => `${p.name} · 잔여${shortRemain(p)}`).join(" / ")}
-                        {(quickFilter === "inactive10" || quickFilter === "inactive20") && (
-                          <span> · {c.lastVisit ? `마지막 방문 ${c.daysSinceVisit}일 전 (${c.lastVisit})` : "방문 기록 없음"}</span>
-                        )}
-                      </div>
+              {chosungGroups
+                ? chosungGroups.map((g) => (
+                    <div key={g.key} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                      <div className="ptm-chosung-header">{g.key}</div>
+                      {g.items.map((c) => renderCustomerCard(c))}
                     </div>
-                    <div className="ptm-actions">
-                      <button className={`ptm-icon-btn ${c.isDormant ? "active" : ""}`} title={c.isDormant ? "휴면 해제" : "휴면 상태로 표시 (매출 계획에서 제외)"} onClick={(e) => { e.stopPropagation(); toggleDormant(c); }}><Moon size={14} /></button>
-                      <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); openEditCustomer(c); }}><Pencil size={14} /></button>
-                      <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); requestRemoveCustomer(c); }}><Trash2 size={14} /></button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                  ))
+                : filteredCustomers.map((c) => renderCustomerCard(c))}
             </div>
           )}
         </>
