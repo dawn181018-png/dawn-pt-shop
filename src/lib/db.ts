@@ -118,6 +118,33 @@ export async function deleteReservation(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// 예약 상태 변경/삭제와 세션 차감을 DB 함수(set_reservation_status / delete_reservation) 안에서 한 트랜잭션으로
+// 처리한다 — 중간에 끊겨도 "예약만 바뀌고 차감은 빠진" 반쪽 저장이 생기지 않는다. 그 함수가 아직 DB에
+// 설치되지 않았으면(PostgREST 오류 PGRST202) null을 돌려주고, 호출한 쪽은 예전 방식(두 번 요청)으로 처리한다.
+const isMissingFunction = (error: { code?: string }) => error.code === "PGRST202";
+export async function setReservationStatusAtomic(
+  reservationId: string, status: string, productId: string | null, extra: Partial<Reservation> = {},
+): Promise<{ reservation: Reservation; product: Product | null } | null> {
+  const { data, error } = await supabase.rpc("set_reservation_status", {
+    p_reservation_id: reservationId, p_status: status, p_product_id: productId, p_extra: toSnake(extra),
+  });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { reservation: Record<string, unknown>; product: Record<string, unknown> | null };
+  return { reservation: mapReservation(result.reservation), product: result.product ? mapProduct(result.product) : null };
+}
+export async function deleteReservationAtomic(reservationId: string): Promise<{ product: Product | null } | null> {
+  const { data, error } = await supabase.rpc("delete_reservation", { p_reservation_id: reservationId });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { product: Record<string, unknown> | null };
+  return { product: result.product ? mapProduct(result.product) : null };
+}
+
 // 출석(완료) 서명 이미지 업로드 → signature_url 컬럼에 저장할 스토리지 경로를 반환.
 // signatures 버킷은 private이라, 조회 시엔 getSignatureUrl로 그때그때 signed URL을 새로 발급받는다.
 export async function uploadSignature(reservationId: string, blob: Blob): Promise<string> {

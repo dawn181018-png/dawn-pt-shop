@@ -878,11 +878,19 @@ export default function PTMemberManager() {
     }
 
     try {
-      const updatedRes = await db.updateReservation(resId, { status: newStatus, productId: targetProductId, ...extra });
-      setReservations((prev) => prev.map((x) => (x.id === resId ? updatedRes : x)));
-      if (delta !== 0 && targetProductId) {
-        const p = products.find((x) => x.id === targetProductId);
-        if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, delta))) return;
+      const atomic = await db.setReservationStatusAtomic(resId, newStatus, targetProductId, extra);
+      if (atomic) {
+        setReservations((prev) => prev.map((x) => (x.id === resId ? atomic.reservation : x)));
+        const updatedProduct = atomic.product;
+        if (updatedProduct) setProducts((prev) => prev.map((x) => (x.id === updatedProduct.id ? updatedProduct : x)));
+      } else {
+        // DB 함수가 아직 설치되지 않은 경우의 예전 방식(예약 저장 → 세션 차감, 두 번 요청)
+        const updatedRes = await db.updateReservation(resId, { status: newStatus, productId: targetProductId, ...extra });
+        setReservations((prev) => prev.map((x) => (x.id === resId ? updatedRes : x)));
+        if (delta !== 0 && targetProductId) {
+          const p = products.find((x) => x.id === targetProductId);
+          if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, delta))) return;
+        }
       }
       const switched = targetProductId !== r.productId;
       if (newStatus === "done") flash(switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
@@ -909,11 +917,19 @@ export default function PTMemberManager() {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     try {
-      await db.deleteReservation(resId);
-      setReservations((prev) => prev.filter((x) => x.id !== resId));
-      if (countsAsUsed(r.status) && r.productId) {
-        const p = products.find((x) => x.id === r.productId);
-        if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, -1))) return;
+      const atomic = await db.deleteReservationAtomic(resId);
+      if (atomic) {
+        setReservations((prev) => prev.filter((x) => x.id !== resId));
+        const updatedProduct = atomic.product;
+        if (updatedProduct) setProducts((prev) => prev.map((x) => (x.id === updatedProduct.id ? updatedProduct : x)));
+      } else {
+        // DB 함수가 아직 설치되지 않은 경우의 예전 방식(예약 삭제 → 세션 복구, 두 번 요청)
+        await db.deleteReservation(resId);
+        setReservations((prev) => prev.filter((x) => x.id !== resId));
+        if (countsAsUsed(r.status) && r.productId) {
+          const p = products.find((x) => x.id === r.productId);
+          if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, -1))) return;
+        }
       }
       flash("예약 삭제됨");
     } catch { flash("삭제 실패, 다시 시도해주세요"); }
