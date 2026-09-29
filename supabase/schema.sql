@@ -261,6 +261,8 @@ create unique index if not exists idx_customers_auth_user_id on customers(auth_u
 -- customers.auth_user_id로 본인이 연결된 회원 계정에 한해 SELECT만 추가로 허용한다.
 -- 같은 테이블에 여러 permissive 정책이 있으면 OR로 결합되므로 트레이너용 정책과 서로 간섭하지 않고,
 -- insert/update/delete는 이 정책들에 없으므로 회원 계정은 읽기만 가능하다.
+-- ※ 2026-09-29부터 이 3개 정책은 사용하지 않는다 — 파일 맨 아래 "회원 계정의 직접 조회 권한 제거"에서
+--   다시 삭제된다(트레이너 메모 노출 차단). 마이페이지는 서버에서 필요한 컬럼만 읽는다.
 drop policy if exists "customers_member_select_own" on customers;
 create policy "customers_member_select_own" on customers
   for select to authenticated
@@ -386,3 +388,106 @@ end;
 $$;
 grant execute on function transfer_pass(uuid, jsonb) to authenticated;
 grant execute on function transfer_pass(uuid, jsonb) to service_role;
+
+-- ---------- 예약 상태 변경/삭제 + 세션 차감을 한 번에 (원자적 처리) ----------
+-- (2026-09-29 운영 DB에 SQL Editor로 적용됨)
+-- 예전엔 "예약 상태 저장"과 "세션 차감(adjust_used_sessions)"을 앱이 두 번 따로 요청해서, 통신이 중간에
+-- 끊기면 예약만 완료되고 차감은 빠지는 반쪽 저장이 생길 수 있었다. 두 작업을 한 트랜잭션으로 묶어
+-- 둘 다 되거나 둘 다 안 되게 한다. 차감 규칙은 앱과 동일하다: 완료/노쇼로 "새로" 바뀌면 +1, 완료/노쇼에서
+-- 다른 상태로 바뀌면 -1, 사용횟수는 0~총횟수 범위로 제한, 횟수권(session)만 차감.
+-- for update로 예약 행을 잠가, 같은 예약을 동시에 두 번 처리해도(더블탭/여러 기기) 중복 차감되지 않는다.
+-- 새 함수만 추가하며 기존 테이블/데이터는 건드리지 않는다. 재실행해도 안전하다(create or replace).
+-- 앱은 이 함수가 없으면(PGRST202) 예전 방식(두 번 요청)으로 자동으로 되돌아간다.
+create or replace function set_reservation_status(
+  p_reservation_id uuid, p_status text, p_product_id uuid, p_extra jsonb default '{}'::jsonb
+)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_res reservations%rowtype;
+  v_delta int := 0;
+  v_product products%rowtype;
+  v_has_product boolean := false;
+begin
+  select * into v_res from reservations
+    where id = p_reservation_id and owner_id = v_owner
+    for update;
+  if not found then raise exception '예약을 찾을 수 없습니다'; end if;
+
+  if p_status in ('done', 'noshow') and v_res.status not in ('done', 'noshow') then v_delta := 1;
+  elsif v_res.status in ('done', 'noshow') and p_status not in ('done', 'noshow') then v_delta := -1;
+  end if;
+
+  update reservations set
+    status = p_status,
+    product_id = p_product_id,
+    signature_url = case when p_extra ? 'signature_url' then p_extra->>'signature_url' else signature_url end,
+    workout_note = case when p_extra ? 'workout_note' then p_extra->>'workout_note' else workout_note end
+  where id = p_reservation_id
+  returning * into v_res;
+
+  if v_delta <> 0 and p_product_id is not null then
+    update products
+      set used_sessions = greatest(0, least(total_sessions, used_sessions + v_delta))
+      where id = p_product_id and owner_id = v_owner and type = 'session'
+      returning * into v_product;
+    v_has_product := found;
+  end if;
+
+  return jsonb_build_object(
+    'reservation', to_jsonb(v_res),
+    'product', case when v_has_product then to_jsonb(v_product) else null end
+  );
+end;
+$$;
+grant execute on function set_reservation_status(uuid, text, uuid, jsonb) to authenticated;
+grant execute on function set_reservation_status(uuid, text, uuid, jsonb) to service_role;
+
+create or replace function delete_reservation(p_reservation_id uuid)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_res reservations%rowtype;
+  v_product products%rowtype;
+  v_has_product boolean := false;
+begin
+  select * into v_res from reservations
+    where id = p_reservation_id and owner_id = v_owner
+    for update;
+  if not found then raise exception '예약을 찾을 수 없습니다'; end if;
+
+  delete from reservations where id = p_reservation_id;
+
+  if v_res.status in ('done', 'noshow') and v_res.product_id is not null then
+    update products
+      set used_sessions = greatest(0, least(total_sessions, used_sessions - 1))
+      where id = v_res.product_id and owner_id = v_owner and type = 'session'
+      returning * into v_product;
+    v_has_product := found;
+  end if;
+
+  return jsonb_build_object('product', case when v_has_product then to_jsonb(v_product) else null end);
+end;
+$$;
+grant execute on function delete_reservation(uuid) to authenticated;
+grant execute on function delete_reservation(uuid) to service_role;
+
+-- ---------- 회원 계정의 직접 조회 권한 제거 (트레이너 메모 노출 차단) ----------
+-- (2026-09-29 운영 DB에 SQL Editor로 적용됨)
+-- 위쪽 "회원용 마이페이지" 섹션에서 만든 *_member_select_own 정책은 회원이 앱을 거치지 않고 API로
+-- customers.memo / reservations.memo 같은 트레이너 전용 컬럼까지 읽을 수 있게 했다. 마이페이지는 이제
+-- 서버(service_role)에서 로그인한 본인 데이터의 필요한 컬럼만 골라 읽으므로 이 정책들이 필요 없다.
+-- 파일 전체를 처음부터 다시 실행해도 최종 상태가 같도록, 위에서 만든 정책을 여기서 제거한다.
+-- 트레이너용 *_owner_all 정책과 데이터는 건드리지 않는다.
+drop policy if exists "customers_member_select_own" on customers;
+drop policy if exists "products_member_select_own" on products;
+drop policy if exists "reservations_member_select_own" on reservations;
+
+-- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
+notify pgrst, 'reload schema';
