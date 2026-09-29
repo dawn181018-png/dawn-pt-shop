@@ -618,7 +618,11 @@ export default function PTMemberManager() {
 
   // ---- Products ----
   const openNewProduct = (customerId: string) => { setProductForm(emptyProduct); setProductFormCustomerId(customerId); setEditingProductId(null); setProductCatalogPick(""); setShowProductForm(true); };
+  // 수정 폼을 연 시점의 "사용한 횟수". 폼이 열려 있는 동안 다른 기기에서 출석 처리 등으로 차감되면,
+  // 이 값을 그대로 다시 저장할 경우 그 차감이 되돌려진다. 그래서 사용자가 이 칸을 직접 바꿨을 때만 저장한다.
+  const editOriginalUsedRef = useRef<number | null>(null);
   const openEditProduct = (p: Product) => {
+    editOriginalUsedRef.current = p.usedSessions;
     setProductForm({
       ...emptyProduct, ...p,
       listPrice: p.listPrice ?? p.price ?? 0,
@@ -638,6 +642,7 @@ export default function PTMemberManager() {
     } as unknown as Partial<Product>;
     try {
       if (editingProductId) {
+        if (Number(productForm.usedSessions) === editOriginalUsedRef.current) delete payload.usedSessions;
         const updated = await db.updateProduct(editingProductId, payload);
         setProducts(products.map((p) => (p.id === editingProductId ? updated : p)));
         flash("상품 정보 수정됨");
