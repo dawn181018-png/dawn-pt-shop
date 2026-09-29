@@ -654,13 +654,22 @@ export default function PTMemberManager() {
     } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
   };
   // 양도는 고객/이용권을 여러 개 한 번에 만들 수 있어 낙관적 상태 갱신 대신 통째로 다시 불러온다.
+  // 양도 자체는 이미 DB에 저장된 뒤 호출되므로 여기서 에러를 던지면 안 된다 — 모달이 그 에러를
+  // "양도 실패"로 보여줘서 다시 누르면 양도가 한 번 더 일어날 수 있다. 다시 불러오기만 실패하면 새로고침 안내만 한다.
   const refetchAfterTransfer = async () => {
-    const [customersData, productsData, passTransfersData] = await Promise.all([
-      db.listCustomers(), db.listProducts(), db.listPassTransfers(),
-    ]);
-    setCustomers(customersData);
-    setProducts(productsData);
-    setPassTransfers(passTransfersData);
+    try {
+      const [customersData, productsData, passTransfersData] = await Promise.all([
+        db.listCustomers(), db.listProducts(), db.listPassTransfers(),
+      ]);
+      setCustomers(customersData);
+      setProducts(productsData);
+      setPassTransfers(passTransfersData);
+      // 잔여를 전부 넘겨 소진된 원본 이용권에 묶인 예약, 새 이용권을 받은 수령인의 멈춰 있던 예약을
+      // 상품 등록 때와 똑같이 유효한 이용권으로 바로 이어준다(예전엔 앱을 다시 열어야 반영됐다).
+      await reconnectScheduledReservations(reservations, productsData);
+    } catch {
+      flash("양도는 완료됐어요. 화면이 갱신되지 않았다면 새로고침해주세요", 5000);
+    }
   };
   const removeProduct = async (id: string) => {
     try {
