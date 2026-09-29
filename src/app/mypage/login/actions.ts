@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { linkMypageMember } from "@/lib/supabase/mypageLink";
+import { linkMypageMember, emailLikePattern } from "@/lib/supabase/mypageLink";
 
 export async function requestMypageLink(formData: FormData): Promise<{ ok: true } | { ok: false; error: string }> {
   const email = String(formData.get("email") || "").trim();
@@ -14,13 +14,15 @@ export async function requestMypageLink(formData: FormData): Promise<{ ok: true 
   try {
     // 로그인 전 이메일 매칭이라 일반 클라이언트로는 customers를 조회할 RLS 권한이 없다 -> admin 클라이언트 필요.
     const admin = createAdminClient();
+    const pattern = emailLikePattern(email);
+    if (!pattern) return { ok: false, error: "등록된 회원 정보가 없습니다" };
     // limit(1)로 하나만 가져오면 같은 이메일을 쓰는 고객이 여러 명일 때(예: 가족이 이메일을 공유하는
     // 경우) 어느 쪽이 연결될지 예측할 수 없어 다른 사람의 예약/결제 정보가 보일 위험이 있다.
     // 그래서 전체를 가져와 몇 건인지 먼저 확인한다.
     const { data: matched, error: lookupError } = await admin
       .from("customers")
       .select("id")
-      .ilike("email", email);
+      .ilike("email", pattern);
 
     if (lookupError) {
       console.error("[mypage-login] customers 조회 실패:", lookupError.message);

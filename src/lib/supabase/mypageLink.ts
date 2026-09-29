@@ -1,6 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+// 이메일을 대소문자만 무시하고 "정확히 같은지" 비교하려고 ilike를 쓰는데, ilike 패턴에서 _ 와 % 는
+// 와일드카드라 이메일에 흔한 _ 가 "아무 글자 하나"로 해석돼 다른 고객 이메일과도 매칭될 수 있다
+// (예: john_doe@x.com 이 johnxdoe@x.com 고객과 연결). 와일드카드 문자를 이스케이프해 글자 그대로 비교한다.
+// PostgREST는 * 도 % 로 바꿔 해석하는데 이스케이프가 안 되므로, * 가 들어간 입력은 아예 매칭하지 않는다.
+export function emailLikePattern(email: string): string | null {
+  if (email.includes("*")) return null;
+  return email.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
 // 회원용 마이페이지 로그인(매직링크 또는 인증 코드)에서, 최초 1회 customers.auth_user_id를
 // 연결하고 app_metadata.role="member"를 부여한다. 트레이너는 이 경로를 절대 타지 않으므로
 // 트레이너 로그인/권한에는 영향이 없다.
@@ -23,10 +32,12 @@ export async function linkMypageMember(supabase: Awaited<ReturnType<typeof creat
   if (!alreadyLinked) {
     // 같은 이메일을 쓰는 미연결 고객이 2명 이상이면 임의로 아무나 연결하지 않는다 —
     // requestMypageLink에서 이미 이 경우를 걸러내지만, 방어적으로 여기서도 한 번 더 확인한다.
+    const pattern = emailLikePattern(user.email ?? "");
+    if (!pattern) return;
     const { data: matched } = await admin
       .from("customers")
       .select("id")
-      .ilike("email", user.email ?? "")
+      .ilike("email", pattern)
       .is("auth_user_id", null);
     if (!matched || matched.length !== 1) return; // 매칭 실패/중복 - /mypage 쪽에서 안내 후 로그아웃 처리
     await admin.from("customers").update({ auth_user_id: user.id }).eq("id", matched[0].id);
