@@ -3129,19 +3129,25 @@ export default function PTMemberManager() {
         const half = Math.ceil(total / 2);
         const historyCount = history.length;
         const usedCount = Math.max(0, Math.min(total, Number(product.usedSessions) || 0));
-        const manualUsedCount = Math.max(0, usedCount - historyCount);
+        const extraUsedCount = Math.max(0, usedCount - historyCount);
+        // 이용권 양도로 넘긴 횟수도 usedSessions에 포함돼 있어, 그대로 두면 출석한 것처럼 "check"로 보인다.
+        // 기록 없는 사용분 중 양도분은 따로 떼어 서명 기록 뒤에 "양도"로 표시한다.
+        const transferredOut = passTransfers.filter((t) => t.sourceProductId === product.id).reduce((s, t) => s + t.sessionsTransferred, 0);
+        const transferredCount = Math.min(transferredOut, extraUsedCount);
+        const manualUsedCount = extraUsedCount - transferredCount;
         const slots = Array.from({ length: total }, (_, i) => {
-          if (i < manualUsedCount) return { used: true, res: null };
+          if (i < manualUsedCount) return { used: true, res: null, transferred: false };
           const hIdx = i - manualUsedCount;
-          return hIdx < historyCount ? { used: true, res: history[hIdx] } : { used: false, res: null };
+          if (hIdx < historyCount) return { used: true, res: history[hIdx], transferred: false };
+          return hIdx - historyCount < transferredCount ? { used: true, res: null, transferred: true } : { used: false, res: null, transferred: false };
         });
-        const renderSlotRows = (slotArr: { used: boolean; res: Reservation | null }[], offset: number) => slotArr.map((slot, i) => {
+        const renderSlotRows = (slotArr: { used: boolean; res: Reservation | null; transferred: boolean }[], offset: number) => slotArr.map((slot, i) => {
           const r = slot.res;
           return (
             <tr key={offset + i} className={r && r.id === res.id ? "ptm-session-card-highlight" : ""}>
               <td>{offset + i + 1}</td>
               <td>{r ? `${koDate(r.date)} ${r.time}` : "-"}</td>
-              <td>{r && r.status === "noshow" ? <span className="ptm-noshow-mark">NO SHOW</span> : r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : (slot.used ? "check" : "-")}</td>
+              <td>{r && r.status === "noshow" ? <span className="ptm-noshow-mark">NO SHOW</span> : r && r.signatureUrl ? <SignatureThumb path={r.signatureUrl} /> : slot.transferred ? "양도" : (slot.used ? "check" : "-")}</td>
             </tr>
           );
         });
