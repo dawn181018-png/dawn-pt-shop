@@ -16,7 +16,28 @@ const TABLES = [
   "payroll_settings",
   "renewal_forecasts",
   "contract_signatures",
+  "pass_transfers",
 ] as const;
+
+// PostgREST는 요청 1건당 최대 1000행까지만 돌려준다. select("*") 한 번으로는 1000행을 넘는 테이블
+// (예약이 가장 먼저 넘는다)이 조용히 잘려서 백업이 불완전해지므로, 고정된 순서로 전부 페이징해서 읽는다.
+// payroll_settings만 id 컬럼이 없고 owner_id가 기본키라 그걸로 정렬한다.
+const PAGE_SIZE = 1000;
+async function fetchAllRows(supabase: ReturnType<typeof createAdminClient>, table: (typeof TABLES)[number]) {
+  const orderColumn = table === "payroll_settings" ? "owner_id" : "id";
+  const rows: unknown[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .order(orderColumn, { ascending: true })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw new Error(`${table} 조회 실패: ${error.message}`);
+    rows.push(...(data ?? []));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
 
 // 서버는 UTC로 도는 경우가 많아 new Date()의 로컬 기준을 쓰면 날짜가 밀릴 수 있다.
 // UTC 시각에 9시간을 더해 한국 날짜를 직접 계산한다.
@@ -58,10 +79,9 @@ export async function GET(request: Request) {
     const counts: Record<string, number> = {};
 
     for (const table of TABLES) {
-      const { data, error } = await supabase.from(table).select("*");
-      if (error) throw new Error(`${table} 조회 실패: ${error.message}`);
-      tables[table] = data ?? [];
-      counts[table] = data?.length ?? 0;
+      const rows = await fetchAllRows(supabase, table);
+      tables[table] = rows;
+      counts[table] = rows.length;
     }
 
     const dateStr = todayKstDateStr();
