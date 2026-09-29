@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
 import { getCustomerWorkoutLogs } from "@/lib/workoutLog";
 import type { Customer, Product, Reservation } from "@/lib/types";
@@ -12,9 +13,11 @@ export default async function MyPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/mypage/login");
 
-  // RLS(customers_member_select_own)가 auth_user_id = auth.uid()인 본인 행만 돌려주므로
-  // 다른 회원의 고객 레코드는 여기서 절대 조회되지 않는다.
-  const { data: custRow } = await supabase.from("customers").select("*").eq("auth_user_id", user.id).maybeSingle();
+  // 회원 계정에는 테이블을 직접 읽는 권한을 주지 않는다 — 권한을 주면 회원이 앱을 거치지 않고 API로
+  // 트레이너 메모(customers.memo, reservations.memo) 같은 컬럼까지 읽을 수 있기 때문이다. 대신 서버에서
+  // 로그인한 본인(getUser로 검증된 user.id)에 연결된 고객 1명의 데이터만, 화면에 필요한 컬럼만 골라 읽는다.
+  const admin = createAdminClient();
+  const { data: custRow } = await admin.from("customers").select("id, name").eq("auth_user_id", user.id).maybeSingle();
 
   if (!custRow) {
     // 매직링크 발송 이후 연결이 안 된 예외 상황(예: 링크 발송 뒤 회원 정보가 삭제된 경우) - 안내 후 로그아웃.
@@ -25,8 +28,17 @@ export default async function MyPage() {
   const customer = toCamel<Customer>(custRow);
 
   const [{ data: productRows }, { data: reservationRows }] = await Promise.all([
-    supabase.from("products").select("*").eq("customer_id", customer.id).order("created_at", { ascending: true }),
-    supabase.from("reservations").select("*").eq("customer_id", customer.id).order("date", { ascending: true }).order("time", { ascending: true }),
+    admin
+      .from("products")
+      .select("id, customer_id, name, type, total_sessions, used_sessions, start_date, end_date, session_duration, created_at")
+      .eq("customer_id", customer.id)
+      .order("created_at", { ascending: true }),
+    admin
+      .from("reservations")
+      .select("id, customer_id, product_id, series_id, date, time, duration, status, type, workout_note")
+      .eq("customer_id", customer.id)
+      .order("date", { ascending: true })
+      .order("time", { ascending: true }),
   ]);
 
   const products = (productRows ?? []).map((row) => withEpochCreatedAt(toCamel<Product>(row)));
