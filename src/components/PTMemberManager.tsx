@@ -768,7 +768,11 @@ export default function PTMemberManager() {
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
   });
+  // 워크인(신규 고객 + 예약) 등록은 고객 저장 → 예약 저장 두 단계라, 예약 저장만 실패한 뒤 다시 누르면
+  // 같은 고객이 한 번 더 만들어졌다. 이번 입력에서 이미 만든 고객을 기억해뒀다가 재시도 땐 재사용한다.
+  const walkInCustomerRef = useRef<Customer | null>(null);
   const resetQuickAddState = () => {
+    walkInCustomerRef.current = null;
     setQuickForm({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
@@ -789,12 +793,16 @@ export default function PTMemberManager() {
       }
       if (quickIsNew) {
         if (!walkInName.trim()) { flash("이름을 입력해주세요"); return; }
-        const newCustomer = await db.insertCustomer({ name: walkInName.trim(), phone: walkInPhone.trim(), birthdate: null, email: "", memo: "" });
+        const newCustomer = walkInCustomerRef.current
+          ? await db.updateCustomer(walkInCustomerRef.current.id, { name: walkInName.trim(), phone: walkInPhone.trim() })
+          : await db.insertCustomer({ name: walkInName.trim(), phone: walkInPhone.trim(), birthdate: null, email: "", memo: "" });
+        walkInCustomerRef.current = newCustomer;
+        // 고객은 이미 DB에 저장됐으므로, 뒤이은 예약 저장이 실패해도 고객 목록에는 바로 보이게 한다.
+        setCustomers((prev) => (prev.some((c) => c.id === newCustomer.id) ? prev.map((c) => (c.id === newCustomer.id ? newCustomer : c)) : [...prev, newCustomer]));
         const [newRes] = await db.insertReservations([{
           customerId: newCustomer.id, productId: null, seriesId: null,
           date: quickForm.date, time: quickForm.time, duration: Number(quickForm.duration) || 60, memo: quickForm.memo || "", status: statusOverride || "scheduled",
         }]);
-        setCustomers((prev) => [...prev, newCustomer]);
         setReservations((prev) => [...prev, newRes]);
         setShowQuickAdd(false);
         resetQuickAddState();
@@ -814,6 +822,7 @@ export default function PTMemberManager() {
     const rect = e.currentTarget.getBoundingClientRect();
     const time = pxToTime(e.clientY - rect.top);
     setHoverInfo(null);
+    walkInCustomerRef.current = null;
     setQuickForm({ customerId: "", productId: "", date, time, duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
