@@ -211,7 +211,7 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
       flash(`${customer.name}님 ${isNewCustomer ? "신규" : "재등록"} 판매 완료`);
       onSaleComplete(customer, product, isNewCustomer);
       resetWizard();
-    } catch (e) {
+    } catch {
       flash(savedRef.current.product
         ? "고객·이용권은 저장됐지만 계약서 서명 저장에 실패했어요. 서명 완료를 다시 눌러주세요"
         : "판매 처리 실패, 다시 시도해주세요");

@@ -340,13 +340,18 @@ export default function PTMemberManager() {
   const emptyProspect = { name: "", expectedAmount: 0, note: "" };
   const [newProspectForm, setNewProspectForm] = useState(emptyProspect);
 
-  // 이전 안내의 타이머가 남아 있으면 새로 띄운 (더 긴) 안내까지 일찍 지워버리므로 매번 새로 건다.
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 안내를 띄울 때마다 이전 안내의 사라짐 타이머를 취소하고 새로 건다 — 그렇지 않으면 앞선 짧은 안내의
+  // 타이머가 방금 띄운 (더 긴) 안내까지 일찍 지워버린다.
+  const [toastTick, setToastTick] = useState<{ seq: number; ms: number }>({ seq: 0, ms: 1800 });
   const flash = (msg: string, ms = 1800) => {
     setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(""), ms);
+    setToastTick((prev) => ({ seq: prev.seq + 1, ms }));
   };
+  useEffect(() => {
+    if (toastTick.seq === 0) return;
+    const timer = setTimeout(() => setToast(""), toastTick.ms);
+    return () => clearTimeout(timer);
+  }, [toastTick]);
 
   // 모바일에서 같은 버튼을 빠르게 두 번 누르면, 첫 요청이 끝나 화면 상태가 갱신되기 전에 두 번째
   // 요청이 옛 상태(예: 아직 "예약됨")를 보고 한 번 더 실행돼 세션이 두 번 차감/복구되거나 예약이
@@ -403,7 +408,7 @@ export default function PTMemberManager() {
         setPassTransfers(passTransfersData);
         if (settingsData) setSettings({ ...defaultSettings, ...settingsData });
         await reconnectScheduledReservations(reservationsData, productsData);
-      } catch (e) {
+      } catch {
         flash("데이터를 불러오지 못했어요");
       }
       setLoaded(true);
@@ -438,14 +443,14 @@ export default function PTMemberManager() {
         flash("이용권 등록됨");
       }
       setShowCatalogForm(false);
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const removeCatalogItem = async (id: string) => {
     try {
       await db.deleteCatalogItem(id);
       setCatalog(catalog.filter((i) => i.id !== id));
       flash("이용권 삭제됨");
-    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+    } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
 
   // ---- 재등록 예정(파이프라인) ----
@@ -492,14 +497,14 @@ export default function PTMemberManager() {
         flash("재등록 예정 등록됨");
       }
       setShowForecastForm(false);
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const removeForecast = async (id: string) => {
     try {
       await db.deleteRenewalForecast(id);
       setRenewalForecasts(renewalForecasts.filter((f) => f.id !== id));
       flash("재등록 예정 삭제됨");
-    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+    } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
   const requestRemoveForecast = (id: string, message: string) => askConfirm(message, () => removeForecast(id));
 
@@ -517,7 +522,7 @@ export default function PTMemberManager() {
       setRenewalForecasts([...renewalForecasts, created]);
       setNewProspectForm(emptyProspect);
       flash("신규 고객 예정 등록됨");
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const updateProspectField = (id: string, field: string, value: string | number) => {
     setRenewalForecasts((cur) => cur.map((f) => (f.id === id ? ({ ...f, [field]: value } as RenewalForecast) : f)));
@@ -530,7 +535,7 @@ export default function PTMemberManager() {
         prospectName: f.prospectName, expectedAmount: Number(f.expectedAmount) || 0, note: f.note,
       });
       setRenewalForecasts((cur) => cur.map((x) => (x.id === id ? updated : x)));
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const handleProspectKeyDown = (e: React.KeyboardEvent) => { if (e.key === "Enter") addProspect(); };
 
@@ -561,14 +566,14 @@ export default function PTMemberManager() {
         setShowCustomerForm(false);
         openNewProduct(created.id); // 신규 고객 등록 직후 바로 이용권 등록으로 이어간다
       }
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const toggleDormant = async (c: Customer) => {
     try {
       const updated = await db.updateCustomer(c.id, { isDormant: !c.isDormant });
       setCustomers(customers.map((x) => (x.id === c.id ? updated : x)));
       flash(updated.isDormant ? "휴면 상태로 변경됨 · 매출 계획에서 제외돼요" : "휴면 상태 해제됨");
-    } catch (e) { flash("변경 실패, 다시 시도해주세요"); }
+    } catch { flash("변경 실패, 다시 시도해주세요"); }
   };
   const removeCustomer = async (id: string) => {
     try {
@@ -577,7 +582,7 @@ export default function PTMemberManager() {
       setProducts(products.filter((p) => p.customerId !== id));
       setReservations(reservations.filter((r) => r.customerId !== id));
       flash("고객 삭제됨");
-    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+    } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
   const requestRemoveCustomer = (c: Customer) => {
     const prodCount = products.filter((p) => p.customerId === c.id).length;
@@ -613,16 +618,16 @@ export default function PTMemberManager() {
       setShowBulkImport(false);
       setBulkText("");
       flash(skipped > 0 ? `${created.length}명 등록됨 · 중복 ${skipped}건 건너뜀` : `${created.length}명 등록됨`);
-    } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
+    } catch { flash("등록 실패, 다시 시도해주세요"); }
   };
 
   // ---- Products ----
   const openNewProduct = (customerId: string) => { setProductForm(emptyProduct); setProductFormCustomerId(customerId); setEditingProductId(null); setProductCatalogPick(""); setShowProductForm(true); };
   // 수정 폼을 연 시점의 "사용한 횟수". 폼이 열려 있는 동안 다른 기기에서 출석 처리 등으로 차감되면,
   // 이 값을 그대로 다시 저장할 경우 그 차감이 되돌려진다. 그래서 사용자가 이 칸을 직접 바꿨을 때만 저장한다.
-  const editOriginalUsedRef = useRef<number | null>(null);
+  const [editOriginalUsed, setEditOriginalUsed] = useState<number | null>(null);
   const openEditProduct = (p: Product) => {
-    editOriginalUsedRef.current = p.usedSessions;
+    setEditOriginalUsed(p.usedSessions);
     setProductForm({
       ...emptyProduct, ...p,
       listPrice: p.listPrice ?? p.price ?? 0,
@@ -642,7 +647,7 @@ export default function PTMemberManager() {
     } as unknown as Partial<Product>;
     try {
       if (editingProductId) {
-        if (Number(productForm.usedSessions) === editOriginalUsedRef.current) delete payload.usedSessions;
+        if (Number(productForm.usedSessions) === editOriginalUsed) delete payload.usedSessions;
         const updated = await db.updateProduct(editingProductId, payload);
         setProducts(products.map((p) => (p.id === editingProductId ? updated : p)));
         flash("상품 정보 수정됨");
@@ -656,7 +661,7 @@ export default function PTMemberManager() {
         flash("상품 등록됨");
       }
       setShowProductForm(false);
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   // 양도는 고객/이용권을 여러 개 한 번에 만들 수 있어 낙관적 상태 갱신 대신 통째로 다시 불러온다.
   // 양도 자체는 이미 DB에 저장된 뒤 호출되므로 여기서 에러를 던지면 안 된다 — 모달이 그 에러를
@@ -691,7 +696,7 @@ export default function PTMemberManager() {
         setReservations(reservations.map((r) => (r.productId === id ? { ...r, productId: null } : r)));
       }
       flash("상품 삭제됨");
-    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+    } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
   const requestRemoveProduct = (p: Product) => {
     const resCount = reservations.filter((r) => r.productId === p.id).length;
@@ -707,7 +712,7 @@ export default function PTMemberManager() {
     try {
       const updated = await db.adjustUsedSessions(id, delta);
       setProducts(products.map((x) => (x.id === id ? updated : x)));
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
   const togglePaid = async (id: string) => {
     const p = products.find((x) => x.id === id);
@@ -715,7 +720,7 @@ export default function PTMemberManager() {
     try {
       const updated = await db.updateProduct(id, isFullyPaid(p) ? { paidAmount: 0 } : { paidAmount: Number(p.price || 0) });
       setProducts(products.map((x) => (x.id === id ? updated : x)));
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
 
   // ---- Reservations ----
@@ -778,7 +783,7 @@ export default function PTMemberManager() {
       if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
       if (n > 0) flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
-    } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
+    } catch { flash("등록 실패, 다시 시도해주세요"); }
   });
   // 워크인(신규 고객 + 예약) 등록은 고객 저장 → 예약 저장 두 단계라, 예약 저장만 실패한 뒤 다시 누르면
   // 같은 고객이 한 번 더 만들어졌다. 이번 입력에서 이미 만든 고객을 기억해뒀다가 재시도 땐 재사용한다.
@@ -828,7 +833,7 @@ export default function PTMemberManager() {
       setShowQuickAdd(false);
       resetQuickAddState();
       if (n > 0) flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
-    } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
+    } catch { flash("등록 실패, 다시 시도해주세요"); }
   });
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>, date: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
@@ -877,7 +882,7 @@ export default function PTMemberManager() {
       if (newStatus === "done") flash(switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
       else if (newStatus === "noshow") flash(switched ? "노쇼 처리 · 다른 이용권으로 전환되어 차감됨" : "노쇼 처리 · 세션 1회 차감");
       else if (newStatus === "cancelled") flash("예약 취소됨");
-    } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
+    } catch { flash("처리 실패, 다시 시도해주세요"); }
   });
 
   // ---- 출석(완료) 처리 전 서명 받기 ----
@@ -892,7 +897,7 @@ export default function PTMemberManager() {
       await setReservationStatus(signatureRes.id, "done", { signatureUrl: path, workoutNote: workoutNote || null });
       setSessionCardResId(signatureRes.id);
       setSignatureRes(null);
-    } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
+    } catch { flash("서명 저장 실패, 다시 시도해주세요"); }
   };
   const deleteReservation = (resId: string) => runExclusive(`reservation:${resId}`, async () => {
     const r = reservations.find((x) => x.id === resId);
@@ -905,7 +910,7 @@ export default function PTMemberManager() {
         if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, -1))) return;
       }
       flash("예약 삭제됨");
-    } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
+    } catch { flash("삭제 실패, 다시 시도해주세요"); }
   });
 
   // ---- 반복 예약: 이 예약만 / 이후 전체 선택 처리 ----
@@ -934,7 +939,7 @@ export default function PTMemberManager() {
         if (!(await adjustSessionsOrWarn(pid, deltaByProduct[pid]))) sessionsOk = false;
       }
       if (sessionsOk) flash("이후 반복 예약 전체 취소됨");
-    } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
+    } catch { flash("처리 실패, 다시 시도해주세요"); }
   });
   const deleteSeriesFuture = (seriesId: string, fromDate: string) => runExclusive(`series:${seriesId}`, async () => {
     const deltaByProduct: Record<string, number> = {};
@@ -949,7 +954,7 @@ export default function PTMemberManager() {
         if (!(await adjustSessionsOrWarn(pid, deltaByProduct[pid]))) sessionsOk = false;
       }
       if (sessionsOk) flash("이후 반복 예약 전체 삭제됨");
-    } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
+    } catch { flash("처리 실패, 다시 시도해주세요"); }
   });
   const applySeriesChoice = (scope: string) => {
     if (!seriesPrompt) return;
@@ -973,7 +978,7 @@ export default function PTMemberManager() {
       const updated = await db.updateReservation(resId, { date: newDate, time: newTime });
       setReservations((prev) => prev.map((r) => (r.id === resId ? updated : r)));
       flash("예약 일정이 변경됨");
-    } catch (e) { flash("변경 실패, 다시 시도해주세요"); }
+    } catch { flash("변경 실패, 다시 시도해주세요"); }
   };
 
   // ---- 드롭다운으로 예약 시간 정확히 수정 ----
@@ -997,7 +1002,7 @@ export default function PTMemberManager() {
       });
       setReservations((prev) => prev.map((r) => (r.id === timeEditRes.id ? updated : r)));
       flash("예약 일정이 변경됨");
-    } catch (e) { flash("변경 실패, 다시 시도해주세요"); }
+    } catch { flash("변경 실패, 다시 시도해주세요"); }
     setTimeEditRes(null);
   };
   const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
@@ -2873,7 +2878,7 @@ export default function PTMemberManager() {
                   setSettings({ ...defaultSettings, ...saved });
                   setShowSettings(false);
                   flash("급여 설정 저장됨");
-                } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
+                } catch { flash("저장 실패, 다시 시도해주세요"); }
               }}
             >
               저장
