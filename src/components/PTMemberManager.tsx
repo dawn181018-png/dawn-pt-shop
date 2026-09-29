@@ -377,7 +377,13 @@ export default function PTMemberManager() {
   const emptyProspect = { name: "", expectedAmount: 0, note: "" };
   const [newProspectForm, setNewProspectForm] = useState(emptyProspect);
 
-  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
+  // 이전 안내의 타이머가 남아 있으면 새로 띄운 (더 긴) 안내까지 일찍 지워버리므로 매번 새로 건다.
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flash = (msg: string, ms = 1800) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), ms);
+  };
 
   // 모바일에서 같은 버튼을 빠르게 두 번 누르면, 첫 요청이 끝나 화면 상태가 갱신되기 전에 두 번째
   // 요청이 옛 상태(예: 아직 "예약됨")를 보고 한 번 더 실행돼 세션이 두 번 차감/복구되거나 예약이
@@ -727,6 +733,22 @@ export default function PTMemberManager() {
   };
 
   // ---- Reservations ----
+  // 예약 저장과 세션 차감/복구는 서로 다른 두 번의 요청이라, 예약은 저장됐는데 차감만 실패할 수 있다
+  // (특히 모바일 통신이 끊길 때). 예전엔 이때도 "처리 실패, 다시 시도"라고 떠서, 다시 누르면 이미 바뀐
+  // 상태 때문에 차감이 영영 빠지거나 예약이 중복됐다. 차감 실패만 따로 잡아서 무엇을 손으로 맞춰야
+  // 하는지 정확히 알려주고, false를 돌려 호출한 쪽이 "성공" 안내를 덮어쓰지 않게 한다.
+  const adjustSessionsOrWarn = async (productId: string, delta: number): Promise<boolean> => {
+    try {
+      const updated = await db.adjustUsedSessions(productId, delta);
+      setProducts((prev) => prev.map((x) => (x.id === productId ? updated : x)));
+      return true;
+    } catch {
+      const name = products.find((x) => x.id === productId)?.name || "이용권";
+      flash(`예약은 저장됐지만 세션 ${delta > 0 ? "차감" : "복구"}이 반영되지 않았어요. "${name}" 수동조정(${delta > 0 ? "+" : "-"})으로 ${Math.abs(delta)}회 맞춰주세요`, 8000);
+      return false;
+    }
+  };
+  // 반환값: 만든 예약 건수. 0 = 막혀서 아무것도 안 만듦(안내 표시됨), -1 = 예약은 만들었지만 세션 차감 실패(안내 표시됨).
   const pushReservation = async (customerId: string | null, productId: string | null, data: ReservationFormData, statusOverride?: ReservationStatus, extra: Partial<Reservation> = {}) => {
     const status = statusOverride || "scheduled";
     // 소진된 이용권으로 곧장 출석/결석 처리하며 예약을 만들면 세션이 초과 차감되므로 미리 막는다.
@@ -752,10 +774,7 @@ export default function PTMemberManager() {
     // 지난 시간을 출석/결석으로 바로 등록한 경우, 그만큼 세션도 함께 차감한다.
     if (countsAsUsed(status) && productId) {
       const p = products.find((x) => x.id === productId);
-      if (p && p.type === "session") {
-        const updated = await db.adjustUsedSessions(productId, created.length);
-        setProducts((prev) => prev.map((x) => (x.id === productId ? updated : x)));
-      }
+      if (p && p.type === "session" && !(await adjustSessionsOrWarn(productId, created.length))) return -1;
     }
     return created.length;
   };
@@ -765,7 +784,7 @@ export default function PTMemberManager() {
       const n = await pushReservation(customerId, productId, resForm, statusOverride);
       if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
-      flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
+      if (n > 0) flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
   });
   // 워크인(신규 고객 + 예약) 등록은 고객 저장 → 예약 저장 두 단계라, 예약 저장만 실패한 뒤 다시 누르면
@@ -815,7 +834,7 @@ export default function PTMemberManager() {
       if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setShowQuickAdd(false);
       resetQuickAddState();
-      flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
+      if (n > 0) flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
   });
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>, date: string) => {
@@ -859,10 +878,7 @@ export default function PTMemberManager() {
       setReservations((prev) => prev.map((x) => (x.id === resId ? updatedRes : x)));
       if (delta !== 0 && targetProductId) {
         const p = products.find((x) => x.id === targetProductId);
-        if (p && p.type === "session") {
-          const updatedProduct = await db.adjustUsedSessions(p.id, delta);
-          setProducts((prev) => prev.map((x) => (x.id === p.id ? updatedProduct : x)));
-        }
+        if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, delta))) return;
       }
       const switched = targetProductId !== r.productId;
       if (newStatus === "done") flash(switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
@@ -893,10 +909,7 @@ export default function PTMemberManager() {
       setReservations((prev) => prev.filter((x) => x.id !== resId));
       if (countsAsUsed(r.status) && r.productId) {
         const p = products.find((x) => x.id === r.productId);
-        if (p && p.type === "session") {
-          const updated = await db.adjustUsedSessions(p.id, -1);
-          setProducts((prev) => prev.map((x) => (x.id === p.id ? updated : x)));
-        }
+        if (p && p.type === "session" && !(await adjustSessionsOrWarn(p.id, -1))) return;
       }
       flash("예약 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
@@ -923,11 +936,11 @@ export default function PTMemberManager() {
     try {
       await db.cancelReservationSeriesFrom(seriesId, fromDate);
       setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" as const } : r)));
+      let sessionsOk = true;
       for (const pid of Object.keys(deltaByProduct)) {
-        const updated = await db.adjustUsedSessions(pid, deltaByProduct[pid]);
-        setProducts((prev) => prev.map((x) => (x.id === pid ? updated : x)));
+        if (!(await adjustSessionsOrWarn(pid, deltaByProduct[pid]))) sessionsOk = false;
       }
-      flash("이후 반복 예약 전체 취소됨");
+      if (sessionsOk) flash("이후 반복 예약 전체 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   });
   const deleteSeriesFuture = (seriesId: string, fromDate: string) => runExclusive(`series:${seriesId}`, async () => {
@@ -938,11 +951,11 @@ export default function PTMemberManager() {
     try {
       await db.deleteReservationSeriesFrom(seriesId, fromDate);
       setReservations((prev) => prev.filter((r) => !(r.seriesId === seriesId && r.date >= fromDate)));
+      let sessionsOk = true;
       for (const pid of Object.keys(deltaByProduct)) {
-        const updated = await db.adjustUsedSessions(pid, deltaByProduct[pid]);
-        setProducts((prev) => prev.map((x) => (x.id === pid ? updated : x)));
+        if (!(await adjustSessionsOrWarn(pid, deltaByProduct[pid]))) sessionsOk = false;
       }
-      flash("이후 반복 예약 전체 삭제됨");
+      if (sessionsOk) flash("이후 반복 예약 전체 삭제됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
   });
   const applySeriesChoice = (scope: string) => {
