@@ -701,9 +701,18 @@ export default function PTMemberManager() {
   };
   const removeProduct = async (id: string) => {
     try {
-      await db.deleteProduct(id); // DB cascade가 관련 reservations도 함께 삭제
+      await db.deleteProduct(id);
       setProducts(products.filter((p) => p.id !== id));
-      setReservations(reservations.filter((r) => r.productId !== id));
+      // schema.sql상 reservations.product_id는 "on delete set null"이라, 이용권을 지워도 예약 행 자체는
+      // DB에 남고 이용권 연결만 끊긴다. 예전엔 화면에서만 예약을 지워버려 새로고침하면 다시 나타났으므로,
+      // DB에 실제로 남은 상태(예약, 함께 삭제된 양도 이력)를 다시 읽어와 화면과 DB를 일치시킨다.
+      try {
+        const [reservationsData, passTransfersData] = await Promise.all([db.listReservations(), db.listPassTransfers()]);
+        setReservations(reservationsData);
+        setPassTransfers(passTransfersData);
+      } catch {
+        setReservations(reservations.map((r) => (r.productId === id ? { ...r, productId: null } : r)));
+      }
       flash("상품 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
   };
