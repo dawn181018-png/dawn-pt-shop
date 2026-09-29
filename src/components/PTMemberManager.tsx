@@ -1011,8 +1011,11 @@ export default function PTMemberManager() {
       const updated = await db.updateReservation(workoutNoteEditRes.id, { workoutNote: workoutNoteDraft.trim() || null });
       setReservations((prev) => prev.map((r) => (r.id === workoutNoteEditRes.id ? updated : r)));
       flash("운동일지가 저장됨");
-    } catch (e) { flash("저장 실패, 다시 시도해주세요"); }
-    setWorkoutNoteEditRes(null);
+      setWorkoutNoteEditRes(null);
+    } catch {
+      // 실패 시 편집창을 닫지 않는다 — 닫으면 방금 적은 운동 내용이 통째로 사라진다.
+      flash("저장 실패, 다시 시도해주세요");
+    }
   };
 
   // ---- Derived ----
