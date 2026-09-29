@@ -17,6 +17,7 @@ import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
+import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, PassTransfer } from "@/lib/types";
 import "./ptm.css";
 
@@ -99,44 +100,6 @@ const shiftMonthYM = (y: number, m: number, delta: number): { y: number; m: numb
   return { y: Math.floor(total / 12), m: ((total % 12) + 12) % 12 + 1 };
 };
 
-function daysBetween(a: string, b: string): number { return Math.ceil((new Date(a).getTime() - new Date(b).getTime()) / 86400000); }
-function daysUntil(dateStr: string): number { return Math.ceil((new Date(dateStr).getTime() - new Date(today()).getTime()) / 86400000); }
-function urgency(p?: Product | null): "ok" | "critical" | "warn" {
-  if (!p) return "ok";
-  if (p.type === "session") {
-    const remain = p.totalSessions - p.usedSessions;
-    if (remain <= 1) return "critical";
-    if (remain <= 3) return "warn";
-    return "ok";
-  }
-  const remain = daysUntil(p.endDate as string);
-  if (remain <= 3) return "critical";
-  if (remain <= 10) return "warn";
-  return "ok";
-}
-function remainLabel(p: Product): string {
-  if (p.type === "session") return `${p.totalSessions - p.usedSessions}회 남음 / 총 ${p.totalSessions}회`;
-  const remain = daysUntil(p.endDate as string);
-  return remain < 0 ? `만료 ${Math.abs(remain)}일 지남` : `${remain}일 남음`;
-}
-function shortRemain(p: Product): string {
-  if (p.type === "session") return `${p.totalSessions - p.usedSessions}회`;
-  const remain = daysUntil(p.endDate as string);
-  return remain < 0 ? "만료" : `${remain}일`;
-}
-function progressPct(p: Product): number {
-  if (p.type === "session") return Math.max(0, Math.min(100, (p.usedSessions / p.totalSessions) * 100));
-  const total = daysBetween(p.endDate as string, p.startDate) || 1;
-  const used = daysBetween(today(), p.startDate);
-  return Math.max(0, Math.min(100, (used / total) * 100));
-}
-function isDepleted(p: Product): boolean {
-  if (p.type === "session") return p.totalSessions - p.usedSessions <= 0;
-  return daysUntil(p.endDate as string) < 0;
-}
-function sortProductsByUsage(list: Product[]): Product[] {
-  return [...list].sort((a, b) => Number(isDepleted(a)) - Number(isDepleted(b)));
-}
 const countsAsUsed = (status: string): boolean => status === "done" || status === "noshow";
 const getPaidAmount = (p: Partial<Product> & { paid?: boolean }): number => (p.paidAmount !== undefined ? Number(p.paidAmount) || 0 : (p.paid ? Number(p.price || 0) : 0));
 const getUnpaidAmount = (p: Partial<Product> & { paid?: boolean }): number => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
@@ -399,7 +362,7 @@ export default function PTMemberManager() {
   // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
   const findAlternativeProduct = (customerId: string | null, productList: Product[]): Product | undefined =>
     productList
-      .filter((p) => p.customerId === customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
+      .filter((p) => p.customerId === customerId && p.type === "session" && remainingSessions(p) > 0)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
   // 완료 처리를 기다리지 않고, 예약됨(scheduled) 상태인 예약이 이미 소진된 이용권을 물고 있으면
   // 그 고객의 다른 유효한 이용권으로 조용히 재연결한다 — 새 이용권을 등록하는 시점과 앱을 새로
@@ -410,7 +373,7 @@ export default function PTMemberManager() {
       .filter((r) => r.status === "scheduled" && r.productId)
       .map((r) => {
         const linked = productList.find((p) => p.id === r.productId);
-        if (!linked || linked.type !== "session" || linked.totalSessions - linked.usedSessions > 0) return null;
+        if (!linked || linked.type !== "session" || remainingSessions(linked) > 0) return null;
         const alt = findAlternativeProduct(r.customerId, productList);
         return alt ? { id: r.id, productId: alt.id } : null;
       })
@@ -719,7 +682,7 @@ export default function PTMemberManager() {
   const requestRemoveProduct = (p: Product) => {
     const resCount = reservations.filter((r) => r.productId === p.id).length;
     const parts = [];
-    if (p.type === "session") parts.push(`잔여 ${Math.max(0, p.totalSessions - p.usedSessions)}회`);
+    if (p.type === "session") parts.push(`잔여 ${Math.max(0, remainingSessions(p))}회`);
     if (resCount > 0) parts.push(`관련 예약 ${resCount}건`);
     const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
     askConfirm(`"${p.name}" 상품을 삭제할까요?${suffix}`, () => removeProduct(p.id));
@@ -768,7 +731,7 @@ export default function PTMemberManager() {
     // DB가 총 횟수에서 멈춰(초과분 무시) 기록 건수와 차감 횟수가 어긋나므로 이것도 막는다.
     if (countsAsUsed(status) && productId) {
       const p = products.find((x) => x.id === productId);
-      const remain = p && p.type === "session" ? p.totalSessions - p.usedSessions : null;
+      const remain = p && p.type === "session" ? remainingSessions(p) : null;
       if (remain !== null && remain <= 0) {
         flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
         return 0;
@@ -879,7 +842,7 @@ export default function PTMemberManager() {
     let targetProductId = r.productId;
     if (delta === 1 && r.productId) {
       const linked = products.find((x) => x.id === r.productId);
-      if (linked && linked.type === "session" && linked.totalSessions - linked.usedSessions <= 0) {
+      if (linked && linked.type === "session" && remainingSessions(linked) <= 0) {
         const alt = findAlternativeProduct(r.customerId, products);
         if (!alt) {
           flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
@@ -1054,11 +1017,11 @@ export default function PTMemberManager() {
       // 여러 개면, 예전 이용권이 거의 소진됐어도 새 이용권이 넉넉하면 시급한 게 아니다. 그래서
       // 세션형은 잔여횟수를 전부 합산해서 판단하고(기간형은 이용권마다 만료일이 따로라 합산이
       // 의미 없으므로 기존처럼 이용권 하나하나 중 가장 임박한 걸로 판단), 둘 중 더 급한 쪽을 쓴다.
-      const sessionRemainTotal = sessionProds.length ? sessionProds.reduce((s, p) => s + (p.totalSessions - p.usedSessions), 0) : null;
+      const sessionRemainTotal = sessionProds.length ? sessionProds.reduce((s, p) => s + remainingSessions(p), 0) : null;
       const sessionUrgency = sessionRemainTotal === null ? "ok" : sessionRemainTotal <= 1 ? "critical" : sessionRemainTotal <= 3 ? "warn" : "ok";
       const periodUrgency = periodProds.length ? periodProds.reduce((acc, p) => (urgencyRank[urgency(p)] < urgencyRank[acc] ? urgency(p) : acc), "ok") : "ok";
       const worst = prods.length ? (urgencyRank[sessionUrgency] < urgencyRank[periodUrgency] ? sessionUrgency : periodUrgency) : "none";
-      const minRemain = sessionProds.length ? Math.min(...sessionProds.map((p) => p.totalSessions - p.usedSessions)) : null;
+      const minRemain = sessionProds.length ? Math.min(...sessionProds.map((p) => remainingSessions(p))) : null;
       const doneDates = reservations.filter((r) => r.customerId === c.id && r.status === "done").map((r) => r.date).sort();
       const lastVisit = doneDates.length ? doneDates[doneDates.length - 1] : null;
       const daysSinceVisit = lastVisit ? daysBetween(today(), lastVisit) : Infinity;
@@ -1148,7 +1111,7 @@ export default function PTMemberManager() {
         customerName: customer ? customer.name : "(삭제된 고객)",
         productName: product ? product.name : (r.productId ? "(삭제된 상품)" : "상담"),
         unitPrice: product && product.type === "session" && product.totalSessions ? Math.round(product.price / product.totalSessions) : 0,
-        remainCount: product && product.type === "session" ? product.totalSessions - product.usedSessions : null,
+        remainCount: product && product.type === "session" ? remainingSessions(product) : null,
         totalSessions: product && product.type === "session" ? product.totalSessions : null,
       };
     });
@@ -1193,7 +1156,7 @@ export default function PTMemberManager() {
   // 등록한 순서대로 차감되도록 기본 선택 — 필요하면 드롭다운에서 직접 바꿀 수 있다).
   const pickActiveProductId = (customerId: string) => {
     const active = products
-      .filter((p) => p.customerId === customerId && p.type === "session" && p.totalSessions - p.usedSessions > 0)
+      .filter((p) => p.customerId === customerId && p.type === "session" && remainingSessions(p) > 0)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
     return active.length ? active[0].id : "";
   };
@@ -1291,15 +1254,15 @@ export default function PTMemberManager() {
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
         // 매출 계획 화면은 "재등록 타이밍"을 보는 용도라, 이미 다 소진된(잔여 0) 이용권은
         // 보유세션/잔여세션 표시에서 제외한다 (합산 계산은 아래 sessionProducts 전체 기준 그대로 유지).
-        const activeSessionProducts = sessionProducts.filter((p) => p.totalSessions - p.usedSessions > 0);
+        const activeSessionProducts = sessionProducts.filter((p) => remainingSessions(p) > 0);
         const totalSummary = activeSessionProducts.length ? activeSessionProducts.map((p) => p.name).join(" / ") : "보유 이용권 없음";
         const ticketCount = sessionProducts.length;
         const activeTicketCount = activeSessionProducts.length;
         // 재등록 시급도는 이용권 개별이 아니라 고객 단위로 판단해야 하므로, 여러 이용권의
         // 잔여횟수를 모두 합산한다 (예전 이용권이 거의 소진돼도 새 이용권이 넉넉하면 시급하지 않음).
-        const totalRemain = ticketCount ? sessionProducts.reduce((s, p) => s + (p.totalSessions - p.usedSessions), 0) : null;
-        const remainDetail = activeTicketCount ? activeSessionProducts.map((p) => `${p.totalSessions - p.usedSessions}회`).join(" / ") : "-";
-        const remainSessionsShort = activeTicketCount ? activeSessionProducts.map((p) => `${p.totalSessions - p.usedSessions}s`).join("/") : "";
+        const totalRemain = ticketCount ? sessionProducts.reduce((s, p) => s + remainingSessions(p), 0) : null;
+        const remainDetail = activeTicketCount ? activeSessionProducts.map((p) => `${remainingSessions(p)}회`).join(" / ") : "-";
+        const remainSessionsShort = activeTicketCount ? activeSessionProducts.map((p) => `${remainingSessions(p)}s`).join("/") : "";
         const remainSummary = totalRemain !== null ? `${totalRemain}회${activeTicketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
         const actual = monthProducts.reduce((s, p) => s + Number(p.price || 0), 0);
@@ -2224,7 +2187,7 @@ export default function PTMemberManager() {
                     const u = urgency(p);
                     const depleted = isDepleted(p);
                     const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
-                    const remaining = p.totalSessions - p.usedSessions;
+                    const remaining = remainingSessions(p);
                     const incomingTransfer = passTransfers.find((t) => t.recipientProductId === p.id);
                     const outgoingTransfers = passTransfers.filter((t) => t.sourceProductId === p.id);
                     return (
@@ -2714,7 +2677,7 @@ export default function PTMemberManager() {
                     <option value="">상품 선택</option>
                     {quickAvailableProducts.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.type === "session" ? `잔여 ${p.totalSessions - p.usedSessions}/${p.totalSessions}` : `~${p.endDate}`} · {Number(p.price || 0).toLocaleString()}원)
+                        {p.name} ({p.type === "session" ? `잔여 ${remainingSessions(p)}/${p.totalSessions}` : `~${p.endDate}`} · {Number(p.price || 0).toLocaleString()}원)
                       </option>
                     ))}
                   </select>
@@ -2978,7 +2941,7 @@ export default function PTMemberManager() {
         const product = products.find((p) => p.id === r.productId);
         const custProducts = products.filter((p) => p.customerId === r.customerId);
         const otherProducts = custProducts.filter((p) => p.id !== r.productId);
-        const totalRemainAll = custProducts.reduce((s, p) => s + (p.type === "session" ? (p.totalSessions - p.usedSessions) : 0), 0);
+        const totalRemainAll = custProducts.reduce((s, p) => s + (p.type === "session" ? remainingSessions(p) : 0), 0);
         const totalSessionsAll = custProducts.reduce((s, p) => s + (p.type === "session" ? p.totalSessions : 0), 0);
         return (
           <div
@@ -2997,7 +2960,7 @@ export default function PTMemberManager() {
             {product?.type === "session" && (
               <>
                 <div className="ptm-hover-row"><span>총 횟수</span><span>{product.totalSessions}회</span></div>
-                <div className="ptm-hover-row"><span>잔여횟수</span><span>{product.totalSessions - product.usedSessions}회</span></div>
+                <div className="ptm-hover-row"><span>잔여횟수</span><span>{remainingSessions(product)}회</span></div>
               </>
             )}
             <div className="ptm-hover-divider">이용권 요약 정보</div>
@@ -3138,7 +3101,7 @@ export default function PTMemberManager() {
         const history = [...reservations]
           .filter((r) => r.productId === product.id && (r.status === "done" || r.status === "noshow"))
           .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
-        const remaining = Math.max(0, product.totalSessions - product.usedSessions);
+        const remaining = Math.max(0, remainingSessions(product));
         // 총 등록 횟수만큼 자리를 미리 깔아두고(수기 사인지처럼) 앞에서부터 채워, 등록한 세션 전체와
         // 그중 어디까지 진행됐는지를 한 화면에서 볼 수 있게 한다. 50회면 1~25 왼쪽 / 26~50 오른쪽,
         // 30회면 1~15 / 16~30 식으로 반씩 나눈다.

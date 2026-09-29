@@ -8,6 +8,7 @@ import { useState } from "react";
 import { Search, X, Plus } from "lucide-react";
 import * as db from "@/lib/db";
 import { fmtNum, parseNum, formatPhone } from "@/lib/formatUtils";
+import { remainingSessions } from "@/lib/productUtils";
 import type { Customer, Product, PaymentMethod, TransferRecipientInput } from "@/lib/types";
 
 const isPhoneLike = (v: string): boolean => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
@@ -41,7 +42,7 @@ export default function PassTransferModal({ customers, sourceProduct, onClose, o
   const [recipients, setRecipients] = useState<RecipientForm[]>([emptyRecipient()]);
   const [saving, setSaving] = useState(false);
 
-  const remaining = sourceProduct.totalSessions - sourceProduct.usedSessions;
+  const remaining = remainingSessions(sourceProduct);
 
   const updateRecipient = (id: string, patch: Partial<RecipientForm>) => {
     setRecipients((cur) => cur.map((r) => (r.id === id ? { ...r, ...patch } : r)));

@@ -4,48 +4,12 @@ import { useState } from "react";
 import type { Product, Reservation } from "@/lib/types";
 import type { WorkoutLogEntry } from "@/lib/workoutLog";
 import { matchBodyPartTags } from "@/lib/workoutLog";
+import { today } from "@/lib/formatUtils";
+import { remainLabel, progressPct, urgency, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
 import { logoutMember } from "./actions";
 import "@/components/ptm.css";
 
-const toLocalDateStr = (d: Date) => {
-  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-const today = () => toLocalDateStr(new Date());
 const koDate = (dateStr: string) => { const d = new Date(dateStr); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
-const daysUntil = (dateStr: string) => Math.ceil((new Date(dateStr).getTime() - new Date(today()).getTime()) / 86400000);
-
-function urgency(p: Product): "ok" | "warn" | "critical" {
-  if (p.type === "session") {
-    const remain = p.totalSessions - p.usedSessions;
-    if (remain <= 1) return "critical";
-    if (remain <= 3) return "warn";
-    return "ok";
-  }
-  const remain = daysUntil(p.endDate || today());
-  if (remain <= 3) return "critical";
-  if (remain <= 10) return "warn";
-  return "ok";
-}
-function remainLabel(p: Product) {
-  if (p.type === "session") return `${p.totalSessions - p.usedSessions}회 남음 / 총 ${p.totalSessions}회`;
-  const remain = daysUntil(p.endDate || today());
-  return remain < 0 ? `만료 ${Math.abs(remain)}일 지남` : `${remain}일 남음`;
-}
-function progressPct(p: Product) {
-  if (p.type === "session") return Math.max(0, Math.min(100, (p.usedSessions / p.totalSessions) * 100));
-  const total = Math.ceil((new Date(p.endDate || today()).getTime() - new Date(p.startDate).getTime()) / 86400000) || 1;
-  const used = Math.ceil((new Date(today()).getTime() - new Date(p.startDate).getTime()) / 86400000);
-  return Math.max(0, Math.min(100, (used / total) * 100));
-}
-function isDepleted(p: Product): boolean {
-  if (p.type === "session") return p.totalSessions - p.usedSessions <= 0;
-  return daysUntil(p.endDate || today()) < 0;
-}
-function sortProductsByUsage(list: Product[]): Product[] {
-  return [...list].sort((a, b) => Number(isDepleted(a)) - Number(isDepleted(b)));
-}
-
 const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
 
 const NOTE_PREVIEW_LEN = 80;
