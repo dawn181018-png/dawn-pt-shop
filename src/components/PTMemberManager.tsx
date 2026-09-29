@@ -379,6 +379,16 @@ export default function PTMemberManager() {
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(""), 1800); };
 
+  // 모바일에서 같은 버튼을 빠르게 두 번 누르면, 첫 요청이 끝나 화면 상태가 갱신되기 전에 두 번째
+  // 요청이 옛 상태(예: 아직 "예약됨")를 보고 한 번 더 실행돼 세션이 두 번 차감/복구되거나 예약이
+  // 두 건 생길 수 있다. 같은 키의 작업이 처리 중이면 두 번째 실행은 조용히 무시한다.
+  const inFlightRef = useRef<Set<string>>(new Set());
+  const runExclusive = async (key: string, fn: () => Promise<void>): Promise<void> => {
+    if (inFlightRef.current.has(key)) return;
+    inFlightRef.current.add(key);
+    try { await fn(); } finally { inFlightRef.current.delete(key); }
+  };
+
   // 소진된 이용권을 대신할, 그 고객의 등록순으로 가장 먼저 등록된 유효한(잔여 있는) 이용권을 찾는다.
   // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
   const findAlternativeProduct = (customerId: string | null, productList: Product[]): Product | undefined =>
@@ -749,7 +759,7 @@ export default function PTMemberManager() {
     }
     return created.length;
   };
-  const addReservation = async (customerId: string, productId: string, statusOverride?: ReservationStatus) => {
+  const addReservation = (customerId: string, productId: string, statusOverride?: ReservationStatus) => runExclusive("add-reservation", async () => {
     if (!resForm.date || !resForm.time) { flash("날짜/시간을 입력해주세요"); return; }
     try {
       const n = await pushReservation(customerId, productId, resForm, statusOverride);
@@ -757,7 +767,7 @@ export default function PTMemberManager() {
       setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
-  };
+  });
   const resetQuickAddState = () => {
     setQuickForm({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
@@ -766,7 +776,7 @@ export default function PTMemberManager() {
     setWalkInName("");
     setWalkInPhone("");
   };
-  const addQuickReservation = async (statusOverride?: ReservationStatus) => {
+  const addQuickReservation = (statusOverride?: ReservationStatus) => runExclusive("add-reservation", async () => {
     try {
       if (quickIsMisc) {
         const title = (quickForm.memo || "").trim();
@@ -799,7 +809,7 @@ export default function PTMemberManager() {
       resetQuickAddState();
       flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
     } catch (e) { flash("등록 실패, 다시 시도해주세요"); }
-  };
+  });
   const handleGridClick = (e: React.MouseEvent<HTMLDivElement>, date: string) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const time = pxToTime(e.clientY - rect.top);
@@ -812,7 +822,7 @@ export default function PTMemberManager() {
     setWalkInPhone("");
     setShowQuickAdd(true);
   };
-  const setReservationStatus = async (resId: string, newStatus: ReservationStatus, extra: Partial<Reservation> = {}) => {
+  const setReservationStatus = (resId: string, newStatus: ReservationStatus, extra: Partial<Reservation> = {}) => runExclusive(`reservation:${resId}`, async () => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     const was = countsAsUsed(r.status), will = countsAsUsed(newStatus);
@@ -850,7 +860,7 @@ export default function PTMemberManager() {
       else if (newStatus === "noshow") flash(switched ? "노쇼 처리 · 다른 이용권으로 전환되어 차감됨" : "노쇼 처리 · 세션 1회 차감");
       else if (newStatus === "cancelled") flash("예약 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
-  };
+  });
 
   // ---- 출석(완료) 처리 전 서명 받기 ----
   const [signatureRes, setSignatureRes] = useState<ReservationLike | null>(null);
@@ -866,7 +876,7 @@ export default function PTMemberManager() {
       setSignatureRes(null);
     } catch (e) { flash("서명 저장 실패, 다시 시도해주세요"); }
   };
-  const deleteReservation = async (resId: string) => {
+  const deleteReservation = (resId: string) => runExclusive(`reservation:${resId}`, async () => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     try {
@@ -881,7 +891,7 @@ export default function PTMemberManager() {
       }
       flash("예약 삭제됨");
     } catch (e) { flash("삭제 실패, 다시 시도해주세요"); }
-  };
+  });
 
   // ---- 반복 예약: 이 예약만 / 이후 전체 선택 처리 ----
   const [seriesPrompt, setSeriesPrompt] = useState<{ reservation: Reservation; action: "cancel" | "delete" } | null>(null);
@@ -894,7 +904,7 @@ export default function PTMemberManager() {
     const label = r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`;
     askConfirm(`${koDate(r.date)} ${r.time} "${label}" 예약을 삭제할까요?`, () => deleteReservation(r.id));
   };
-  const cancelSeriesFuture = async (seriesId: string, fromDate: string) => {
+  const cancelSeriesFuture = (seriesId: string, fromDate: string) => runExclusive(`series:${seriesId}`, async () => {
     const deltaByProduct: Record<string, number> = {};
     reservations.forEach((r) => {
       if (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" && countsAsUsed(r.status) && r.productId) {
@@ -910,8 +920,8 @@ export default function PTMemberManager() {
       }
       flash("이후 반복 예약 전체 취소됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
-  };
-  const deleteSeriesFuture = async (seriesId: string, fromDate: string) => {
+  });
+  const deleteSeriesFuture = (seriesId: string, fromDate: string) => runExclusive(`series:${seriesId}`, async () => {
     const deltaByProduct: Record<string, number> = {};
     reservations.forEach((r) => {
       if (r.seriesId === seriesId && r.date >= fromDate && countsAsUsed(r.status) && r.productId) deltaByProduct[r.productId] = (deltaByProduct[r.productId] || 0) - 1;
@@ -925,7 +935,7 @@ export default function PTMemberManager() {
       }
       flash("이후 반복 예약 전체 삭제됨");
     } catch (e) { flash("처리 실패, 다시 시도해주세요"); }
-  };
+  });
   const applySeriesChoice = (scope: string) => {
     if (!seriesPrompt) return;
     const { reservation: r, action } = seriesPrompt;
