@@ -699,11 +699,17 @@ export default function PTMemberManager() {
     } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
   const requestRemoveProduct = (p: Product) => {
+    // DB상 예약은 이용권이 지워져도 행이 남고 연결만 끊기며(on delete set null), 양도 이력은 함께 지워진다
+    // (on delete cascade). 안내 문구를 실제로 일어나는 일과 똑같이 맞춘다.
     const resCount = reservations.filter((r) => r.productId === p.id).length;
-    const parts = [];
-    if (p.type === "session") parts.push(`잔여 ${Math.max(0, remainingSessions(p))}회`);
-    if (resCount > 0) parts.push(`관련 예약 ${resCount}건`);
-    const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
+    const doneCount = reservations.filter((r) => r.productId === p.id && r.status === "done").length;
+    const transferCount = passTransfers.filter((t) => t.sourceProductId === p.id || t.recipientProductId === p.id).length;
+    const lines: string[] = [];
+    if (p.type === "session") lines.push(`잔여 ${Math.max(0, remainingSessions(p))}회는 사라집니다.`);
+    if (resCount > 0) lines.push(`관련 예약 ${resCount}건은 기록으로 남고 이용권 연결만 끊어집니다.`);
+    if (doneCount > 0) lines.push(`이 이용권으로 완료한 수업 ${doneCount}건은 급여(세션 매출) 계산에서 빠집니다.`);
+    if (transferCount > 0) lines.push(`이 이용권의 양도 이력 ${transferCount}건은 함께 삭제됩니다.`);
+    const suffix = lines.length > 0 ? ` ${lines.join(" ")}` : "";
     askConfirm(`"${p.name}" 상품을 삭제할까요?${suffix}`, () => removeProduct(p.id));
   };
   const bumpSession = async (id: string, delta: number) => {
