@@ -153,7 +153,14 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
 
   const clearSignature = () => { padRef.current?.clear(); setIsSignatureEmpty(true); };
 
+  // 서명 완료 시 고객 → 이용권 → 서명 이미지 → 계약서 기록 순으로 저장하는데, 중간(예: 서명 업로드)에서
+  // 실패하면 앞 단계는 이미 DB에 들어가 있다. 이 상태로 "다시 시도"하면 고객/이용권이 한 번 더 만들어져
+  // 중복 등록(매출 이중 집계)이 되므로, 이번 판매 건에서 이미 저장된 고객/이용권을 기억해뒀다가 재시도 땐
+  // 새로 만들지 않고 그 행을 현재 입력값으로 갱신해서 재사용한다(재시도 전에 입력을 고쳤어도 반영됨).
+  const savedRef = useRef<{ newCustomer?: Customer; product?: Product }>({});
+
   const resetWizard = () => {
+    savedRef.current = {};
     setStep(1);
     setQuery("");
     setSelectedCustomer(null);
@@ -170,20 +177,26 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
     if (!pad || pad.isEmpty() || saving) return;
     setSaving(true);
     try {
+      const saved = savedRef.current;
       // isNewCustomer가 아니면 1단계에서 이미 고른 기존 고객이 반드시 있다(그래야 2단계로 넘어올 수 있음).
       let customer = selectedCustomer as Customer;
       if (isNewCustomer) {
-        customer = await db.insertCustomer({
+        const customerData = {
           name: customerForm.name,
           gender: emptyToNull(customerForm.gender) as Gender | null,
           phone: customerForm.phone,
           birthdate: emptyToNull(customerForm.birthdate),
-        });
+        };
+        customer = saved.newCustomer
+          ? await db.updateCustomer(saved.newCustomer.id, customerData)
+          : await db.insertCustomer(customerData);
+        saved.newCustomer = customer;
       }
-      const product = await db.insertProduct(customer.id, {
-        ...productForm,
-        endDate: emptyToNull(productForm.endDate),
-      });
+      const productData = { ...productForm, endDate: emptyToNull(productForm.endDate) };
+      const product = saved.product
+        ? await db.updateProduct(saved.product.id, { ...productData, customerId: customer.id })
+        : await db.insertProduct(customer.id, productData);
+      saved.product = product;
       const dataUrl = pad.toDataURL("image/png");
       const blob = await (await fetch(dataUrl)).blob();
       const signatureUrl = await db.uploadContractSignature(customer.id, blob);
@@ -199,7 +212,9 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
       onSaleComplete(customer, product, isNewCustomer);
       resetWizard();
     } catch (e) {
-      flash("판매 처리 실패, 다시 시도해주세요");
+      flash(savedRef.current.product
+        ? "고객·이용권은 저장됐지만 계약서 서명 저장에 실패했어요. 서명 완료를 다시 눌러주세요"
+        : "판매 처리 실패, 다시 시도해주세요");
     } finally {
       setSaving(false);
     }
