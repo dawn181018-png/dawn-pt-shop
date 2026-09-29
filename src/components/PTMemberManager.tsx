@@ -751,17 +751,24 @@ export default function PTMemberManager() {
   // 반환값: 만든 예약 건수. 0 = 막혀서 아무것도 안 만듦(안내 표시됨), -1 = 예약은 만들었지만 세션 차감 실패(안내 표시됨).
   const pushReservation = async (customerId: string | null, productId: string | null, data: ReservationFormData, statusOverride?: ReservationStatus, extra: Partial<Reservation> = {}) => {
     const status = statusOverride || "scheduled";
+    const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
+    const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
     // 소진된 이용권으로 곧장 출석/결석 처리하며 예약을 만들면 세션이 초과 차감되므로 미리 막는다.
     // (정상 UI에서는 select 단계에서 이미 소진된 이용권을 고를 수 없어 도달하지 않는 2차 방어선)
+    // 반복 설정을 켠 채 출석/결석으로 등록하면 여러 건을 한 번에 차감하는데, 남은 횟수보다 많으면
+    // DB가 총 횟수에서 멈춰(초과분 무시) 기록 건수와 차감 횟수가 어긋나므로 이것도 막는다.
     if (countsAsUsed(status) && productId) {
       const p = products.find((x) => x.id === productId);
-      if (p && p.type === "session" && p.totalSessions - p.usedSessions <= 0) {
+      const remain = p && p.type === "session" ? p.totalSessions - p.usedSessions : null;
+      if (remain !== null && remain <= 0) {
         flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
         return 0;
       }
+      if (remain !== null && count > remain) {
+        flash(`남은 횟수(${remain}회)보다 많이 출석/결석으로 등록할 수 없어요. 반복 횟수를 줄여주세요`, 4000);
+        return 0;
+      }
     }
-    const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
-    const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
     const seriesId = count > 1 ? newId() : null;
     const rows = Array.from({ length: count }, (_, i) => ({
       customerId, productId, seriesId,
