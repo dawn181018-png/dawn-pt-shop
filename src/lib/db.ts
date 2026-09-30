@@ -228,6 +228,14 @@ export async function updateRenewalForecast(id: string, data: Partial<RenewalFor
   const { data: row, error } = await supabase.from("renewal_forecasts").update(toSnake(data)).eq("id", id).select().single();
   return mapForecast(must(row, error));
 }
+// 다음달로 미루기: 원본을 'postponed'로 바꾸고 다음달에 같은 내용의 'pending' 항목을 만드는 것을
+// DB 함수(postpone_forecast) 안에서 한 트랜잭션으로 처리한다.
+export async function postponeRenewalForecast(id: string): Promise<{ original: RenewalForecast; created: RenewalForecast }> {
+  const { data, error } = await supabase.rpc("postpone_forecast", { p_forecast_id: id });
+  if (error) throw new Error(error.message);
+  const result = data as { original: Record<string, unknown>; created: Record<string, unknown> };
+  return { original: mapForecast(result.original), created: mapForecast(result.created) };
+}
 export async function deleteRenewalForecast(id: string): Promise<void> {
   const { error } = await supabase.from("renewal_forecasts").delete().eq("id", id);
   if (error) throw new Error(error.message);

@@ -489,5 +489,69 @@ drop policy if exists "customers_member_select_own" on customers;
 drop policy if exists "products_member_select_own" on products;
 drop policy if exists "reservations_member_select_own" on reservations;
 
+-- ---------- 매출 계획 상태 관리: 실패 / 다음달로 미루기(연기) ----------
+-- 예상했던 재등록이 불발되면 항목을 지우지 않고 status로 남긴다: 'missed' = 실패(기존 값 재사용),
+-- 'postponed' = 다음달로 연기(새로 허용). '달성'은 앱이 실제 등록금액으로 자동 판정하므로 저장하지 않는다.
+-- 기존 행은 전부 'pending'이라 제약조건을 바꿔도 영향이 없고, carried_from_id는 nullable 컬럼 추가라
+-- 기존 행은 NULL로 남는다. 이용권/예약/결제 테이블은 전혀 건드리지 않는다. 재실행해도 안전하다.
+-- status 체크 제약조건은 이름이 환경마다 다를 수 있어, status를 검사하는 체크 제약조건을 찾아 교체한다.
+do $$
+declare c record;
+begin
+  for c in select conname from pg_constraint
+    where conrelid = 'public.renewal_forecasts'::regclass and contype = 'c'
+      and pg_get_constraintdef(oid) ilike '%status%'
+  loop
+    execute format('alter table renewal_forecasts drop constraint %I', c.conname);
+  end loop;
+end $$;
+alter table renewal_forecasts add constraint renewal_forecasts_status_check
+  check (status in ('pending', 'done', 'missed', 'postponed'));
+
+-- 다음달로 미뤄서 새로 만들어진 항목이 "어느 항목에서 이월됐는지" 가리킨다(원본이 지워지면 NULL).
+alter table renewal_forecasts add column if not exists carried_from_id uuid references renewal_forecasts(id) on delete set null;
+
+-- 다음달로 미루기: 같은 고객/예상세션/예상금액/메모로 다음달 'pending' 항목을 만들고 원본은 'postponed'로
+-- 바꾸는 것을 한 트랜잭션으로 처리한다(중간에 끊겨도 반쪽 저장이 없음). 다음달에 이미 그 고객의 계획이
+-- 있으면 덮어쓰거나 중복 생성하지 않고 에러로 알린다.
+create or replace function postpone_forecast(p_forecast_id uuid)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_f renewal_forecasts%rowtype;
+  v_next text;
+  v_new renewal_forecasts%rowtype;
+begin
+  select * into v_f from renewal_forecasts
+    where id = p_forecast_id and owner_id = v_owner
+    for update;
+  if not found then raise exception '매출 계획 항목을 찾을 수 없습니다'; end if;
+  if v_f.status <> 'pending' then raise exception '대기중인 항목만 다음달로 미룰 수 있습니다'; end if;
+
+  v_next := to_char(to_date(v_f.target_month || '-01', 'YYYY-MM-DD') + interval '1 month', 'YYYY-MM');
+  if v_f.customer_id is not null and exists (
+    select 1 from renewal_forecasts
+      where owner_id = v_owner and customer_id = v_f.customer_id and target_month = v_next
+  ) then
+    raise exception '다음달에 이미 이 고객의 계획이 있어요. 다음달 화면에서 수정해주세요';
+  end if;
+
+  insert into renewal_forecasts (owner_id, customer_id, prospect_name, target_month, expected_sessions,
+    expected_amount, note, status, carried_from_id)
+  values (v_owner, v_f.customer_id, v_f.prospect_name, v_next, v_f.expected_sessions,
+    v_f.expected_amount, v_f.note, 'pending', v_f.id)
+  returning * into v_new;
+
+  update renewal_forecasts set status = 'postponed' where id = v_f.id returning * into v_f;
+
+  return jsonb_build_object('original', to_jsonb(v_f), 'created', to_jsonb(v_new));
+end;
+$$;
+grant execute on function postpone_forecast(uuid) to authenticated;
+grant execute on function postpone_forecast(uuid) to service_role;
+
 -- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
 notify pgrst, 'reload schema';

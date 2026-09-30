@@ -71,7 +71,9 @@ export interface PayrollSettings {
   deductionRate: number;
 }
 
-export type ForecastStatus = "pending" | "done" | "missed";
+// pending = 대기중, missed = 실패(재등록 불발), postponed = 다음달로 연기. "달성"은 실제 등록금액으로
+// 자동 판정하므로 저장하지 않는다(done은 예전부터 허용된 값이지만 앱에서 쓰지 않음).
+export type ForecastStatus = "pending" | "done" | "missed" | "postponed";
 
 export interface RenewalForecast {
   id: string;
@@ -84,6 +86,7 @@ export interface RenewalForecast {
   status: ForecastStatus;
   actualAmount?: number;
   actualProductId?: string | null;
+  carriedFromId?: string | null; // "다음달로 미루기"로 만들어진 항목이면 원본(이전 달) 항목 id
   createdAt?: number;
 }
 

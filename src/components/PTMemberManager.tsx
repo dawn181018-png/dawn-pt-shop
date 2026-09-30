@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft, CircleX, Forward, Undo2,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
@@ -19,7 +19,7 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, PassTransfer } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -508,6 +508,58 @@ export default function PTMemberManager() {
     } catch { flash("삭제 실패, 다시 시도해주세요"); }
   };
   const requestRemoveForecast = (id: string, message: string) => askConfirm(message, () => removeForecast(id));
+
+  // ---- 매출 계획 상태: 실패 / 다음달로 미루기(연기) ----
+  // 매출 계획(renewal_forecasts) 안의 기록만 바꾼다 — 이용권/잔여횟수/결제 데이터는 전혀 건드리지 않는다.
+  // 원래 입력한 예상세션/예상금액/메모는 그대로 보존돼 지난달 화면에서 이력으로 볼 수 있다.
+  const forecastMonthLabel = (ym: string) => `${Number(ym.slice(5, 7))}월`;
+  const nextForecastMonth = (ym: string) => {
+    const { y, m } = shiftMonthYM(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)), 1);
+    return monthKey(y, m);
+  };
+  const forecastName = (f: RenewalForecast) =>
+    f.customerId ? customers.find((c) => c.id === f.customerId)?.name || "고객" : f.prospectName || "이름 없음";
+  const setForecastStatus = async (id: string, status: ForecastStatus, doneMsg: string) => {
+    try {
+      const updated = await db.updateRenewalForecast(id, { status });
+      setRenewalForecasts((cur) => cur.map((f) => (f.id === id ? updated : f)));
+      flash(doneMsg);
+    } catch { flash("저장 실패, 다시 시도해주세요"); }
+  };
+  const requestMarkForecastFailed = (id: string) => {
+    const f = renewalForecasts.find((x) => x.id === id);
+    if (!f) return;
+    askConfirm(
+      `"${forecastName(f)}"의 ${forecastMonthLabel(f.targetMonth)} 계획을 실패로 표시할까요? 입력한 예상금액은 이력으로 남고, 이번달 달성률에서는 달성하지 못한 계획으로 계산돼요.`,
+      () => setForecastStatus(id, "missed", "실패로 표시됨"),
+      "실패로 표시",
+    );
+  };
+  const revertForecastToPending = (id: string) => setForecastStatus(id, "pending", "대기중으로 되돌림");
+  const requestPostponeForecast = (id: string) => {
+    const f = renewalForecasts.find((x) => x.id === id);
+    if (!f) return;
+    const next = forecastMonthLabel(nextForecastMonth(f.targetMonth));
+    askConfirm(
+      `"${forecastName(f)}"의 계획을 다음달(${next}) 계획으로 넘길까요? 같은 예상세션·예상금액으로 ${next}에 새 항목이 만들어지고, 이번달 항목은 "연기"로 남아 이번달 달성률 계산에서 빠져요.`,
+      async () => {
+        try {
+          const { original, created } = await db.postponeRenewalForecast(id);
+          setRenewalForecasts((cur) => [...cur.map((x) => (x.id === id ? original : x)), created]);
+          flash(`${next} 계획으로 넘겼어요`);
+        } catch (e) {
+          flash(e instanceof Error && e.message.includes("다음달에 이미") ? e.message : "처리 실패, 다시 시도해주세요", 4000);
+        }
+      },
+      "다음달로 미루기",
+    );
+  };
+  // "10월에서 이월" 배지용: 이월된 항목이면 원본 항목의 달을 찾는다.
+  const carriedFromLabel = (f?: RenewalForecast | null) => {
+    if (!f || !f.carriedFromId) return null;
+    const src = renewalForecasts.find((x) => x.id === f.carriedFromId);
+    return src ? forecastMonthLabel(src.targetMonth) : "지난달";
+  };
 
   // ---- 신규 고객 명단(아직 등록 안 된 예정 고객) ----
   const addProspect = async () => {
@@ -1321,12 +1373,15 @@ export default function PTMemberManager() {
         const expectedSessions = f ? f.expectedSessions : null;
         const expectedAmount = f ? Number(f.expectedAmount || 0) : 0;
         const gap = Math.max(0, expectedAmount - actual);
+        const status: ForecastStatus = f ? f.status : "pending";
+        const isClosed = status === "missed" || status === "postponed"; // 실패/연기는 "달성"으로 치지 않는다
         const { timeSlotLabel, weeklyAvgLabel, recentVisits } = computeAttendanceStats(doneReservationsByCustomer[c.id]);
         return {
           forecastId: f ? f.id : null, customerId: c.id, customerName: c.name, customerPhone: c.phone,
           totalSummary, remainSummary, remainDetail, ticketCount, activeTicketCount, totalRemain, timeSlotLabel, weeklyAvgLabel, recentVisits,
           expectedSessions, expectedAmount, note: f ? f.note : "",
-          actual, gap, achieved: expectedAmount > 0 && actual >= expectedAmount,
+          actual, gap, achieved: !isClosed && expectedAmount > 0 && actual >= expectedAmount,
+          status, carriedFrom: carriedFromLabel(f),
         };
       })
       .sort((a, b) => (a.totalRemain ?? 9999) - (b.totalRemain ?? 9999));
@@ -1345,16 +1400,21 @@ export default function PTMemberManager() {
   }, [renewalForecasts, forecastMonth]);
 
   const forecastStats = useMemo(() => {
-    const planned = forecastRows.filter((f) => f.expectedAmount > 0);
+    // 연기(postponed)는 결론이 안 난 채 다음달로 넘어간 것이라 이번달 계획/예상금액/부족액/달성률에서 뺀다.
+    // 실패(missed)는 계획했던 건 맞으므로 계획 건수·예상금액·부족액에 그대로 남고(달성률이 그만큼 내려감)
+    // 달성 건수에만 들어가지 않는다(forecastRows의 achieved가 이미 false).
+    const planned = forecastRows.filter((f) => f.expectedAmount > 0 && f.status !== "postponed");
     const totalActual = forecastRows.reduce((s, f) => s + f.actual, 0);
     const existingExpected = planned.reduce((s, f) => s + f.expectedAmount, 0);
     const existingGap = planned.reduce((s, f) => s + f.gap, 0);
     const achievedCount = planned.filter((f) => f.achieved).length;
-    const plannedProspects = prospectRows.filter((f) => Number(f.expectedAmount || 0) > 0);
+    const plannedProspects = prospectRows.filter((f) => Number(f.expectedAmount || 0) > 0 && f.status !== "postponed");
     const prospectExpected = plannedProspects.reduce((s, f) => s + Number(f.expectedAmount || 0), 0);
+    const failedCount = forecastRows.filter((f) => f.status === "missed").length + prospectRows.filter((f) => f.status === "missed").length;
+    const postponedCount = forecastRows.filter((f) => f.status === "postponed").length + prospectRows.filter((f) => f.status === "postponed").length;
     return {
       plannedCount: planned.length + plannedProspects.length,
-      achievedCount,
+      achievedCount, failedCount, postponedCount,
       totalExpected: existingExpected + prospectExpected,
       totalActual,
       totalGap: existingGap + prospectExpected,
@@ -1776,7 +1836,11 @@ export default function PTMemberManager() {
             <div className="ptm-pay-card">
               <div className="ptm-pay-card-label">이번달 예상 총매출</div>
               <div className="ptm-pay-card-num">{forecastStats.totalExpected.toLocaleString()}원</div>
-              <div className="ptm-prod-count">계획 {forecastStats.plannedCount}명 · 달성 {forecastStats.achievedCount}명</div>
+              <div className="ptm-prod-count">
+                계획 {forecastStats.plannedCount}명 · 달성 {forecastStats.achievedCount}명
+                {forecastStats.failedCount > 0 && <span style={{ color: "var(--coral)" }}> · 실패 {forecastStats.failedCount}</span>}
+                {forecastStats.postponedCount > 0 && <span> · 연기 {forecastStats.postponedCount}</span>}
+              </div>
             </div>
             <div className="ptm-pay-card">
               <div className="ptm-pay-card-label">이번달 실제 등록금액</div>
@@ -1815,8 +1879,13 @@ export default function PTMemberManager() {
                       ? `최근 방문: ${r.recentVisits.map((d) => koDate(d)).join(", ")}`
                       : "완료 처리된 예약 기록이 없어요";
                     return (
-                    <tr key={r.customerId} className={r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
-                      <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>{r.customerName}</td>
+                    <tr key={r.customerId} className={r.status === "missed" || r.status === "postponed" ? "ptm-row-closed" : r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
+                      <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>
+                        {r.customerName}
+                        {r.status === "missed" && <> <span className="ptm-badge unpaid">실패</span></>}
+                        {r.status === "postponed" && <> <span className="ptm-badge">연기 → {forecastMonthLabel(nextForecastMonth(forecastMonth))}</span></>}
+                        {r.carriedFrom && <> <span className="ptm-badge forecast">{r.carriedFrom}에서 이월</span></>}
+                      </td>
                       <td>{r.customerPhone || "-"}</td>
                       <td title={visitTitle}>{r.timeSlotLabel}</td>
                       <td title={visitTitle}>{r.weeklyAvgLabel}</td>
@@ -1830,6 +1899,15 @@ export default function PTMemberManager() {
                       <td>
                         <div className="ptm-actions">
                           <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={() => openForecastFor(r)}><Pencil size={14} /></button>
+                          {r.forecastId && r.status === "pending" && r.expectedAmount > 0 && !r.achieved && (
+                            <>
+                              <button className="ptm-icon-btn" title="실패로 표시" onClick={() => requestMarkForecastFailed(r.forecastId as string)}><CircleX size={14} /></button>
+                              <button className="ptm-icon-btn" title="다음달로 미루기" onClick={() => requestPostponeForecast(r.forecastId as string)}><Forward size={14} /></button>
+                            </>
+                          )}
+                          {r.forecastId && r.status === "missed" && (
+                            <button className="ptm-icon-btn" title="대기중으로 되돌리기" onClick={() => revertForecastToPending(r.forecastId as string)}><Undo2 size={14} /></button>
+                          )}
                           {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId as string, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
                         </div>
                       </td>
@@ -1850,11 +1928,18 @@ export default function PTMemberManager() {
               <thead><tr><th>이름</th><th>예상금액</th><th>메모</th><th></th></tr></thead>
               <tbody>
                 {prospectRows.map((f) => (
-                  <tr key={f.id} className={Number(f.expectedAmount || 0) > 0 ? "ptm-row-planned" : ""}>
+                  <tr key={f.id} className={f.status === "missed" || f.status === "postponed" ? "ptm-row-closed" : Number(f.expectedAmount || 0) > 0 ? "ptm-row-planned" : ""}>
                     <td>
                       <input className="ptm-cell-input" value={f.prospectName || ""} placeholder="이름"
                         onChange={(e) => updateProspectField(f.id, "prospectName", e.target.value)}
                         onBlur={() => persistProspect(f.id)} />
+                      {(f.status === "missed" || f.status === "postponed" || f.carriedFromId) && (
+                        <div className="ptm-actions" style={{ marginTop: 3 }}>
+                          {f.status === "missed" && <span className="ptm-badge unpaid">실패</span>}
+                          {f.status === "postponed" && <span className="ptm-badge">연기 → {forecastMonthLabel(nextForecastMonth(f.targetMonth))}</span>}
+                          {f.carriedFromId && <span className="ptm-badge forecast">{carriedFromLabel(f)}에서 이월</span>}
+                        </div>
+                      )}
                     </td>
                     <td>
                       <input className="ptm-cell-input" type="text" inputMode="numeric" placeholder="0"
@@ -1870,6 +1955,15 @@ export default function PTMemberManager() {
                     </td>
                     <td>
                       <div className="ptm-actions">
+                        {f.status === "pending" && Number(f.expectedAmount || 0) > 0 && (
+                          <>
+                            <button className="ptm-icon-btn" title="실패로 표시" onClick={() => requestMarkForecastFailed(f.id)}><CircleX size={14} /></button>
+                            <button className="ptm-icon-btn" title="다음달로 미루기" onClick={() => requestPostponeForecast(f.id)}><Forward size={14} /></button>
+                          </>
+                        )}
+                        {f.status === "missed" && (
+                          <button className="ptm-icon-btn" title="대기중으로 되돌리기" onClick={() => revertForecastToPending(f.id)}><Undo2 size={14} /></button>
+                        )}
                         <button className="ptm-icon-btn" title="삭제" onClick={() => requestRemoveForecast(f.id, `"${f.prospectName || "이름 없음"}" 신규 고객 명단을 삭제할까요?`)}><Trash2 size={14} /></button>
                       </div>
                     </td>
