@@ -17,6 +17,7 @@ import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
+import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, PassTransfer } from "@/lib/types";
 import "./ptm.css";
@@ -1163,6 +1164,13 @@ export default function PTMemberManager() {
 
   const todaySchedule = useMemo(() => allReservations.filter((r) => r.date === today()).sort((a, b) => a.time.localeCompare(b.time)), [allReservations]);
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
+  // 스케줄표 토/일/공휴일 강조용. 보고 있는 주에 걸친 연도의 공휴일만 그때그때 불러와 누적해둔다.
+  const [holidays, setHolidays] = useState<HolidayMap>({});
+  useEffect(() => {
+    const years = [...new Set(weekDates.map((d) => d.slice(0, 4)))];
+    loadHolidays(years).then((map) => setHolidays((prev) => ({ ...prev, ...map })));
+  }, [weekDates]);
+  const isOffDay = (d: string): boolean => isWeekend(d) || !!holidays[d];
   const weekStats = useMemo(() => {
     const weekRes = allReservations.filter((r) => weekDates.includes(r.date));
     return {
@@ -1454,7 +1462,13 @@ export default function PTMemberManager() {
               <div className="ptm-week-headrow">
                 <div className="ptm-week-headtime" />
                 {weekDates.map((d, i) => (
-                  <div key={d} className={`ptm-week-headcell ${d === today() ? "today" : ""}`}>{dayLabels[i]} {koDate(d)}</div>
+                  <div
+                    key={d}
+                    className={`ptm-week-headcell ${d === today() ? "today" : ""} ${isOffDay(d) ? "offday" : ""}`}
+                    title={holidays[d] ? holidays[d].join(", ") : undefined}
+                  >
+                    <span className="ptm-week-headlabel">{dayLabels[i]} {koDate(d)}</span>
+                  </div>
                 ))}
               </div>
               <div className="ptm-week-body" style={{ height: (HOUR_END - HOUR_START) * HOUR_PX }}>
@@ -1468,7 +1482,7 @@ export default function PTMemberManager() {
                   return (
                     <div
                       key={d}
-                      className={`ptm-week-daycol ptm-day-bg ${dragOverDate === d ? "drag-over" : ""}`}
+                      className={`ptm-week-daycol ptm-day-bg ${isOffDay(d) ? "offday" : ""} ${dragOverDate === d ? "drag-over" : ""}`}
                       style={{ height: (HOUR_END - HOUR_START) * HOUR_PX }}
                       onClick={(e) => handleGridClick(e, d)}
                       onMouseMove={(e) => {

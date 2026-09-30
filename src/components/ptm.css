@@ -50,10 +50,14 @@
 .ptm-week-headrow { display:flex; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--panel); z-index:2; }
 .ptm-week-headcell { flex:1; min-width:118px; text-align:center; padding:9px 4px; font-size:12.5px; color:var(--ink-dim); border-right:1px solid var(--line); }
 .ptm-week-headcell.today { color:var(--amber); font-weight:700; }
+/* 토/일/공휴일: 날짜 글자 뒤에 형광펜으로 그은 듯한 반투명 주황 띠 + 칸 전체에 아주 옅은 주황 */
+.ptm-week-headcell.offday { background:rgba(255,159,28,0.10); }
+.ptm-week-headcell.offday .ptm-week-headlabel { padding:0 3px; border-radius:2px; background:linear-gradient(transparent 50%, rgba(255,159,28,0.45) 50%, rgba(255,159,28,0.45) 92%, transparent 92%); }
 .ptm-week-headtime { width:44px; flex-shrink:0; border-right:1px solid var(--line); }
 .ptm-week-body { display:flex; position:relative; }
 .ptm-hour-label { position:absolute; left:0; right:0; transform:translateY(-7px); font-size:10.5px; color:var(--ink-dim); text-align:center; }
 .ptm-day-bg { background-image: repeating-linear-gradient(to bottom, var(--line) 0, var(--line) 1px, transparent 1px, transparent 36px); cursor:pointer; }
+.ptm-day-bg.offday { background-color:rgba(255,159,28,0.08); }
 .ptm-day-bg.drag-over { background-color:rgba(59,111,224,0.14); }
 .ptm-slot-preview { position:absolute; left:2px; right:2px; border-radius:6px; background:rgba(59,111,224,0.14); border:1.5px dashed var(--amber); pointer-events:none; }
 .ptm-now-line { position:absolute; left:0; right:0; height:0; border-top:2px solid var(--coral); z-index:5; pointer-events:none; }
