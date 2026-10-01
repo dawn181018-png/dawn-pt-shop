@@ -241,6 +241,9 @@ export default function PTMemberManager() {
   const [products, setProducts] = useState<Product[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // 처음 데이터 불러오기가 실패하면 목록이 전부 비어 "등록된 고객이 없어요"처럼 보여 데이터가 사라진 것으로
+  // 오해하기 쉽다. 실패 사실을 화면 위에 계속 띄워두고 새로고침을 안내한다(2초 뒤 사라지는 알림 대신).
+  const [loadError, setLoadError] = useState(false);
   const [view, setView] = useState("schedule");
   const [query, setQuery] = useState("");
   const [sortMode, setSortMode] = useState("urgent");
@@ -408,9 +411,11 @@ export default function PTMemberManager() {
         setRenewalForecasts(forecastsData);
         setPassTransfers(passTransfersData);
         if (settingsData) setSettings({ ...defaultSettings, ...settingsData });
-        await reconnectScheduledReservations(reservationsData, productsData);
+        // 아래 자동 재연결은 데이터 불러오기와 별개라, 실패해도 "불러오기 실패" 안내를 띄우지 않는다
+        // (다음에 앱을 열 때 다시 시도된다).
+        reconnectScheduledReservations(reservationsData, productsData).catch(() => {});
       } catch {
-        flash("데이터를 불러오지 못했어요");
+        setLoadError(true);
       }
       setLoaded(true);
     })();
@@ -1487,6 +1492,13 @@ export default function PTMemberManager() {
     <div className="ptm-root">
       <div className="ptm-eyebrow">던휘트니스 삼성점</div>
       <h1 className="ptm-title">회원 관리</h1>
+
+      {loadError && (
+        <div className="ptm-load-error">
+          <span>데이터를 불러오지 못했어요. 저장된 데이터는 그대로 있으니 새로고침해주세요.</span>
+          <button className="ptm-res-btn" onClick={() => window.location.reload()}>새로고침</button>
+        </div>
+      )}
 
       <div className="ptm-tabs">
         <button className={`ptm-tab ${view === "schedule" ? "active" : ""}`} onClick={() => setView("schedule")}><CalendarDays size={15} /> 스케줄</button>
