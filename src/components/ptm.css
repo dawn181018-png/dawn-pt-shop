@@ -330,3 +330,22 @@
 .ptm-contract-section-body { font-size:12.5px; color:var(--ink-dim); line-height:1.7; white-space:pre-wrap; }
 .ptm-contract-agree { display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; padding:10px 2px; cursor:pointer; }
 .ptm-contract-agree input { width:16px; height:16px; }
+
+/* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
+.ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+.ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
+.ptm-sign-title { font-size:20px; font-weight:800; margin:4px 0 6px; }
+.ptm-sign-muted { font-size:12.5px; color:var(--ink-dim); line-height:1.6; }
+.ptm-sign-summary { margin-top:14px; border-top:1px solid var(--line); }
+.ptm-sign-row { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line); font-size:14px; }
+.ptm-sign-row > span:first-child { color:var(--ink-dim); flex-shrink:0; }
+.ptm-sign-row > :last-child { text-align:right; }
+.ptm-sign-contract { max-height:50vh; }
+.ptm-sign-done-icon { width:44px; height:44px; border-radius:50%; background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px; }
+.ptm-sign-receipt-head { padding-bottom:4px; }
+.ptm-sign-receipt .ptm-save-btn { display:flex; align-items:center; justify-content:center; gap:6px; }
+@media print {
+  .ptm-sign-no-print { display:none !important; }
+  .ptm-root.ptm-sign-root { background:#fff; padding:0; }
+  .ptm-sign-card { border:none; padding:0; }
+}

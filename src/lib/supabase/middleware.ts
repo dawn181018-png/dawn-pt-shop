@@ -28,6 +28,10 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
+
+  // /sign/<token>은 고객이 문자/카톡으로 받은 계약서 링크 서명 화면이다. 로그인 여부·계정 종류(트레이너/회원)와
+  // 상관없이 항상 그대로 열려야 하므로(서명 권한은 링크 토큰을 서버에서 검증해 판단) 아래 리다이렉트를 모두 건너뛴다.
+  if (pathname.startsWith("/sign/")) return supabaseResponse;
   // reset-password/auth callback은 "비밀번호 재설정 중" 임시 세션으로 접근하므로
   // 로그인 여부와 무관하게 항상 허용해야 한다 (로그인 상태여도 튕겨내면 안 됨).
   // /api/cron/*은 Vercel Cron이 쿠키 세션 없이 호출하므로 여기서 로그인 리다이렉트 대상에서 제외하고,
