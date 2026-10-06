@@ -553,5 +553,130 @@ $$;
 grant execute on function postpone_forecast(uuid) to authenticated;
 grant execute on function postpone_forecast(uuid) to service_role;
 
+-- ---------- 고객 링크 서명: 서명 대기 판매(pending_sales) ----------
+-- 상품판매에서 "링크 복사"를 누르면 이용권을 바로 만들지 않고 여기에 "서명 대기"로 저장한 뒤, 고객이 링크
+-- (/sign/<token>)에서 서명하는 순간 confirm_pending_sale이 고객/이용권/계약서 서명 기록을 한 번에 만든다.
+-- 그 전까지는 products에 아무것도 없으므로 횟수/매출/통계/매출계획 어디에도 잡히지 않는다.
+-- 새 테이블만 추가하며 기존 테이블/데이터는 건드리지 않는다. 재실행해도 안전하다.
+create table if not exists pending_sales (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  customer_id uuid references customers(id) on delete cascade, -- 기존 고객 재등록이면 연결
+  new_customer jsonb,            -- 신규 고객이면 {name, gender, phone, birthdate} (고객 행은 서명 시점에 생성)
+  product jsonb not null,        -- 판매 입력값 스냅샷 {name, type, totalSessions, startDate, endDate, sessionDuration, listPrice, price, paidAmount, paymentMethod}
+  contract_version text not null default 'v1',
+  -- 링크 토큰: gen_random_uuid() 두 개(각 122비트 랜덤)를 이은 64자 16진수 — 추측 불가능
+  token text not null unique default (replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '')),
+  expires_at timestamptz not null default now() + interval '7 days',
+  status text not null default 'pending' check (status in ('pending', 'signed', 'cancelled')),
+  signed_at timestamptz,
+  result_customer_id uuid references customers(id) on delete set null,
+  result_product_id uuid references products(id) on delete set null,
+  signature_url text,
+  created_at timestamptz not null default now(),
+  check (customer_id is not null or new_customer is not null)
+);
+create index if not exists idx_pending_sales_owner on pending_sales(owner_id);
+create index if not exists idx_pending_sales_customer on pending_sales(customer_id);
+
+-- 트레이너 본인 것만 조회/생성/수정 가능. anon(로그인 안 한 고객)에게는 어떤 권한도 주지 않는다 —
+-- 고객 링크 화면은 서버(service_role)가 토큰을 검증한 뒤 그 한 건만 골라 읽는다.
+alter table pending_sales enable row level security;
+drop policy if exists "pending_sales_owner_all" on pending_sales;
+create policy "pending_sales_owner_all" on pending_sales
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+grant select, insert, update, delete on pending_sales to authenticated;
+grant select, insert, update, delete on pending_sales to service_role;
+
+-- 서명 전 금액/횟수 수정 또는 만료된 링크 재발급: 새 토큰 + 새 만료일로 바꿔 옛 링크를 즉시 무효화한다.
+-- (p_product를 주면 판매 입력값도 함께 교체) 대기 상태일 때만 가능하다.
+create or replace function reissue_pending_sale(p_id uuid, p_product jsonb default null)
+returns pending_sales
+language plpgsql
+security invoker
+as $$
+declare
+  v_row pending_sales%rowtype;
+begin
+  update pending_sales set
+    token = replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', ''),
+    expires_at = now() + interval '7 days',
+    product = coalesce(p_product, product)
+  where id = p_id and owner_id = auth.uid() and status = 'pending'
+  returning * into v_row;
+  if not found then raise exception '서명 대기 중인 건이 아니에요(이미 서명됐거나 취소됨)'; end if;
+  return v_row;
+end;
+$$;
+grant execute on function reissue_pending_sale(uuid, jsonb) to authenticated;
+grant execute on function reissue_pending_sale(uuid, jsonb) to service_role;
+
+-- 고객 서명 확정: 토큰 검증(대기 상태 + 만료 전) → (신규면) 고객 생성 → 이용권 생성 → 계약서 서명 기록 →
+-- 서명완료 표시를 한 트랜잭션으로 처리한다. 하나라도 실패하면 전부 롤백되어 반쪽 저장이 없다.
+-- for update로 행을 잠가, 같은 링크로 동시에 두 번 서명하거나 서명과 취소가 겹쳐도 한쪽만 인정된다.
+-- 로그인 없는 고객 요청을 받는 서버(service_role)만 호출할 수 있다 — anon/authenticated 실행 권한은 회수한다.
+create or replace function confirm_pending_sale(p_token text, p_signature_url text)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_ps pending_sales%rowtype;
+  v_customer_id uuid;
+  v_product products%rowtype;
+  v_p jsonb;
+begin
+  select * into v_ps from pending_sales where token = p_token for update;
+  if not found then raise exception 'invalid_token'; end if;
+  if v_ps.status <> 'pending' then raise exception 'not_pending'; end if;
+  if v_ps.expires_at < now() then raise exception 'expired'; end if;
+
+  if v_ps.customer_id is not null then
+    -- 다른 트레이너의 고객 id가 섞여 들어와도 그 고객에게 이용권이 생기지 않도록 소유자를 다시 확인한다.
+    perform 1 from customers where id = v_ps.customer_id and owner_id = v_ps.owner_id;
+    if not found then raise exception 'invalid_customer'; end if;
+    v_customer_id := v_ps.customer_id;
+  else
+    insert into customers (owner_id, name, gender, phone, birthdate)
+    values (
+      v_ps.owner_id,
+      v_ps.new_customer->>'name',
+      nullif(v_ps.new_customer->>'gender', ''),
+      v_ps.new_customer->>'phone',
+      nullif(v_ps.new_customer->>'birthdate', '')::date
+    )
+    returning id into v_customer_id;
+  end if;
+
+  v_p := v_ps.product;
+  insert into products (owner_id, customer_id, name, type, total_sessions, used_sessions, start_date, end_date,
+    session_duration, list_price, price, paid_amount, payment_method)
+  values (
+    v_ps.owner_id, v_customer_id, v_p->>'name', v_p->>'type',
+    coalesce((v_p->>'totalSessions')::int, 0), 0,
+    coalesce(nullif(v_p->>'startDate', '')::date, current_date),
+    nullif(v_p->>'endDate', '')::date,
+    coalesce((v_p->>'sessionDuration')::int, 50),
+    coalesce((v_p->>'listPrice')::numeric, 0),
+    coalesce((v_p->>'price')::numeric, 0),
+    coalesce((v_p->>'paidAmount')::numeric, 0),
+    coalesce(v_p->>'paymentMethod', 'card')
+  )
+  returning * into v_product;
+
+  insert into contract_signatures (owner_id, customer_id, product_id, is_new_customer, signature_url, contract_version, signed_at)
+  values (v_ps.owner_id, v_customer_id, v_product.id, v_ps.customer_id is null, p_signature_url, v_ps.contract_version, now());
+
+  update pending_sales set
+    status = 'signed', signed_at = now(), signature_url = p_signature_url,
+    result_customer_id = v_customer_id, result_product_id = v_product.id
+  where id = v_ps.id;
+
+  return jsonb_build_object('customerId', v_customer_id, 'productId', v_product.id, 'signedAt', now());
+end;
+$$;
+revoke execute on function confirm_pending_sale(text, text) from public, anon, authenticated;
+grant execute on function confirm_pending_sale(text, text) to service_role;
+
 -- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
 notify pgrst, 'reload schema';
