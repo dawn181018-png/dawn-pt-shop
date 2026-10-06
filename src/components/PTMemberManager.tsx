@@ -620,9 +620,9 @@ export default function PTMemberManager() {
       } else {
         const created = await db.insertCustomer(payload);
         setCustomers([...customers, created]);
-        flash("고객 등록됨 · 이용권을 등록해주세요");
+        // 신규 가입은 고객 정보만 등록한다 — 이용권 판매는 계약서 서명(현장/링크)이 있는 "상품판매" 탭에서 한다.
+        flash("고객 등록됨 · 이용권은 상품판매 탭에서 판매해주세요", 3000);
         setShowCustomerForm(false);
-        openNewProduct(created.id); // 신규 고객 등록 직후 바로 이용권 등록으로 이어간다
       }
     } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
