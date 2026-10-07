@@ -1491,7 +1491,10 @@ export default function PTMemberManager() {
         const remainSessionsShort = activeTicketCount ? activeSessionProducts.map((p) => `${remainingSessions(p)}s`).join("/") : "";
         const remainSummary = totalRemain !== null ? `${totalRemain}회${activeTicketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
         const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
-        const actual = monthProducts.reduce((s, p) => s + Number(p.price || 0), 0);
+        // 이번달 등록금액은 판매가가 아니라 실제로 받은(결제된) 금액으로 계산한다 — 미수금이 있으면 그만큼은
+        // 아직 들어온 돈이 아니므로 달성/부족액 계산에서 빠지고, 화면에는 미수금으로 따로 표시한다.
+        const actual = monthProducts.reduce((s, p) => s + getPaidAmount(p), 0);
+        const unpaid = monthProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
         const expectedSessions = f ? f.expectedSessions : null;
         const expectedAmount = f ? Number(f.expectedAmount || 0) : 0;
         const gap = Math.max(0, expectedAmount - actual);
@@ -1502,7 +1505,7 @@ export default function PTMemberManager() {
           forecastId: f ? f.id : null, customerId: c.id, customerName: c.name, customerPhone: c.phone,
           totalSummary, remainSummary, remainDetail, ticketCount, activeTicketCount, totalRemain, timeSlotLabel, weeklyAvgLabel, recentVisits,
           expectedSessions, expectedAmount, note: f ? f.note : "",
-          actual, gap, achieved: !isClosed && expectedAmount > 0 && actual >= expectedAmount,
+          actual, unpaid, gap, achieved: !isClosed && expectedAmount > 0 && actual >= expectedAmount,
           status, carriedFrom: carriedFromLabel(f),
         };
       })
@@ -1527,6 +1530,7 @@ export default function PTMemberManager() {
     // 달성 건수에만 들어가지 않는다(forecastRows의 achieved가 이미 false).
     const planned = forecastRows.filter((f) => f.expectedAmount > 0 && f.status !== "postponed");
     const totalActual = forecastRows.reduce((s, f) => s + f.actual, 0);
+    const totalUnpaid = forecastRows.reduce((s, f) => s + f.unpaid, 0);
     const existingExpected = planned.reduce((s, f) => s + f.expectedAmount, 0);
     const existingGap = planned.reduce((s, f) => s + f.gap, 0);
     const achievedCount = planned.filter((f) => f.achieved).length;
@@ -1538,7 +1542,7 @@ export default function PTMemberManager() {
       plannedCount: planned.length + plannedProspects.length,
       achievedCount, failedCount, postponedCount,
       totalExpected: existingExpected + prospectExpected,
-      totalActual,
+      totalActual, totalUnpaid,
       totalGap: existingGap + prospectExpected,
     };
   }, [forecastRows, prospectRows]);
@@ -1974,6 +1978,10 @@ export default function PTMemberManager() {
             <div className="ptm-pay-card">
               <div className="ptm-pay-card-label">이번달 실제 등록금액</div>
               <div className="ptm-pay-card-num" style={{ color: "var(--teal)" }}>{forecastStats.totalActual.toLocaleString()}원</div>
+              <div className="ptm-prod-count">
+                실제 결제(입금)된 금액 기준
+                {forecastStats.totalUnpaid > 0 && <span style={{ color: "var(--coral)" }}> · 미수 {forecastStats.totalUnpaid.toLocaleString()}원 별도</span>}
+              </div>
             </div>
             <div className="ptm-pay-card">
               <div className="ptm-pay-card-label">부족한 금액</div>
@@ -2022,7 +2030,10 @@ export default function PTMemberManager() {
                       <td title={r.activeTicketCount > 1 ? `이용권별 잔여: ${r.remainDetail}` : undefined}>{r.remainSummary}</td>
                       <td>{r.expectedSessions ?? "-"}</td>
                       <td>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</td>
-                      <td style={r.actual > 0 ? { color: "var(--teal)" } : {}}>{r.actual > 0 ? `${r.actual.toLocaleString()}원` : "-"}</td>
+                      <td style={r.actual > 0 ? { color: "var(--teal)" } : {}}>
+                        {r.actual > 0 || r.unpaid > 0 ? `${r.actual.toLocaleString()}원` : "-"}
+                        {r.unpaid > 0 && <div style={{ color: "var(--coral)", fontSize: 11.5 }}>미수 {r.unpaid.toLocaleString()}원</div>}
+                      </td>
                       <td style={r.expectedAmount > 0 && r.gap > 0 ? { color: "var(--coral)" } : {}}>{r.expectedAmount > 0 ? `${r.gap.toLocaleString()}원` : "-"}</td>
                       <td>{r.note || "-"}</td>
                       <td>
