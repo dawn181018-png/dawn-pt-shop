@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import SignaturePad from "signature_pad";
 import { Check, Printer } from "lucide-react";
 import { CONTRACT_SECTIONS } from "@/lib/contract";
 import { PAYMENT_LABELS, type SaleProductSnapshot, type SignViewData } from "@/lib/pendingSale";
 import { signPendingSale } from "./actions";
 import "@/components/ptm.css";
+
+// 서버에서 그려진 HTML이 먼저 보이고 화면 동작(자바스크립트)은 조금 뒤에 붙는데, 느린 휴대폰 통신에서 그 사이에
+// 확인 체크를 누르면 체크 표시만 되고 서명 칸은 안 나타난다. 동작이 붙은 뒤에만 체크 칸을 보여준다.
+const noopSubscribe = () => () => {};
+const useIsHydrated = () => useSyncExternalStore(noopSubscribe, () => true, () => false);
 
 const won = (n: number) => `${Number(n || 0).toLocaleString()}원`;
 const koDateTime = (iso: string) => {
@@ -61,6 +66,7 @@ export default function SignView({ token, initialView }: { token: string; initia
   const [error, setError] = useState("");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const padRef = useRef<SignaturePad | null>(null);
+  const hydrated = useIsHydrated();
 
   // 상품판매 화면의 현장 서명과 같은 방식(signature_pad)으로 서명을 받는다.
   useEffect(() => {
@@ -70,14 +76,22 @@ export default function SignView({ token, initialView }: { token: string; initia
     const pad = new SignaturePad(canvas, { backgroundColor: "rgb(255,255,255)" });
     padRef.current = pad;
     pad.addEventListener("endStroke", () => setIsEmpty(pad.isEmpty()));
+    // 휴대폰에서는 스크롤하거나 화면을 누를 때 주소창이 나타났다 사라지면서 브라우저가 "resize"를 계속
+    // 보내는데, 그때마다 캔버스를 초기화하면 방금 그은 서명이 바로 지워져 "터치가 안 되는" 것처럼 보인다.
+    // 그래서 캔버스 폭이 실제로 바뀐 경우(화면 회전 등)에만 다시 맞추고, 이미 그린 서명은 그대로 복원한다.
+    let lastWidth = -1;
     const resize = () => {
-      const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const rect = canvas.getBoundingClientRect();
+      if (Math.round(rect.width) === lastWidth) return;
+      lastWidth = Math.round(rect.width);
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const strokes = pad.toData();
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
       canvas.getContext("2d")?.scale(ratio, ratio);
       pad.clear();
-      setIsEmpty(true);
+      if (strokes.length > 0) pad.fromData(strokes);
+      setIsEmpty(pad.isEmpty());
     };
     resize();
     window.addEventListener("resize", resize);
@@ -151,10 +165,14 @@ export default function SignView({ token, initialView }: { token: string; initia
             </div>
           ))}
         </div>
-        <label className="ptm-contract-agree">
-          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} disabled={saving} />
-          위 내용을 모두 확인하고 숙지하였습니다
-        </label>
+        {hydrated ? (
+          <label className="ptm-contract-agree">
+            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} disabled={saving} />
+            위 내용을 모두 확인하고 숙지하였습니다
+          </label>
+        ) : (
+          <div className="ptm-sign-muted" style={{ padding: "10px 2px" }}>서명 화면을 준비하고 있어요...</div>
+        )}
 
         {agreed && (
           <>
