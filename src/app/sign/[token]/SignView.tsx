@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import SignaturePad from "signature_pad";
-import { Check, Printer } from "lucide-react";
+import { Check, Printer, Copy } from "lucide-react";
 import { CONTRACT_SECTIONS } from "@/lib/contract";
-import { PAYMENT_LABELS, type SaleProductSnapshot, type SignViewData } from "@/lib/pendingSale";
+import { PAYMENT_LABELS, BANK_ACCOUNT, type SaleProductSnapshot, type SignViewData } from "@/lib/pendingSale";
 import { signPendingSale } from "./actions";
 import "@/components/ptm.css";
 
@@ -89,6 +89,27 @@ function ReceiptSaveGuide() {
   );
 }
 
+// 결제수단이 계좌이체인 건의 결제 확인서에만 입금 계좌를 보여준다(인쇄/PDF에도 포함). 복사 버튼은 화면에서만.
+function BankAccountBox({ unpaid }: { unpaid: number }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(BANK_ACCOUNT.number); setCopied(true); } catch { /* 길게 눌러 복사 */ }
+  };
+  return (
+    <div className="ptm-sign-bank">
+      <div className="ptm-sign-bank-title">계좌이체 안내</div>
+      <div className="ptm-sign-row"><span>은행</span><b>{BANK_ACCOUNT.bank}</b></div>
+      <div className="ptm-sign-row"><span>계좌번호</span><b className="ptm-sign-bank-number">{BANK_ACCOUNT.number}</b></div>
+      <div className="ptm-sign-row"><span>예금주</span><b>{BANK_ACCOUNT.holder}</b></div>
+      {unpaid > 0 && <div className="ptm-sign-muted" style={{ marginTop: 8 }}>남은 금액 {won(unpaid)}을 위 계좌로 입금해주세요.</div>}
+      <div className="ptm-sign-muted" style={{ marginTop: 6 }}>입금자명은 회원님 성함으로 해주세요.</div>
+      <button className="ptm-res-btn ptm-sign-no-print ptm-sign-bank-copy" onClick={copy}>
+        <Copy size={13} /> {copied ? "계좌번호 복사됨" : "계좌번호 복사"}
+      </button>
+    </div>
+  );
+}
+
 function Receipt({ customerName, product, signedAt }: { customerName: string; product: SaleProductSnapshot; signedAt: string | null }) {
   return (
     <div className="ptm-sign-card ptm-sign-receipt">
@@ -98,6 +119,7 @@ function Receipt({ customerName, product, signedAt }: { customerName: string; pr
         {signedAt && <div className="ptm-sign-muted">계약 서명일시 {koDateTime(signedAt)}</div>}
       </div>
       <SaleSummary customerName={customerName} product={product} />
+      {product.paymentMethod === "transfer" && <BankAccountBox unpaid={Math.max(0, Number(product.price) - Number(product.paidAmount))} />}
       <div className="ptm-sign-muted" style={{ marginTop: 14 }}>
         본 확인서는 DAWN FITNESS 개인 트레이닝 계약 및 결제 내역을 확인하기 위한 문서이며, 세금계산서나 현금영수증을 대신하지 않습니다.
       </div>

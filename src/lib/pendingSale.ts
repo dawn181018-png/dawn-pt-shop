@@ -25,6 +25,9 @@ export const isValidSignToken = (token: string): boolean => /^[0-9a-f]{64}$/.tes
 
 export const signLinkUrl = (origin: string, token: string): string => `${origin}/sign/${token}`;
 
+// 계좌이체 결제 시 고객 결제 확인서에 보여주는 센터 입금 계좌.
+export const BANK_ACCOUNT = { bank: "우리은행", number: "1005-403-578887", holder: "던탁(최동비)" };
+
 export const PAYMENT_LABELS: Record<PaymentMethod, string> = { card: "카드", cash: "현금", transfer: "계좌이체" };
 
 // 고객 링크 화면에 내려보내는 데이터 — 그 한 건의 판매 정보와 본인 이름만 담는다(연락처/센터 매출/다른 회원 없음).

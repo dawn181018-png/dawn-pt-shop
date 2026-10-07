@@ -357,6 +357,11 @@
 .ptm-sign-done-icon { width:44px; height:44px; border-radius:50%; background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px; }
 .ptm-sign-receipt-head { padding-bottom:4px; }
 .ptm-sign-receipt .ptm-save-btn { display:flex; align-items:center; justify-content:center; gap:6px; }
+.ptm-sign-bank { margin-top:14px; padding:12px 14px; border:1.5px solid var(--amber); border-radius:10px; background:rgba(59,111,224,0.05); }
+.ptm-sign-bank-title { font-weight:700; font-size:14px; margin-bottom:2px; }
+.ptm-sign-bank .ptm-sign-row:last-of-type { border-bottom:none; }
+.ptm-sign-bank-number { color:var(--amber); font-size:16px; letter-spacing:.02em; }
+.ptm-sign-bank-copy { margin-top:10px; display:inline-flex; align-items:center; gap:5px; }
 .ptm-sign-guide { margin-top:16px; padding:14px; border-radius:10px; background:var(--panel-2); font-size:13px; line-height:1.6; }
 .ptm-sign-guide-title { font-weight:700; margin-bottom:8px; }
 .ptm-sign-guide-warn { padding:10px 12px; border-radius:8px; background:rgba(224,67,63,0.08); color:var(--coral); margin-bottom:10px; }
