@@ -39,6 +39,56 @@ function SaleSummary({ customerName, product }: { customerName: string; product:
 }
 
 // 서명 완료 후 보여주는 결제 확인서. 인쇄(또는 인쇄 창에서 "PDF로 저장")할 수 있다.
+// 고객이 링크를 연 환경. 카카오톡 등 앱 안의 내장 브라우저는 인쇄(window.print)를 막아둔 경우가 많아
+// 버튼을 눌러도 반응이 없으므로, 그때는 "다른 브라우저로 열기"부터 안내한다. 서버 렌더링 땐 알 수 없어 "unknown".
+type ViewerEnv = "kakao" | "inapp" | "ios" | "android" | "other" | "unknown";
+const detectViewerEnv = (): ViewerEnv => {
+  const ua = navigator.userAgent;
+  if (/KAKAOTALK/i.test(ua)) return "kakao";
+  if (/NAVER\(inapp|Instagram|FBAN|FBAV|Line\//i.test(ua)) return "inapp";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "ios";
+  if (/Android/i.test(ua)) return "android";
+  return "other";
+};
+const useViewerEnv = (): ViewerEnv => useSyncExternalStore(noopSubscribe, detectViewerEnv, () => "unknown");
+
+function ReceiptSaveGuide() {
+  const env = useViewerEnv();
+  const iosGuide = (
+    <div className="ptm-sign-guide-item">
+      <b>아이폰</b>
+      <ol>
+        <li>위 <b>인쇄 / PDF 저장</b> 버튼을 눌러요</li>
+        <li>인쇄 화면 위쪽(또는 아래쪽)의 <b>공유 버튼</b>(네모에 위쪽 화살표)을 눌러요</li>
+        <li><b>파일에 저장</b>을 누르면 PDF로 저장돼요 (사진으로 남기려면 화면 캡처도 괜찮아요)</li>
+      </ol>
+    </div>
+  );
+  const androidGuide = (
+    <div className="ptm-sign-guide-item">
+      <b>안드로이드 (갤럭시 등)</b>
+      <ol>
+        <li>위 <b>인쇄 / PDF 저장</b> 버튼을 눌러요</li>
+        <li>맨 위 프린터 선택을 눌러 <b>PDF로 저장</b>으로 바꿔요</li>
+        <li><b>PDF</b>(다운로드) 버튼을 누르면 저장돼요 (사진으로 남기려면 화면 캡처도 괜찮아요)</li>
+      </ol>
+    </div>
+  );
+  return (
+    <div className="ptm-sign-guide ptm-sign-no-print">
+      <div className="ptm-sign-guide-title">결제 확인서 저장 방법</div>
+      {(env === "kakao" || env === "inapp") && (
+        <div className="ptm-sign-guide-warn">
+          {env === "kakao" ? "카카오톡" : "앱"} 안에서 열린 화면에서는 인쇄/PDF 저장이 안 될 수 있어요.
+          오른쪽 위(또는 아래)의 <b>⋯ 메뉴</b>에서 <b>다른 브라우저로 열기</b>(아이폰은 Safari, 안드로이드는 Chrome)를 누른 뒤
+          아래 방법대로 저장해주세요. 서명은 이미 완료됐으니 다시 열어도 확인서만 보여요.
+        </div>
+      )}
+      {env === "android" ? <>{androidGuide}{iosGuide}</> : <>{iosGuide}{androidGuide}</>}
+    </div>
+  );
+}
+
 function Receipt({ customerName, product, signedAt }: { customerName: string; product: SaleProductSnapshot; signedAt: string | null }) {
   return (
     <div className="ptm-sign-card ptm-sign-receipt">
@@ -54,6 +104,7 @@ function Receipt({ customerName, product, signedAt }: { customerName: string; pr
       <button className="ptm-save-btn ptm-sign-no-print" onClick={() => window.print()}>
         <Printer size={15} /> 인쇄 / PDF 저장
       </button>
+      <ReceiptSaveGuide />
     </div>
   );
 }
