@@ -331,6 +331,17 @@
 .ptm-contract-agree { display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; padding:10px 2px; cursor:pointer; }
 .ptm-contract-agree input { width:16px; height:16px; }
 
+/* ---- 상품판매: 서명 방식 선택 / 서명 대기 목록 / 링크 창 ---- */
+.ptm-sign-mode-toggle { margin:12px 0 4px; }
+.ptm-sign-link-box { display:flex; flex-direction:column; gap:10px; margin-top:10px; padding:12px; border:1px dashed var(--amber); border-radius:10px; background:rgba(59,111,224,0.05); }
+.ptm-sign-link-box .ptm-save-btn { display:flex; align-items:center; justify-content:center; gap:6px; margin-top:0; }
+.ptm-pending-sales { background:var(--panel); border:1px solid var(--amber); border-radius:12px; padding:14px 16px; margin-bottom:14px; }
+.ptm-pending-sales-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.ptm-pending-sale-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); font-size:13.5px; }
+.ptm-pending-sale-info { min-width:0; }
+.ptm-pending-sale-sub { font-size:12.5px; color:var(--ink-dim); margin-top:3px; }
+.ptm-sign-link-input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; background:var(--panel-2); color:var(--ink); margin:4px 0 0; }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }

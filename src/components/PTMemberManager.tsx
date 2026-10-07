@@ -12,14 +12,16 @@ import {
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
-import ProductSaleWizard from "./ProductSaleWizard";
+import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
+import PendingSalesPanel from "./PendingSalesPanel";
+import { signLinkUrl } from "@/lib/pendingSale";
 import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -724,6 +726,121 @@ export default function PTMemberManager() {
   // 양도는 고객/이용권을 여러 개 한 번에 만들 수 있어 낙관적 상태 갱신 대신 통째로 다시 불러온다.
   // 양도 자체는 이미 DB에 저장된 뒤 호출되므로 여기서 에러를 던지면 안 된다 — 모달이 그 에러를
   // "양도 실패"로 보여줘서 다시 누르면 양도가 한 번 더 일어날 수 있다. 다시 불러오기만 실패하면 새로고침 안내만 한다.
+  // ---- 고객 링크 서명 (서명 대기 판매) ----
+  // 서명 대기 건은 이용권이 아니라 별도 목록(pending_sales)이라, 기존 데이터 불러오기와 분리해서 다룬다.
+  // (이 목록을 못 불러와도 앱의 다른 화면에는 영향이 없도록 실패는 조용히 넘긴다.)
+  const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
+  const [salePrefill, setSalePrefill] = useState<{ key: number; prefill: SalePrefill } | null>(null);
+  const [linkSheet, setLinkSheet] = useState<{ url: string; title: string; copied: boolean } | null>(null);
+  const pendingIdsRef = useRef<Set<string>>(new Set());
+  // 목록에서 빠진 건(고객이 서명했거나 다른 기기에서 취소)이 있으면, 서명으로 새 고객/이용권이 생겼을 수
+  // 있으니 고객·이용권을 다시 불러와 화면에 반영한다.
+  const refreshPendingSales = async () => {
+    try {
+      const list = await db.listPendingSales();
+      const gone = [...pendingIdsRef.current].some((id) => !list.some((s) => s.id === id));
+      pendingIdsRef.current = new Set(list.map((s) => s.id));
+      setPendingSales(list);
+      if (gone) {
+        const [customersData, productsData] = await Promise.all([db.listCustomers(), db.listProducts()]);
+        setCustomers(customersData);
+        setProducts(productsData);
+        await reconnectScheduledReservations(reservations, productsData);
+      }
+    } catch { /* 서명 대기 목록만 못 불러온 경우 — 다른 기능엔 영향 없음 */ }
+  };
+  const replacePendingSale = (sale: PendingSale) => setPendingSales((cur) => cur.map((s) => (s.id === sale.id ? sale : s)));
+  const removePendingSale = (id: string) => {
+    pendingIdsRef.current.delete(id);
+    setPendingSales((cur) => cur.filter((s) => s.id !== id));
+  };
+  // 링크는 자동으로 복사를 시도하되, 휴대폰 브라우저가 자동 복사를 막는 경우가 있어 링크와 "복사" 버튼이 있는
+  // 창을 함께 띄운다(버튼을 직접 누르면 대부분의 브라우저에서 복사가 된다).
+  const showSignLink = async (sale: PendingSale, title: string) => {
+    const url = signLinkUrl(window.location.origin, sale.token);
+    let copied = false;
+    try { await navigator.clipboard.writeText(url); copied = true; } catch { /* 아래 창의 복사 버튼으로 */ }
+    setLinkSheet({ url, title, copied });
+  };
+  const copyLinkSheetUrl = async () => {
+    if (!linkSheet) return;
+    try { await navigator.clipboard.writeText(linkSheet.url); setLinkSheet({ ...linkSheet, copied: true }); }
+    catch { flash("복사가 막혀 있어요. 링크를 길게 눌러 직접 복사해주세요", 4000); }
+  };
+  const pendingSaleName = (s: PendingSale) =>
+    s.customerId ? customers.find((c) => c.id === s.customerId)?.name || "고객" : s.newCustomer?.name || "신규 고객";
+  const handleLinkCreated = (sale: PendingSale) => {
+    pendingIdsRef.current.add(sale.id);
+    setPendingSales((cur) => [...cur, sale]);
+    showSignLink(sale, `${pendingSaleName(sale)}님 서명 링크`);
+  };
+  // 이미 고객이 서명했거나 다른 곳에서 취소된 건을 건드리면, 목록을 새로 불러와 실제 상태를 보여준다.
+  const handlePendingError = (e: unknown) => {
+    flash(e instanceof Error && e.message.includes("이미") ? e.message : "처리 실패, 다시 시도해주세요", 4000);
+    refreshPendingSales();
+  };
+  const copyPendingLink = async (sale: PendingSale) => {
+    try {
+      // 만료된 링크는 그대로 복사하면 고객이 열 수 없으므로 새 링크로 재발급한다.
+      const current = new Date(sale.expiresAt).getTime() < Date.now() ? await db.reissuePendingSale(sale.id) : sale;
+      if (current !== sale) replacePendingSale(current);
+      await showSignLink(current, `${pendingSaleName(current)}님 서명 링크`);
+    } catch (e) { handlePendingError(e); }
+  };
+  const editPendingSale = async (sale: PendingSale, product: PendingSale["product"]) => {
+    try {
+      const updated = await db.reissuePendingSale(sale.id, product);
+      replacePendingSale(updated);
+      await showSignLink(updated, "수정됨 · 새 링크 (이전 링크는 무효)");
+    } catch (e) { handlePendingError(e); }
+  };
+  const convertPendingToOnsite = (sale: PendingSale) => askConfirm(
+    `${pendingSaleName(sale)}님 서명 링크를 취소하고 지금 이 화면에서 서명받을까요? 보낸 링크는 바로 무효가 돼요.`,
+    async () => {
+      const customer = sale.customerId ? customers.find((c) => c.id === sale.customerId) ?? null : null;
+      if (sale.customerId && !customer) { flash("고객 정보를 찾을 수 없어요. 새로고침 후 다시 시도해주세요"); return; }
+      try {
+        await db.cancelPendingSale(sale.id);
+        removePendingSale(sale.id);
+        setSalePrefill({
+          key: Date.now(),
+          prefill: { customer, newCustomer: sale.newCustomer, product: { ...sale.product, usedSessions: 0 } },
+        });
+        setCustomerDetailId(null);
+        setView("sale");
+      } catch (e) { handlePendingError(e); }
+    },
+    "현장 서명으로 전환",
+  );
+  const cancelPendingSaleLink = (sale: PendingSale) => askConfirm(
+    `${pendingSaleName(sale)}님 서명 링크를 취소할까요? 보낸 링크는 바로 무효가 되고, 등록되지 않아요.`,
+    async () => {
+      try {
+        await db.cancelPendingSale(sale.id);
+        removePendingSale(sale.id);
+        flash("서명 링크를 취소했어요");
+      } catch (e) { handlePendingError(e); }
+    },
+    "링크 취소",
+  );
+  // 앱을 열 때, 상품판매 탭이나 고객 판매내역을 열 때 서명 대기 목록(과 고객 서명 여부)을 새로 확인한다.
+  useEffect(() => {
+    if (!loaded) return;
+    if (view === "sale" || customerDetailTab === "sales" || pendingIdsRef.current.size === 0) refreshPendingSales();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 화면 전환 시점에만 다시 확인한다
+  }, [loaded, view, customerDetailTab, customerDetailId]);
+  const renderPendingSales = (sales: PendingSale[]) => (
+    <PendingSalesPanel
+      sales={sales}
+      customers={customers}
+      onCopyLink={copyPendingLink}
+      onEdit={editPendingSale}
+      onConvertToOnsite={convertPendingToOnsite}
+      onCancel={cancelPendingSaleLink}
+      onRefresh={refreshPendingSales}
+    />
+  );
+
   const refetchAfterTransfer = async () => {
     try {
       const [customersData, productsData, passTransfersData] = await Promise.all([
@@ -2175,8 +2292,12 @@ export default function PTMemberManager() {
         </>
       )}
 
+      {view === "sale" && renderPendingSales(pendingSales)}
       {view === "sale" && (
         <ProductSaleWizard
+          key={salePrefill?.key ?? "new"}
+          prefill={salePrefill?.prefill ?? null}
+          onLinkCreated={(sale) => { setSalePrefill(null); handleLinkCreated(sale); }}
           customers={customers}
           catalog={catalog}
           onSaleComplete={async (customer: Customer, product: Product) => {
@@ -2184,9 +2305,26 @@ export default function PTMemberManager() {
             setProducts((cur) => [...cur, product]);
             // 재등록으로 새 이용권이 생겼으니, 이전 이용권 소진으로 발 묶여 있던 예약됨 상태의 예약을 바로 이어준다.
             await reconnectScheduledReservations(reservations, [...products, product]);
+            setSalePrefill(null);
           }}
           flash={flash}
         />
+      )}
+
+      {linkSheet && (
+        <div className="ptm-overlay" onClick={() => setLinkSheet(null)}>
+          <div className="ptm-sheet" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">{linkSheet.title}</span>
+              <button className="ptm-icon-btn" onClick={() => setLinkSheet(null)}><X size={16} /></button>
+            </div>
+            <div className="ptm-no-product-msg" style={{ marginTop: -6 }}>
+              {linkSheet.copied ? "링크가 복사됐어요. " : ""}문자나 카카오톡에 붙여넣어 고객에게 보내주세요. 7일간 유효해요.
+            </div>
+            <input className="ptm-sign-link-input" readOnly value={linkSheet.url} onFocus={(e) => e.target.select()} />
+            <button className="ptm-save-btn" onClick={copyLinkSheetUrl}>{linkSheet.copied ? "다시 복사" : "링크 복사"}</button>
+          </div>
+        </div>
       )}
 
       {view === "payroll" && (
@@ -2415,6 +2553,7 @@ export default function PTMemberManager() {
                 const lastPayDate = createdDates.length ? koDate(toLocalDateStr(new Date(createdDates[createdDates.length - 1]))) : "-";
                 return (
                   <>
+                    {renderPendingSales(pendingSales.filter((s) => s.customerId === cust.id))}
                     <div className="ptm-detail-stats" style={{ gridTemplateColumns: "repeat(5,1fr)" }}>
                       <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{salesTotal.toLocaleString()}원</div><div className="ptm-detail-stat-label">누적 판매금액</div></div>
                       <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{paidTotal.toLocaleString()}원</div><div className="ptm-detail-stat-label">총 결제금액</div></div>

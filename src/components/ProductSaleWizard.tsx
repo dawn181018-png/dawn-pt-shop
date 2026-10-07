@@ -5,19 +5,19 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Search, Check, ChevronLeft } from "lucide-react";
+import { Search, Check, ChevronLeft, Link2 } from "lucide-react";
 import SignaturePad from "signature_pad";
 import * as db from "@/lib/db";
 import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { CONTRACT_VERSION, CONTRACT_SECTIONS } from "@/lib/contract";
-import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, Gender } from "@/lib/types";
+import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, Gender, PendingSale } from "@/lib/types";
 
 const isPhoneLike = (v: string): boolean => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
 
 // 이 화면 전용 폼 모양(엔티티 타입과 다르게 id 없음, 날짜가 문자열, gender가 빈 문자열 허용 등).
-type SaleCustomerForm = { name: string; gender: string; phone: string; birthdate: string };
-type SaleProductForm = {
+export type SaleCustomerForm = { name: string; gender: string; phone: string; birthdate: string };
+export type SaleProductForm = {
   name: string; type: ProductType;
   totalSessions: number; usedSessions: number;
   startDate: string; endDate: string;
@@ -31,21 +31,32 @@ const emptyProductForm: SaleProductForm = {
   sessionDuration: 50, listPrice: 0, price: 0, paidAmount: 0, paymentMethod: "card",
 };
 
+// "서명 대기" 건을 현장 서명으로 전환할 때, 그 건의 고객/상품 입력값을 채운 채 3단계(계약서)부터 시작한다.
+export type SalePrefill = { customer: Customer | null; newCustomer: SaleCustomerForm | null; product: SaleProductForm };
+
 type ProductSaleWizardProps = {
   customers: Customer[];
   catalog: CatalogItem[];
   onSaleComplete: (customer: Customer, product: Product, isNewCustomer: boolean) => void;
-  flash: (msg: string) => void;
+  // 링크 서명: 서명 대기 건을 만든 직후 호출된다(부모가 링크 복사 + 서명 대기 목록 갱신).
+  onLinkCreated: (sale: PendingSale) => void;
+  prefill?: SalePrefill | null;
+  flash: (msg: string, ms?: number) => void;
 };
 
-export default function ProductSaleWizard({ customers, catalog, onSaleComplete, flash }: ProductSaleWizardProps) {
-  const [step, setStep] = useState(1);
+export default function ProductSaleWizard({ customers, catalog, onSaleComplete, onLinkCreated, prefill, flash }: ProductSaleWizardProps) {
+  const [step, setStep] = useState(prefill ? 3 : 1);
 
   // ---- 1단계: 고객 검색/등록 ----
   const [query, setQuery] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null); // 기존 고객을 선택하면 채워짐(재등록)
-  const [isNewCustomer, setIsNewCustomer] = useState(false);
-  const [customerForm, setCustomerForm] = useState<SaleCustomerForm>(emptyCustomerForm);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(prefill?.customer ?? null); // 기존 고객을 선택하면 채워짐(재등록)
+  const [isNewCustomer, setIsNewCustomer] = useState(!!prefill?.newCustomer);
+  const [customerForm, setCustomerForm] = useState<SaleCustomerForm>(
+    prefill?.newCustomer ??
+      (prefill?.customer
+        ? { name: prefill.customer.name, gender: prefill.customer.gender || "", phone: prefill.customer.phone || "", birthdate: prefill.customer.birthdate || "" }
+        : emptyCustomerForm),
+  );
 
   const matches = useMemo(() => {
     if (!query.trim()) return [];
@@ -75,7 +86,7 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
   };
 
   // ---- 2단계: 상품 선택/가격 ----
-  const [productForm, setProductForm] = useState<SaleProductForm>(emptyProductForm);
+  const [productForm, setProductForm] = useState<SaleProductForm>(prefill?.product ?? emptyProductForm);
   const [catalogPick, setCatalogPick] = useState("");
   const applyCatalogItem = (id: string) => {
     setCatalogPick(id);
@@ -103,9 +114,11 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
   const padRef = useRef<SignaturePad | null>(null);
   const [isSignatureEmpty, setIsSignatureEmpty] = useState(true);
   const [saving, setSaving] = useState(false);
+  // 3단계 서명 방식: 현장 서명(기존 그대로) / 링크 서명(고객 휴대폰에서 서명)
+  const [signMode, setSignMode] = useState<"onsite" | "link">("onsite");
 
   useEffect(() => {
-    if (step !== 3 || !agreed) return;
+    if (step !== 3 || !agreed || signMode !== "onsite") return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const pad = new SignaturePad(canvas, { backgroundColor: "rgb(255,255,255)" });
@@ -126,7 +139,7 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
       window.removeEventListener("resize", resize);
       pad.off();
     };
-  }, [step, agreed]);
+  }, [step, agreed, signMode]);
 
   const clearSignature = () => { padRef.current?.clear(); setIsSignatureEmpty(true); };
 
@@ -136,8 +149,35 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
   // 새로 만들지 않고 그 행을 현재 입력값으로 갱신해서 재사용한다(재시도 전에 입력을 고쳤어도 반영됨).
   const savedRef = useRef<{ newCustomer?: Customer; product?: Product }>({});
 
+  const [creatingLink, setCreatingLink] = useState(false);
+  // 링크 서명은 이용권을 지금 만들지 않고 "서명 대기" 건만 만든다 — 고객이 링크에서 서명하는 순간 DB가
+  // 고객/이용권/계약서 기록을 한 번에 확정한다(그 전엔 횟수·매출·통계에 반영되지 않음).
+  const createSignLink = async () => {
+    if (creatingLink) return;
+    // 현장 서명 도중 일부(고객/이용권)가 이미 저장된 상태라면 링크로 또 만들면 중복 등록이 된다.
+    if (savedRef.current.product) { flash("이미 저장된 이용권이 있어요. 현장 서명으로 마무리해주세요", 4000); return; }
+    setCreatingLink(true);
+    try {
+      const { usedSessions: _unused, ...product } = productForm;
+      void _unused;
+      const sale = await db.insertPendingSale({
+        customerId: isNewCustomer ? null : (selectedCustomer as Customer).id,
+        newCustomer: isNewCustomer ? customerForm : null,
+        product,
+        contractVersion: CONTRACT_VERSION,
+      });
+      onLinkCreated(sale);
+      resetWizard();
+    } catch {
+      flash("링크 만들기에 실패했어요. 다시 시도해주세요");
+    } finally {
+      setCreatingLink(false);
+    }
+  };
+
   const resetWizard = () => {
     savedRef.current = {};
+    setSignMode("onsite");
     setStep(1);
     setQuery("");
     setSelectedCustomer(null);
@@ -363,12 +403,31 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
               </div>
             ))}
           </div>
+          <div className="ptm-type-toggle ptm-sign-mode-toggle">
+            <button className={`ptm-type-btn ${signMode === "onsite" ? "active" : ""}`} onClick={() => setSignMode("onsite")} disabled={saving || creatingLink}>현장 서명</button>
+            <button className={`ptm-type-btn ${signMode === "link" ? "active" : ""}`} onClick={() => setSignMode("link")} disabled={saving || creatingLink}>링크 복사 (고객 휴대폰 서명)</button>
+          </div>
+
+          {signMode === "link" && (
+            <div className="ptm-sign-link-box">
+              <div className="ptm-no-product-msg" style={{ margin: 0 }}>
+                링크를 문자/카카오톡으로 보내면 고객이 자기 휴대폰에서 이 계약서를 확인하고 서명해요. 서명하는 즉시 등록이 확정되고,
+                그 전까지는 &lsquo;서명 대기&rsquo;로 남아 이용권 횟수·매출에 반영되지 않아요. 링크는 7일간 유효해요.
+              </div>
+              <button className="ptm-save-btn" onClick={createSignLink} disabled={creatingLink}>
+                {creatingLink ? "링크 만드는 중..." : <><Link2 size={15} /> 서명 링크 만들고 복사</>}
+              </button>
+            </div>
+          )}
+
+          {signMode === "onsite" && (
           <label className="ptm-contract-agree">
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} disabled={saving} />
             위 내용을 모두 확인하고 숙지하였습니다
           </label>
+          )}
 
-          {agreed && (
+          {signMode === "onsite" && agreed && (
             <>
               <div className="ptm-signature-hint">아래 영역에 서명해주세요</div>
               <div className="ptm-signature-canvas-wrap">

@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -283,4 +283,40 @@ export async function transferPass(sourceProductId: string, recipients: Transfer
   });
   if (error) throw new Error(error.message);
   return data as { totalTransferred: number };
+}
+
+// ---------- pending_sales (고객 링크 서명 대기) ----------
+function mapPendingSale(row: Record<string, unknown>): PendingSale {
+  return withEpochCreatedAt(toCamel<PendingSale>(row));
+}
+export async function listPendingSales(): Promise<PendingSale[]> {
+  const { data, error } = await supabase
+    .from("pending_sales")
+    .select("id, customer_id, new_customer, product, contract_version, token, expires_at, status, created_at")
+    .eq("status", "pending")
+    .order("created_at", { ascending: true });
+  return must(data, error).map(mapPendingSale);
+}
+// 토큰/만료일은 DB 기본값으로 생성된다(64자 랜덤, 7일).
+export async function insertPendingSale(data: Pick<PendingSale, "customerId" | "newCustomer" | "product" | "contractVersion">): Promise<PendingSale> {
+  const { data: row, error } = await supabase.from("pending_sales").insert(toSnake(data)).select().single();
+  return mapPendingSale(must(row, error));
+}
+// 대기 상태일 때만 취소된다 — 이미 고객이 서명했다면 0건이 바뀌므로 그 사실을 알려준다.
+export async function cancelPendingSale(id: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("pending_sales")
+    .update({ status: "cancelled" })
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error("이미 고객이 서명했거나 취소된 건이에요");
+}
+// 새 토큰/만료일로 바꿔 옛 링크를 즉시 무효화한다(product를 주면 판매 입력값도 교체).
+export async function reissuePendingSale(id: string, product?: PendingSale["product"]): Promise<PendingSale> {
+  const { data, error } = await supabase.rpc("reissue_pending_sale", { p_id: id, p_product: product ?? null });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapPendingSale(row as Record<string, unknown>);
 }

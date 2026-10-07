@@ -124,3 +124,21 @@ export type TransferRecipientInput = {
   amount: number;
   paymentMethod: PaymentMethod;
 };
+
+// 상품판매에서 "링크 복사"로 고객 서명을 기다리는 판매 건(pending_sales). 고객이 서명하기 전까지는
+// 이용권(products)이 만들어지지 않아 횟수/매출/통계/매출계획 어디에도 잡히지 않는다.
+export type PendingSaleStatus = "pending" | "signed" | "cancelled";
+export interface PendingSale {
+  id: string;
+  customerId: string | null; // 기존 고객 재등록이면 연결
+  newCustomer: { name: string; gender: string; phone: string; birthdate: string } | null; // 신규 고객 입력값
+  product: {
+    name: string; type: ProductType; totalSessions: number; startDate: string; endDate: string;
+    sessionDuration: number; listPrice: number; price: number; paidAmount: number; paymentMethod: PaymentMethod;
+  };
+  contractVersion: string;
+  token: string;
+  expiresAt: string;
+  status: PendingSaleStatus;
+  createdAt?: number;
+}
