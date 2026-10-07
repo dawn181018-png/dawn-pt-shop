@@ -100,18 +100,20 @@ export default function SignView({ token, initialView }: { token: string; initia
     setSaving(false);
   };
 
-  if (view.state === "invalid" || view.state === "cancelled" || view.state === "expired") {
+  if (view.state === "invalid" || view.state === "cancelled" || view.state === "expired" || view.state === "unavailable") {
     const message = {
       invalid: "유효하지 않은 링크예요.",
       cancelled: "취소된 링크예요.",
       expired: "링크 유효기간(7일)이 지났어요.",
+      unavailable: "지금은 계약서를 불러올 수 없어요.",
     }[view.state];
+    const hint = view.state === "unavailable" ? "잠시 후 링크를 다시 열어주세요." : "담당 트레이너에게 새 링크를 요청해주세요.";
     return (
       <div className="ptm-root ptm-sign-root">
         <div className="ptm-sign-card" style={{ textAlign: "center" }}>
           <div className="ptm-eyebrow">Dawn Fitness</div>
           <div className="ptm-sign-title">{message}</div>
-          <div className="ptm-sign-muted">담당 트레이너에게 새 링크를 요청해주세요.</div>
+          <div className="ptm-sign-muted">{hint}</div>
         </div>
       </div>
     );

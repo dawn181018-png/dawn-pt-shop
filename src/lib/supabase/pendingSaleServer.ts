@@ -30,7 +30,13 @@ export async function findPendingSaleByToken(token: string): Promise<PendingSale
 }
 
 export async function loadSignView(token: string): Promise<SignViewData> {
-  const row = await findPendingSaleByToken(token);
+  let row: PendingSaleRow | null;
+  try {
+    row = await findPendingSaleByToken(token);
+  } catch (err) {
+    console.error("[sign] 서명 대기 건 조회 실패:", err instanceof Error ? err.message : err);
+    return { state: "unavailable" };
+  }
   if (!row) return { state: "invalid" };
   if (row.status === "cancelled") return { state: "cancelled" };
   // 이미 서명된 건은 만료와 상관없이 영수증(결제 확인서)만 보여준다.

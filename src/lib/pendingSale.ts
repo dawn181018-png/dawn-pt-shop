@@ -39,5 +39,6 @@ export type SignViewData =
   | { state: "invalid" }
   | { state: "cancelled" }
   | { state: "expired" }
+  | { state: "unavailable" } // 일시적인 서버/DB 오류 — 링크 자체는 유효할 수 있다
   | ({ state: "pending" } & SignViewDetail)
   | ({ state: "signed" } & SignViewDetail);
