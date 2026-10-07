@@ -1426,13 +1426,15 @@ export default function PTMemberManager() {
     const monthProducts = products.filter((p) => p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(key));
     const newProducts = monthProducts.filter((p) => firstPurchaseAt[p.customerId] === p.createdAt);
     const renewProducts = monthProducts.filter((p) => firstPurchaseAt[p.customerId] !== p.createdAt);
+    // 등록 매출은 판매가가 아니라 실제로 받은(결제된) 금액 기준 — 미수금은 아직 들어온 돈이 아니므로
+    // 매출에서 빼고 regUnpaid로 따로 보여준다(매출 계획 "이번달 등록금액"과 같은 기준).
     return {
-      regRevenue: monthProducts.reduce((sum, p) => sum + Number(p.price || 0), 0),
+      regRevenue: monthProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
       regCount: monthProducts.length,
       regUnpaid: monthProducts.reduce((sum, p) => sum + getUnpaidAmount(p), 0),
-      newRevenue: newProducts.reduce((sum, p) => sum + Number(p.price || 0), 0),
+      newRevenue: newProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
       newCount: newProducts.length,
-      renewRevenue: renewProducts.reduce((sum, p) => sum + Number(p.price || 0), 0),
+      renewRevenue: renewProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
       renewCount: renewProducts.length,
     };
   };
@@ -2143,11 +2145,11 @@ export default function PTMemberManager() {
         <>
           <div className="ptm-pay-grid" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
             <div className="ptm-pay-hero" style={{ margin: 0 }}>
-              <div className="ptm-pay-hero-label">{statsCurrent.y}년 {statsCurrent.m}월 등록 매출 <span style={{ fontWeight: 400 }}>(상품 등록·결제 기준)</span></div>
+              <div className="ptm-pay-hero-label">{statsCurrent.y}년 {statsCurrent.m}월 등록 매출 <span style={{ fontWeight: 400 }}>(실제 결제 금액 기준 · 미수금 제외)</span></div>
               <div className="ptm-pay-hero-num">{statsCurrent.regRevenue.toLocaleString()}원</div>
               <div className="ptm-pay-hero-sub">
                 이번달 등록 {statsCurrent.regCount}건 (신규 {statsCurrent.newCount} · 재등록 {statsCurrent.renewCount})
-                {statsCurrent.regUnpaid > 0 && <span style={{ color: "var(--coral)" }}> · 미수금 {statsCurrent.regUnpaid.toLocaleString()}원</span>}
+                {statsCurrent.regUnpaid > 0 && <span style={{ color: "var(--coral)" }}> · 미수금 {statsCurrent.regUnpaid.toLocaleString()}원 (매출에서 제외)</span>}
               </div>
               <div className="ptm-pay-hero-sub">신규 매출 {statsCurrent.newRevenue.toLocaleString()}원 · 재등록 매출 {statsCurrent.renewRevenue.toLocaleString()}원</div>
             </div>
@@ -2158,7 +2160,7 @@ export default function PTMemberManager() {
             </div>
           </div>
           <div className="ptm-no-product-msg" style={{ marginTop: -6, marginBottom: 14 }}>
-            등록 매출은 이용권을 등록·결제한 시점 기준이고, 세션 매출은 그 레슨을 실제로 &ldquo;완료&rdquo; 처리한 시점 기준이라 서로 다를 수 있어요.
+            등록 매출은 이용권을 등록한 달에 실제로 받은 결제 금액(미수금 제외) 기준이고, 세션 매출은 그 레슨을 실제로 &ldquo;완료&rdquo; 처리한 시점 기준이라 서로 다를 수 있어요.
           </div>
 
           <div className="ptm-stats-compare">
@@ -2219,7 +2221,7 @@ export default function PTMemberManager() {
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
                   <YAxis stroke="#8a94a6" fontSize={11} width={40} />
                   <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
-                  <Bar dataKey="regRevenue" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="regRevenue" name="등록 매출(결제 기준)" radius={[4, 4, 0, 0]}>
                     {statsTrend.map((entry, idx) => <Cell key={idx} fill={idx === 11 ? "#3b6fe0" : "#1aa35a"} />)}
                   </Bar>
                 </BarChart>
@@ -2282,7 +2284,7 @@ export default function PTMemberManager() {
 
           <div className="ptm-table-wrap">
             <table className="ptm-table">
-              <thead><tr><th>월</th><th>등록 매출</th><th>신규 매출</th><th>재등록 매출</th><th>등록 건수(신규/재등록)</th><th>세션 매출</th><th>완료 레슨</th><th>노쇼</th><th>노쇼율</th></tr></thead>
+              <thead><tr><th>월</th><th>등록 매출(결제 기준)</th><th>신규 매출</th><th>재등록 매출</th><th>등록 건수(신규/재등록)</th><th>세션 매출</th><th>완료 레슨</th><th>노쇼</th><th>노쇼율</th></tr></thead>
               <tbody>
                 {[...statsTrend].reverse().map((row, idx) => (
                   <tr key={idx}>
