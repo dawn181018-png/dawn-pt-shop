@@ -7,7 +7,7 @@ import type { ProductType, ReservationStatus } from "@/lib/types";
 
 const supabase = createClient();
 
-export type ProxyDelegationInfo = { name: string; startsOn: string; endsOn: string; active: boolean; revoked: boolean };
+export type ProxyDelegationInfo = { name: string; startsOn: string; endsOn: string | null; active: boolean; revoked: boolean };
 export type ProxyCustomer = { id: string; name: string; phoneMasked: string | null };
 export type ProxyProduct = {
   id: string; customerId: string; name: string; type: ProductType;

@@ -22,11 +22,14 @@ type DelegationManagerProps = {
   flash: (msg: string, ms?: number) => void;
 };
 
+export const periodLabel = (d: Pick<LessonDelegation, "startsOn" | "endsOn">) =>
+  d.endsOn ? `${d.startsOn} ~ ${d.endsOn}` : `${d.startsOn}부터 세션 다 쓸 때까지`;
+
 export const delegationStatus = (d: LessonDelegation): { label: string; tone: "active" | "upcoming" | "ended" } => {
   if (d.revokedAt) return { label: "해제됨", tone: "ended" };
   const t = today();
   if (t < d.startsOn) return { label: "예정", tone: "upcoming" };
-  if (t > d.endsOn) return { label: "종료", tone: "ended" };
+  if (d.endsOn && t > d.endsOn) return { label: "종료", tone: "ended" };
   return { label: "진행중", tone: "active" };
 };
 
@@ -39,14 +42,14 @@ export default function DelegationManager({
   const [formOpen, setFormOpen] = useState(!!presetCustomerId);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<DelegationFormData>({
-    delegateName: "", delegateEmail: "", customerIds: presetCustomerId ? [presetCustomerId] : [], startsOn: today(), endsOn: addDays(today(), 6),
+    delegateName: "", delegateEmail: "", customerIds: presetCustomerId ? [presetCustomerId] : [], startsOn: today(), endsOn: null,
   });
   const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
 
   const openNew = (customerId?: string) => {
     setEditingId(null);
-    setForm({ delegateName: "", delegateEmail: "", customerIds: customerId ? [customerId] : [], startsOn: today(), endsOn: addDays(today(), 6) });
+    setForm({ delegateName: "", delegateEmail: "", customerIds: customerId ? [customerId] : [], startsOn: today(), endsOn: null });
     setQuery("");
     setFormOpen(true);
   };
@@ -73,7 +76,7 @@ export default function DelegationManager({
       if (!isEmailLike(form.delegateEmail)) { flash("대리 트레이너 이메일을 정확히 입력해주세요"); return; }
     }
     if (form.customerIds.length === 0) { flash("대상 고객을 1명 이상 선택해주세요"); return; }
-    if (!form.startsOn || !form.endsOn || form.endsOn < form.startsOn) { flash("기간을 확인해주세요 (종료일이 시작일보다 빠를 수 없어요)"); return; }
+    if (!form.startsOn || (form.endsOn !== null && (!form.endsOn || form.endsOn < form.startsOn))) { flash("기간을 확인해주세요 (종료일이 시작일보다 빠를 수 없어요)"); return; }
     setSaving(true);
     const ok = editingId
       ? await onUpdate(editingId, { customerIds: form.customerIds, startsOn: form.startsOn, endsOn: form.endsOn })
@@ -104,7 +107,7 @@ export default function DelegationManager({
                   <div>
                     <span className="ptm-prod-name">{d.delegateName}</span>{" "}
                     <span className={`ptm-badge ${st.tone === "active" ? "forecast" : st.tone === "ended" ? "dormant" : ""}`}>{st.label}</span>
-                    <div className="ptm-pending-sale-sub">{d.delegateEmail} · {d.startsOn} ~ {d.endsOn}</div>
+                    <div className="ptm-pending-sale-sub">{d.delegateEmail} · {periodLabel(d)}</div>
                   </div>
                   <div className="ptm-actions">
                     {usable && <button className="ptm-icon-btn" title="로그인 링크 복사" onClick={() => onCopyLoginLink(d)}><Link2 size={14} /></button>}
@@ -134,13 +137,25 @@ export default function DelegationManager({
                 <input type="email" value={form.delegateEmail} disabled={!!editingId} onChange={(e) => setForm({ ...form, delegateEmail: e.target.value })} placeholder="coach@example.com" />
               </div>
             </div>
+            <div className="ptm-field"><label>대리 기간</label>
+              <div className="ptm-type-toggle">
+                <button className={`ptm-type-btn ${form.endsOn === null ? "active" : ""}`} onClick={() => setForm({ ...form, endsOn: null })}>세션 다 쓸 때까지</button>
+                <button className={`ptm-type-btn ${form.endsOn !== null ? "active" : ""}`} onClick={() => setForm({ ...form, endsOn: form.endsOn ?? addDays(form.startsOn || today(), 6) })}>종료일 지정</button>
+              </div>
+            </div>
             <div className="ptm-row2">
               <div className="ptm-field"><label>시작일</label>
                 <input type="date" value={form.startsOn} onChange={(e) => setForm({ ...form, startsOn: e.target.value })} />
               </div>
-              <div className="ptm-field"><label>종료일 (이날까지 가능)</label>
-                <input type="date" value={form.endsOn} onChange={(e) => setForm({ ...form, endsOn: e.target.value })} />
-              </div>
+              {form.endsOn !== null ? (
+                <div className="ptm-field"><label>종료일 (이날까지 가능)</label>
+                  <input type="date" value={form.endsOn} onChange={(e) => setForm({ ...form, endsOn: e.target.value })} />
+                </div>
+              ) : (
+                <div className="ptm-field"><label>종료</label>
+                  <div className="ptm-no-product-msg" style={{ margin: "6px 0 0" }}>고객별로 잔여 세션을 다 쓰면 자동으로 끝나요</div>
+                </div>
+              )}
             </div>
             <div className="ptm-field"><label>대상 고객 ({form.customerIds.length}명 선택)</label>
               {form.customerIds.length > 0 && (

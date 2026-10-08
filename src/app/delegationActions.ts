@@ -40,7 +40,7 @@ export async function createDelegateLoginLink(delegationId: string): Promise<{ o
       .maybeSingle();
     if (!d) return { ok: false, error: "대리 지정 건을 찾을 수 없어요" };
     if (d.revoked_at) return { ok: false, error: "해제된 대리 지정이에요" };
-    if (String(d.ends_on) < toLocalDateStr(new Date())) return { ok: false, error: "기간이 끝난 대리 지정이에요. 기간을 먼저 바꿔주세요" };
+    if (d.ends_on && String(d.ends_on) < toLocalDateStr(new Date())) return { ok: false, error: "기간이 끝난 대리 지정이에요. 기간을 먼저 바꿔주세요" };
 
     const email = String(d.delegate_email || "").trim().toLowerCase();
     if (!email) return { ok: false, error: "대리 트레이너 이메일이 없어요" };

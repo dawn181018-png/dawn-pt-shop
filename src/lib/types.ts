@@ -152,7 +152,7 @@ export interface LessonDelegation {
   delegateEmail: string;
   customerIds: string[];
   startsOn: string; // YYYY-MM-DD (한국 날짜)
-  endsOn: string;
+  endsOn: string | null; // null이면 날짜 제한 없이 "그 고객의 세션을 다 쓸 때까지"
   revokedAt: string | null;
   delegateUserId: string | null; // 로그인 링크를 만들 때 연결되는 대리 계정
   createdAt?: number;
