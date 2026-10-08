@@ -37,8 +37,8 @@ export async function updateSession(request: NextRequest) {
   // /api/cron/*은 Vercel Cron이 쿠키 세션 없이 호출하므로 여기서 로그인 리다이렉트 대상에서 제외하고,
   // 대신 각 라우트 안에서 CRON_SECRET 헤더를 직접 검증한다.
   // /mypage/login은 회원용 매직링크 로그인 페이지라 트레이너용 /login과 별도로 공개 경로에 둔다.
-  // /auth/confirm은 대리 레슨 "로그인 링크"(1회용 token_hash)를 여는 경로라 로그인 전에도 열려야 한다.
-  const publicPaths = ["/login", "/forgot-password", "/reset-password", "/auth/callback", "/auth/confirm", "/api/cron/", "/mypage/login"];
+  // /delegate-login은 대리 레슨 "로그인 링크"(1회용 token_hash)를 여는 화면이라 로그인 전에도 열려야 한다.
+  const publicPaths = ["/login", "/forgot-password", "/reset-password", "/auth/callback", "/delegate-login", "/api/cron/", "/mypage/login"];
   const guestOnlyPaths = ["/login", "/forgot-password"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
   const isGuestOnly = guestOnlyPaths.some((p) => pathname.startsWith(p));

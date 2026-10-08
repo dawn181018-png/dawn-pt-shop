@@ -71,7 +71,7 @@ export async function createDelegateLoginLink(delegationId: string): Promise<{ o
     if (linkError || !link.properties?.hashed_token) return { ok: false, error: "로그인 링크를 만들지 못했어요. 잠시 후 다시 시도해주세요" };
 
     const origin = (await headers()).get("origin") ?? "";
-    const url = `${origin}/auth/confirm?token_hash=${encodeURIComponent(link.properties.hashed_token)}&type=magiclink&next=/proxy`;
+    const url = `${origin}/delegate-login?token_hash=${encodeURIComponent(link.properties.hashed_token)}`;
     return { ok: true, url };
   } catch (err) {
     console.error("[delegation] 로그인 링크 생성 실패:", err instanceof Error ? err.message : err);
