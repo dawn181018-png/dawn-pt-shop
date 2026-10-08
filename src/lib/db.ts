@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -319,4 +319,31 @@ export async function reissuePendingSale(id: string, product?: PendingSale["prod
   if (error) throw new Error(error.message);
   const row = Array.isArray(data) ? data[0] : data;
   return mapPendingSale(row as Record<string, unknown>);
+}
+
+// ---------- lesson_delegations (대리 레슨 지정) ----------
+function mapDelegation(row: Record<string, unknown>): LessonDelegation {
+  return withEpochCreatedAt(toCamel<LessonDelegation>(row));
+}
+export async function listDelegations(): Promise<LessonDelegation[]> {
+  const { data, error } = await supabase.from("lesson_delegations").select("*").order("created_at", { ascending: false });
+  return must(data, error).map(mapDelegation);
+}
+export async function insertDelegation(data: Pick<LessonDelegation, "delegateName" | "delegateEmail" | "customerIds" | "startsOn" | "endsOn">): Promise<LessonDelegation> {
+  const { data: row, error } = await supabase.from("lesson_delegations").insert(toSnake(data)).select().single();
+  return mapDelegation(must(row, error));
+}
+export async function updateDelegation(id: string, data: Pick<LessonDelegation, "customerIds" | "startsOn" | "endsOn">): Promise<LessonDelegation> {
+  const { data: row, error } = await supabase.from("lesson_delegations").update(toSnake(data)).eq("id", id).select().single();
+  return mapDelegation(must(row, error));
+}
+// 즉시 해제: revoked_at이 찍히는 순간부터 DB의 proxy_* 함수가 이 지정을 더 이상 인정하지 않는다.
+export async function revokeDelegation(id: string): Promise<LessonDelegation> {
+  const { data: row, error } = await supabase
+    .from("lesson_delegations")
+    .update({ revoked_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+  return mapDelegation(must(row, error));
 }

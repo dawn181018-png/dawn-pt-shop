@@ -342,6 +342,9 @@
 .ptm-pending-sale-sub { font-size:12.5px; color:var(--ink-dim); margin-top:3px; }
 .ptm-sign-link-input { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:8px; font-size:12.5px; background:var(--panel-2); color:var(--ink); margin:4px 0 0; }
 
+/* ---- 대리 레슨 지정: 대상 고객 고르기 목록 ---- */
+.ptm-delegation-pick { max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:4px 10px; background:var(--panel-2); }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }

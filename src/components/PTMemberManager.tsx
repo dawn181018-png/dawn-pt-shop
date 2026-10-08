@@ -7,13 +7,15 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft, CircleX, Forward, Undo2,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft, CircleX, Forward, Undo2, UserCog,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
 import SignatureModal from "./SignatureModal";
 import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
 import PendingSalesPanel from "./PendingSalesPanel";
+import DelegationManager, { type DelegationFormData } from "./DelegationManager";
+import { createDelegateLoginLink } from "@/app/delegationActions";
 import { signLinkUrl } from "@/lib/pendingSale";
 import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
@@ -21,7 +23,7 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -731,7 +733,7 @@ export default function PTMemberManager() {
   // (이 목록을 못 불러와도 앱의 다른 화면에는 영향이 없도록 실패는 조용히 넘긴다.)
   const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
   const [salePrefill, setSalePrefill] = useState<{ key: number; prefill: SalePrefill } | null>(null);
-  const [linkSheet, setLinkSheet] = useState<{ url: string; title: string; copied: boolean } | null>(null);
+  const [linkSheet, setLinkSheet] = useState<{ url: string; title: string; copied: boolean; note?: string } | null>(null);
   const pendingIdsRef = useRef<Set<string>>(new Set());
   // 목록에서 빠진 건(고객이 서명했거나 다른 기기에서 취소)이 있으면, 서명으로 새 고객/이용권이 생겼을 수
   // 있으니 고객·이용권을 다시 불러와 화면에 반영한다.
@@ -840,6 +842,57 @@ export default function PTMemberManager() {
       onRefresh={refreshPendingSales}
     />
   );
+
+  // ---- 대리 레슨 지정 (관리자) ----
+  // 기존 데이터 불러오기와 분리 — 이 목록을 못 불러와도(예: DB 함수 설치 전) 다른 화면엔 영향이 없다.
+  const [delegations, setDelegations] = useState<LessonDelegation[]>([]);
+  const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
+  useEffect(() => {
+    if (!loaded) return;
+    db.listDelegations().then(setDelegations).catch(() => {});
+  }, [loaded]);
+  const createDelegation = async (data: DelegationFormData): Promise<boolean> => {
+    try {
+      const created = await db.insertDelegation(data);
+      setDelegations((cur) => [created, ...cur]);
+      flash("대리 레슨이 지정됐어요 · 로그인 링크를 복사해 보내주세요", 3500);
+      return true;
+    } catch { flash("저장 실패, 다시 시도해주세요"); return false; }
+  };
+  const updateDelegationScope = async (id: string, data: Pick<LessonDelegation, "customerIds" | "startsOn" | "endsOn">): Promise<boolean> => {
+    try {
+      const updated = await db.updateDelegation(id, data);
+      setDelegations((cur) => cur.map((d) => (d.id === id ? updated : d)));
+      flash("대리 레슨 지정이 변경됐어요");
+      return true;
+    } catch { flash("저장 실패, 다시 시도해주세요"); return false; }
+  };
+  const revokeDelegationNow = (d: LessonDelegation) => askConfirm(
+    `${d.delegateName} 트레이너의 대리 레슨 권한을 지금 해제할까요? 해제하는 즉시 대리 화면에서 고객 정보와 예약을 볼 수 없게 돼요.`,
+    async () => {
+      try {
+        const updated = await db.revokeDelegation(d.id);
+        setDelegations((cur) => cur.map((x) => (x.id === d.id ? updated : x)));
+        flash("대리 레슨 권한을 해제했어요");
+      } catch { flash("처리 실패, 다시 시도해주세요"); }
+    },
+    "즉시 해제",
+  );
+  const copyDelegateLoginLink = async (d: LessonDelegation) => {
+    const result = await createDelegateLoginLink(d.id);
+    if (!result.ok) { flash(result.error, 5000); return; }
+    let copied = false;
+    try { await navigator.clipboard.writeText(result.url); copied = true; } catch { /* 아래 창의 복사 버튼으로 */ }
+    setLinkSheet({
+      url: result.url, title: `${d.delegateName} 트레이너 로그인 링크`, copied,
+      note: "카카오톡 등으로 대리 트레이너에게 보내주세요. 이 링크는 1시간 안에 한 번만 열 수 있어요(다시 필요하면 새로 복사).",
+    });
+  };
+  const openDelegationFor = (customerId: string) => {
+    setDelegationPreset({ key: Date.now(), customerId });
+    setCustomerDetailId(null);
+    setView("delegation");
+  };
 
   const refetchAfterTransfer = async () => {
     try {
@@ -1632,6 +1685,7 @@ export default function PTMemberManager() {
         <button className={`ptm-tab ${view === "stats" ? "active" : ""}`} onClick={() => setView("stats")}><TrendingUp size={15} /> 통계분석</button>
         <button className={`ptm-tab ${view === "sale" ? "active" : ""}`} onClick={() => setView("sale")}><ShoppingBag size={15} /> 상품판매</button>
         <button className={`ptm-tab ${view === "payroll" ? "active" : ""}`} onClick={() => setView("payroll")}><Wallet size={15} /> 페이롤</button>
+        <button className={`ptm-tab ${view === "delegation" ? "active" : ""}`} onClick={() => setView("delegation")}><UserCog size={15} /> 대리 레슨</button>
       </div>
 
       {view === "schedule" && (
@@ -1734,7 +1788,7 @@ export default function PTMemberManager() {
                             )}
                             <div className="ptm-block-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))}</div>
                             <div className="ptm-block-name">{r.customerName}</div>
-                            <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}</div>
+                            <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}{r.delegateName ? ` · 대리 ${r.delegateName}` : ""}</div>
                           </div>
                         );
                       })}
@@ -2332,12 +2386,26 @@ export default function PTMemberManager() {
               <button className="ptm-icon-btn" onClick={() => setLinkSheet(null)}><X size={16} /></button>
             </div>
             <div className="ptm-no-product-msg" style={{ marginTop: -6 }}>
-              {linkSheet.copied ? "링크가 복사됐어요. " : ""}문자나 카카오톡에 붙여넣어 고객에게 보내주세요. 7일간 유효해요.
+              {linkSheet.copied ? "링크가 복사됐어요. " : ""}{linkSheet.note ?? "문자나 카카오톡에 붙여넣어 고객에게 보내주세요. 7일간 유효해요."}
             </div>
             <input className="ptm-sign-link-input" readOnly value={linkSheet.url} onFocus={(e) => e.target.select()} />
             <button className="ptm-save-btn" onClick={copyLinkSheetUrl}>{linkSheet.copied ? "다시 복사" : "링크 복사"}</button>
           </div>
         </div>
+      )}
+
+      {view === "delegation" && (
+        <DelegationManager
+          key={delegationPreset?.key ?? "list"}
+          delegations={delegations}
+          customers={customers}
+          presetCustomerId={delegationPreset?.customerId ?? null}
+          onCreate={async (data) => { const ok = await createDelegation(data); if (ok) setDelegationPreset(null); return ok; }}
+          onUpdate={updateDelegationScope}
+          onRevoke={revokeDelegationNow}
+          onCopyLoginLink={copyDelegateLoginLink}
+          flash={flash}
+        />
       )}
 
       {view === "payroll" && (
@@ -2423,6 +2491,7 @@ export default function PTMemberManager() {
               <div className="ptm-sheet-head">
                 <span className="ptm-sheet-title">{cust.name}{cust.phone ? ` · ${cust.phone}` : ""}</span>
                 <div className="ptm-actions">
+                  <button className="ptm-icon-btn" title="대리 레슨 지정" onClick={() => openDelegationFor(cust.id)}><UserCog size={14} /></button>
                   <button className="ptm-icon-btn" onClick={() => openEditCustomer(cust)}><Pencil size={14} /></button>
                   <button className="ptm-icon-btn" onClick={() => setCustomerDetailId(null)}><X size={16} /></button>
                 </div>

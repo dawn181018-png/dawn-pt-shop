@@ -48,6 +48,8 @@ export interface Reservation {
   type: ReservationType;
   signatureUrl?: string | null; // Storage 내 서명 이미지 경로 (signed URL이 아니라 경로를 저장)
   workoutNote?: string | null; // 출석 서명 직전에 남긴 "오늘 운동 내용" 메모
+  delegationId?: string | null; // 대리 트레이너가 예약/처리한 경우 그 대리 지정 id
+  delegateName?: string | null; // 대리로 진행한 트레이너 이름(기록용)
 }
 
 export type CatalogCategory = "daily_pt" | "premium" | "membership" | "locker";
@@ -140,5 +142,18 @@ export interface PendingSale {
   token: string;
   expiresAt: string;
   status: PendingSaleStatus;
+  createdAt?: number;
+}
+
+// 대리 레슨 지정: 다른 트레이너가 기간 동안 지정 고객의 레슨만 대신 진행할 수 있게 한다.
+export interface LessonDelegation {
+  id: string;
+  delegateName: string;
+  delegateEmail: string;
+  customerIds: string[];
+  startsOn: string; // YYYY-MM-DD (한국 날짜)
+  endsOn: string;
+  revokedAt: string | null;
+  delegateUserId: string | null; // 로그인 링크를 만들 때 연결되는 대리 계정
   createdAt?: number;
 }
