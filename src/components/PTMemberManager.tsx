@@ -889,7 +889,8 @@ export default function PTMemberManager() {
     });
   };
   const openDelegationFor = (customerId: string) => {
-    setDelegationPreset({ key: Date.now(), customerId });
+    // key가 바뀌어야 지정 폼이 그 고객이 선택된 채로 새로 열린다.
+    setDelegationPreset((prev) => ({ key: (prev?.key ?? 0) + 1, customerId }));
     setCustomerDetailId(null);
     setView("delegation");
   };
