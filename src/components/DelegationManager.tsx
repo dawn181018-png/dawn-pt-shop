@@ -16,7 +16,7 @@ type DelegationManagerProps = {
   // (부모가 key를 바꿔 이 컴포넌트를 새로 그린다).
   presetCustomerId: string | null;
   onCreate: (data: DelegationFormData) => Promise<boolean>;
-  onUpdate: (id: string, data: Pick<LessonDelegation, "customerIds" | "startsOn" | "endsOn">) => Promise<boolean>;
+  onUpdate: (id: string, data: DelegationFormData) => Promise<boolean>;
   onRevoke: (d: LessonDelegation) => void;
   onCopyLoginLink: (d: LessonDelegation) => void;
   flash: (msg: string, ms?: number) => void;
@@ -71,16 +71,13 @@ export default function DelegationManager({
 
   const save = async () => {
     if (saving) return;
-    if (!editingId) {
-      if (!form.delegateName.trim()) { flash("대리 트레이너 이름을 입력해주세요"); return; }
-      if (!isEmailLike(form.delegateEmail)) { flash("대리 트레이너 이메일을 정확히 입력해주세요"); return; }
-    }
+    if (!form.delegateName.trim()) { flash("대리 트레이너 이름을 입력해주세요"); return; }
+    if (!isEmailLike(form.delegateEmail)) { flash("대리 트레이너 이메일을 정확히 입력해주세요"); return; }
     if (form.customerIds.length === 0) { flash("대상 고객을 1명 이상 선택해주세요"); return; }
     if (!form.startsOn || (form.endsOn !== null && (!form.endsOn || form.endsOn < form.startsOn))) { flash("기간을 확인해주세요 (종료일이 시작일보다 빠를 수 없어요)"); return; }
     setSaving(true);
-    const ok = editingId
-      ? await onUpdate(editingId, { customerIds: form.customerIds, startsOn: form.startsOn, endsOn: form.endsOn })
-      : await onCreate({ ...form, delegateName: form.delegateName.trim(), delegateEmail: form.delegateEmail.trim().toLowerCase() });
+    const cleaned = { ...form, delegateName: form.delegateName.trim(), delegateEmail: form.delegateEmail.trim().toLowerCase() };
+    const ok = editingId ? await onUpdate(editingId, cleaned) : await onCreate(cleaned);
     setSaving(false);
     if (ok) setFormOpen(false);
   };
@@ -129,12 +126,17 @@ export default function DelegationManager({
               <span className="ptm-sheet-title">{editingId ? "대리 레슨 지정 변경" : "대리 레슨 지정"}</span>
               <button className="ptm-icon-btn" onClick={() => setFormOpen(false)} disabled={saving}><X size={16} /></button>
             </div>
+            {editingId && delegations.find((d) => d.id === editingId)?.delegateEmail !== form.delegateEmail.trim().toLowerCase() && (
+              <div className="ptm-unpaid-note">
+                이메일을 바꾸면 예전 이메일로 로그인한 휴대폰은 바로 접근이 끊겨요. 저장 후 &lsquo;로그인 링크 복사&rsquo;로 새 링크를 보내주세요.
+              </div>
+            )}
             <div className="ptm-row2">
               <div className="ptm-field"><label>대리 트레이너 이름</label>
-                <input value={form.delegateName} disabled={!!editingId} onChange={(e) => setForm({ ...form, delegateName: e.target.value })} placeholder="예: 김코치" />
+                <input value={form.delegateName} onChange={(e) => setForm({ ...form, delegateName: e.target.value })} placeholder="예: 김코치" />
               </div>
               <div className="ptm-field"><label>이메일 (로그인용)</label>
-                <input type="email" value={form.delegateEmail} disabled={!!editingId} onChange={(e) => setForm({ ...form, delegateEmail: e.target.value })} placeholder="coach@example.com" />
+                <input type="email" value={form.delegateEmail} onChange={(e) => setForm({ ...form, delegateEmail: e.target.value })} placeholder="coach@example.com" />
               </div>
             </div>
             <div className="ptm-field"><label>대리 기간</label>

@@ -333,8 +333,15 @@ export async function insertDelegation(data: Pick<LessonDelegation, "delegateNam
   const { data: row, error } = await supabase.from("lesson_delegations").insert(toSnake(data)).select().single();
   return mapDelegation(must(row, error));
 }
-export async function updateDelegation(id: string, data: Pick<LessonDelegation, "customerIds" | "startsOn" | "endsOn">): Promise<LessonDelegation> {
-  const { data: row, error } = await supabase.from("lesson_delegations").update(toSnake(data)).eq("id", id).select().single();
+// 이메일이 바뀌면 예전 이메일로 연결돼 있던 대리 계정 연결(delegate_user_id)을 끊는다 — 그 순간부터 예전 계정은
+// proxy_* 함수에서 이 지정을 쓸 수 없고, 새 이메일로 "로그인 링크 복사"를 다시 해야 새 계정이 연결된다.
+export async function updateDelegation(
+  id: string,
+  data: Pick<LessonDelegation, "delegateName" | "delegateEmail" | "customerIds" | "startsOn" | "endsOn">,
+  emailChanged: boolean,
+): Promise<LessonDelegation> {
+  const payload = emailChanged ? { ...toSnake(data), delegate_user_id: null } : toSnake(data);
+  const { data: row, error } = await supabase.from("lesson_delegations").update(payload).eq("id", id).select().single();
   return mapDelegation(must(row, error));
 }
 // 즉시 해제: revoked_at이 찍히는 순간부터 DB의 proxy_* 함수가 이 지정을 더 이상 인정하지 않는다.

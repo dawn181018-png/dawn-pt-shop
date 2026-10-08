@@ -859,11 +859,13 @@ export default function PTMemberManager() {
       return true;
     } catch { flash("저장 실패, 다시 시도해주세요"); return false; }
   };
-  const updateDelegationScope = async (id: string, data: Pick<LessonDelegation, "customerIds" | "startsOn" | "endsOn">): Promise<boolean> => {
+  const updateDelegationScope = async (id: string, data: DelegationFormData): Promise<boolean> => {
     try {
-      const updated = await db.updateDelegation(id, data);
+      const before = delegations.find((d) => d.id === id);
+      const emailChanged = !!before && before.delegateEmail.toLowerCase() !== data.delegateEmail.toLowerCase();
+      const updated = await db.updateDelegation(id, data, emailChanged);
       setDelegations((cur) => cur.map((d) => (d.id === id ? updated : d)));
-      flash("대리 레슨 지정이 변경됐어요");
+      flash(emailChanged ? "변경됐어요 · 새 이메일로 로그인 링크를 다시 복사해 보내주세요" : "대리 레슨 지정이 변경됐어요", emailChanged ? 4500 : 1800);
       return true;
     } catch { flash("저장 실패, 다시 시도해주세요"); return false; }
   };
