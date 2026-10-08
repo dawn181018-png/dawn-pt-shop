@@ -385,6 +385,26 @@
 .ptm-px-log { padding:8px 0; border-bottom:1px solid var(--line); }
 .ptm-px-textarea { width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 12px; font-size:15px; font-family:inherit; margin-bottom:6px; }
 
+/* 대리 레슨: 하루/달력 전환과 월 달력 */
+.ptm-px-mode { margin-bottom:10px; }
+.ptm-px-cal { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:12px; }
+.ptm-px-cal .ptm-px-daybar { border:none; padding:0; }
+.ptm-px-cal-grid { display:grid; grid-template-columns:repeat(7, 1fr); gap:4px; }
+.ptm-px-cal-head { text-align:center; font-size:11.5px; color:var(--ink-dim); padding:4px 0; }
+.ptm-px-cal-head.weekend, .ptm-px-cal-cell.weekend .ptm-px-cal-num { color:#d9822b; }
+.ptm-px-cal-cell { min-height:54px; display:flex; flex-direction:column; align-items:center; gap:2px; padding:5px 0 4px; border-radius:8px; border:1px solid transparent; background:var(--panel-2); cursor:pointer; font:inherit; color:var(--ink); }
+.ptm-px-cal-cell.other { opacity:0.4; }
+.ptm-px-cal-cell.today { border-color:var(--amber); }
+.ptm-px-cal-cell.selected { background:rgba(59,111,224,0.12); }
+.ptm-px-cal-num { font-size:13px; font-weight:600; }
+.ptm-px-cal-dot { min-width:20px; padding:0 5px; border-radius:999px; font-size:11px; font-weight:700; color:#fff; line-height:17px; }
+.ptm-px-cal-dot.scheduled { background:var(--amber); }
+.ptm-px-cal-dot.done { background:var(--purple); }
+.ptm-px-cal-legend { display:flex; flex-wrap:wrap; gap:10px; font-size:11.5px; color:var(--ink-dim); margin-top:8px; }
+.ptm-px-cal-legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:3px; vertical-align:middle; }
+.ptm-px-cal-legend i.scheduled { background:var(--amber); }
+.ptm-px-cal-legend i.done { background:var(--purple); }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }

@@ -25,6 +25,18 @@ const hourOptions = Array.from({ length: 17 }, (_, i) => String(6 + i).padStart(
 const minuteOptions = ["00", "10", "20", "30", "40", "50"];
 const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
 
+// 달력: 그 달 1일이 속한 주의 월요일부터 6주(42칸)를 그린다.
+const monthGridDates = (ym: string): string[] => {
+  const first = `${ym}-01`;
+  const dow = new Date(`${first}T00:00:00`).getDay();
+  const start = addDays(first, dow === 0 ? -6 : 1 - dow);
+  return Array.from({ length: 42 }, (_, i) => addDays(start, i));
+};
+const shiftYm = (ym: string, delta: number): string => {
+  const total = Number(ym.slice(0, 4)) * 12 + (Number(ym.slice(5, 7)) - 1) + delta;
+  return `${Math.floor(total / 12)}-${String((total % 12) + 1).padStart(2, "0")}`;
+};
+
 const remainingOf = (p: ProxyProduct) => p.totalSessions - p.usedSessions;
 const isDepleted = (p: ProxyProduct, todayStr: string) =>
   p.type === "session" ? remainingOf(p) <= 0 : !!p.endDate && p.endDate < todayStr;
@@ -37,6 +49,8 @@ export default function ProxyLessonView() {
   const [ctx, setCtx] = useState<ProxyContext | null>(null);
   const [loadError, setLoadError] = useState("");
   const [day, setDay] = useState(today());
+  const [mode, setMode] = useState<"day" | "month">("day");
+  const [month, setMonth] = useState(today().slice(0, 7));
   const [working, setWorking] = useState(false);
   const [toast, setToast] = useState<{ msg: string; seq: number } | null>(null);
   const [detailCustomerId, setDetailCustomerId] = useState<string | null>(null);
@@ -203,6 +217,53 @@ export default function ProxyLessonView() {
         ))}
       </div>
 
+      <div className="ptm-type-toggle ptm-px-mode">
+        <button className={`ptm-type-btn ${mode === "day" ? "active" : ""}`} onClick={() => setMode("day")}>하루</button>
+        <button className={`ptm-type-btn ${mode === "month" ? "active" : ""}`} onClick={() => { setMonth(day.slice(0, 7)); setMode("month"); }}>달력</button>
+      </div>
+
+      {mode === "month" && (() => {
+        const cells = monthGridDates(month);
+        return (
+          <div className="ptm-px-cal">
+            <div className="ptm-px-daybar" style={{ marginBottom: 8 }}>
+              <button className="ptm-nav-btn" onClick={() => setMonth(shiftYm(month, -1))}><ChevronLeft size={18} /></button>
+              <div className="ptm-px-day">{Number(month.slice(0, 4))}년 {Number(month.slice(5, 7))}월</div>
+              <button className="ptm-nav-btn" onClick={() => setMonth(shiftYm(month, 1))}><ChevronRight size={18} /></button>
+            </div>
+            <div className="ptm-px-cal-grid">
+              {["월", "화", "수", "목", "금", "토", "일"].map((w, i) => (
+                <div key={w} className={`ptm-px-cal-head${i >= 5 ? " weekend" : ""}`}>{w}</div>
+              ))}
+              {cells.map((d, i) => {
+                const lessons = reservations.filter((r) => r.date === d && r.status !== "cancelled");
+                const scheduled = lessons.filter((r) => r.status === "scheduled").length;
+                const finished = lessons.length - scheduled;
+                const classes = [
+                  "ptm-px-cal-cell",
+                  d.slice(0, 7) !== month ? "other" : "",
+                  d === todayStr ? "today" : "",
+                  d === day ? "selected" : "",
+                  i % 7 >= 5 ? "weekend" : "",
+                ].filter(Boolean).join(" ");
+                return (
+                  <button key={d} className={classes} onClick={() => { setDay(d); setMode("day"); }}>
+                    <span className="ptm-px-cal-num">{Number(d.slice(8, 10))}</span>
+                    {scheduled > 0 && <span className="ptm-px-cal-dot scheduled">{scheduled}</span>}
+                    {finished > 0 && <span className="ptm-px-cal-dot done">{finished}</span>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="ptm-px-cal-legend">
+              <span><i className="scheduled" /> 예약</span><span><i className="done" /> 완료·노쇼</span>
+              <span>날짜를 누르면 그날 레슨으로 이동해요</span>
+            </div>
+          </div>
+        );
+      })()}
+
+      {mode === "day" && (<>
       {/* 날짜 이동 */}
       <div className="ptm-px-daybar">
         <button className="ptm-nav-btn" onClick={() => setDay(addDays(day, -1))}><ChevronLeft size={18} /></button>
@@ -222,6 +283,7 @@ export default function ProxyLessonView() {
           {dayBusy.map((b, i) => <span key={i} className="ptm-px-busy-chip">{timeRange(b.time, b.duration)}</span>)}
         </div>
       )}
+      </>)}
 
       <div className="ptm-px-bottom">
         <button className="ptm-save-btn" onClick={openBooking}><Plus size={17} /> 예약 추가</button>
