@@ -345,6 +345,13 @@
 /* ---- 대리 레슨 지정: 대상 고객 고르기 목록 ---- */
 .ptm-delegation-pick { max-height:220px; overflow-y:auto; border:1px solid var(--line); border-radius:8px; padding:4px 10px; background:var(--panel-2); }
 
+/* ---- 대리 레슨 화면 (/proxy) ---- */
+.ptm-proxy-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.ptm-proxy-head form .ptm-res-btn { display:inline-flex; align-items:center; gap:4px; }
+.ptm-block.ptm-proxy-busy { background:rgba(154,163,176,0.22); border-color:var(--line); cursor:default; }
+.ptm-block.ptm-proxy-busy .ptm-block-name { color:var(--ink-dim); font-weight:500; font-size:11px; }
+.ptm-proxy-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
