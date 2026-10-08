@@ -26,14 +26,22 @@ export default function SignatureModal({
     padRef.current = pad;
     pad.addEventListener("endStroke", () => setIsEmpty(pad.isEmpty()));
 
+    // 휴대폰에서는 스크롤하거나 화면을 누를 때 주소창이 나타났다 사라지면서 "resize"가 계속 오는데, 그때마다
+    // 캔버스를 초기화하면 방금 그은 서명이 지워져 "서명이 안 먹히는" 것처럼 보인다. 캔버스 폭이 실제로 바뀐
+    // 경우(화면 회전 등)에만 다시 맞추고, 이미 그린 서명은 그대로 복원한다. (고객 링크 서명 화면과 같은 처리)
+    let lastWidth = -1;
     const resize = () => {
-      const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const rect = canvas.getBoundingClientRect();
+      if (Math.round(rect.width) === lastWidth) return;
+      lastWidth = Math.round(rect.width);
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const strokes = pad.toData();
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
       canvas.getContext("2d")?.scale(ratio, ratio);
       pad.clear();
-      setIsEmpty(true);
+      if (strokes.length > 0) pad.fromData(strokes);
+      setIsEmpty(pad.isEmpty());
     };
     resize();
     window.addEventListener("resize", resize);

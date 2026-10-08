@@ -363,7 +363,7 @@
 .ptm-sign-row > :last-child { text-align:right; }
 .ptm-sign-contract { max-height:50vh; }
 /* 휴대폰에서 서명 중 길게 누르기 메뉴/글자 선택/확대가 끼어들어 획이 끊기지 않게 */
-.ptm-sign-root .ptm-signature-canvas-wrap { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+.ptm-signature-canvas-wrap { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
 .ptm-sign-done-icon { width:44px; height:44px; border-radius:50%; background:var(--teal); color:#fff; display:flex; align-items:center; justify-content:center; margin:0 auto 8px; }
 .ptm-sign-receipt-head { padding-bottom:4px; }
 .ptm-sign-receipt .ptm-save-btn { display:flex; align-items:center; justify-content:center; gap:6px; }
