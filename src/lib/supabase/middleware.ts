@@ -37,7 +37,8 @@ export async function updateSession(request: NextRequest) {
   // /api/cron/*은 Vercel Cron이 쿠키 세션 없이 호출하므로 여기서 로그인 리다이렉트 대상에서 제외하고,
   // 대신 각 라우트 안에서 CRON_SECRET 헤더를 직접 검증한다.
   // /mypage/login은 회원용 매직링크 로그인 페이지라 트레이너용 /login과 별도로 공개 경로에 둔다.
-  const publicPaths = ["/login", "/forgot-password", "/reset-password", "/auth/callback", "/api/cron/", "/mypage/login"];
+  // /auth/confirm은 대리 레슨 "로그인 링크"(1회용 token_hash)를 여는 경로라 로그인 전에도 열려야 한다.
+  const publicPaths = ["/login", "/forgot-password", "/reset-password", "/auth/callback", "/auth/confirm", "/api/cron/", "/mypage/login"];
   const guestOnlyPaths = ["/login", "/forgot-password"];
   const isPublic = publicPaths.some((p) => pathname.startsWith(p));
   const isGuestOnly = guestOnlyPaths.some((p) => pathname.startsWith(p));
@@ -61,6 +62,23 @@ export async function updateSession(request: NextRequest) {
   // 취급한다 — 기존 트레이너 로그인 동작을 절대 바꾸지 않기 위한 안전한 기본값이다.
   if (user) {
     const isMember = user.app_metadata?.role === "member";
+    const isDelegate = user.app_metadata?.role === "delegate";
+    const isProxyPath = pathname.startsWith("/proxy");
+
+    // 대리 레슨 트레이너(role === "delegate")는 /proxy(대리 레슨 전용 화면) 밖으로 나갈 수 없다 —
+    // 주소창에 관리자 경로(/ 등)나 마이페이지를 직접 입력해도 /proxy로 되돌린다. (/auth/*는 새 로그인 링크용)
+    // 화면 이동만 막는 게 아니라, 데이터 자체도 DB에서 지정 고객/기간으로 제한된다(proxy_* 함수).
+    if (isDelegate && !isProxyPath && !pathname.startsWith("/auth/")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/proxy";
+      url.search = "";
+      return NextResponse.redirect(url);
+    }
+    if (!isDelegate && isProxyPath) {
+      const url = request.nextUrl.clone();
+      url.pathname = isMember ? "/mypage" : "/";
+      return NextResponse.redirect(url);
+    }
 
     // 회원이 마이페이지 밖(관리자 라우트 포함)으로 나가려 하거나, 이미 로그인된 채 회원 로그인
     // 화면으로 다시 들어오면 항상 /mypage로 보낸다. 이게 회원 <-> 관리자 라우트 분리의 핵심.
@@ -71,7 +89,7 @@ export async function updateSession(request: NextRequest) {
     }
 
     // 트레이너 계정이 마이페이지 라우트로 들어오면 관리자 홈으로 되돌린다.
-    if (!isMember && isMypagePath && !isMypageLogin) {
+    if (!isMember && !isDelegate && isMypagePath && !isMypageLogin) {
       const url = request.nextUrl.clone();
       url.pathname = "/";
       return NextResponse.redirect(url);
