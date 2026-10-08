@@ -124,14 +124,21 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
     const pad = new SignaturePad(canvas, { backgroundColor: "rgb(255,255,255)" });
     padRef.current = pad;
     pad.addEventListener("endStroke", () => setIsSignatureEmpty(pad.isEmpty()));
+    // 휴대폰 주소창이 나타났다 사라질 때 오는 "resize"마다 초기화하면 서명이 지워지므로, 캔버스 폭이 실제로
+    // 바뀐 경우에만 다시 맞추고 이미 그린 서명은 복원한다(출석 서명창/고객 링크 서명 화면과 같은 처리).
+    let lastWidth = -1;
     const resize = () => {
-      const ratio = Math.max(window.devicePixelRatio || 1, 1);
       const rect = canvas.getBoundingClientRect();
+      if (Math.round(rect.width) === lastWidth) return;
+      lastWidth = Math.round(rect.width);
+      const ratio = Math.max(window.devicePixelRatio || 1, 1);
+      const strokes = pad.toData();
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
       canvas.getContext("2d")?.scale(ratio, ratio);
       pad.clear();
-      setIsSignatureEmpty(true);
+      if (strokes.length > 0) pad.fromData(strokes);
+      setIsSignatureEmpty(pad.isEmpty());
     };
     resize();
     window.addEventListener("resize", resize);
