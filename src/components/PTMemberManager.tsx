@@ -3,7 +3,7 @@
 // 행 단위로 저장한다.
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
@@ -16,6 +16,7 @@ import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
 import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
+import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
 import { createDelegateLoginLink } from "@/app/delegationActions";
 import { signLinkUrl } from "@/lib/pendingSale";
@@ -1508,6 +1509,18 @@ export default function PTMemberManager() {
     });
   }, [reservations, products, customers]);
 
+  const mobileScheduleItems = useMemo<MobileScheduleItem[]>(() => allReservations.map((r) => ({
+    id: r.id, date: r.date, time: r.time, duration: r.duration || 50, status: r.status, type: r.type,
+    title: r.customerName, subtitle: r.type === "misc" ? "" : r.productName,
+    signed: !!r.signatureUrl, hasNote: !!(r.workoutNote || "").trim(),
+  })), [allReservations]);
+  // 모바일 목록에서 일정을 누르면 PC 그리드에서 블록을 누를 때와 똑같은 기존 예약 메뉴를 연다.
+  const openReservationMenu = (id: string, x: number, y: number) => {
+    const r = allReservations.find((x) => x.id === id);
+    if (!r) return;
+    const start = timeToMin(r.time);
+    setCtxMenu({ x, y, reservation: { ...r, start, end: start + (r.duration || 50) } });
+  };
   const todaySchedule = useMemo(() => allReservations.filter((r) => r.date === today()).sort((a, b) => a.time.localeCompare(b.time)), [allReservations]);
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
   // 스케줄표 토/일/공휴일 강조용. 보고 있는 주에 걸친 연도의 공휴일만 그때그때 불러와 누적해둔다.
@@ -1517,6 +1530,22 @@ export default function PTMemberManager() {
     loadHolidays(years).then((map) => setHolidays((prev) => ({ ...prev, ...map })));
   }, [weekDates]);
   const isOffDay = (d: string): boolean => isWeekend(d) || !!holidays[d];
+
+  // ---- 휴대폰 너비(640px 이하)에서만 스케줄을 월 달력 + 일정 목록으로 보여준다 ----
+  // 넓은 화면(태블릿/PC)은 기존 주간 그리드 그대로. 서버에서 처음 그릴 땐 넓은 화면으로 보고(false),
+  // 브라우저에서 실제 너비를 확인한 뒤 바꾼다(화면 회전 시에도 자동 전환).
+  const isMobileSchedule = useSyncExternalStore(
+    (onChange) => {
+      if (typeof window === "undefined" || !window.matchMedia) return () => {};
+      const mq = window.matchMedia("(max-width: 640px)");
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    },
+    () => !!window.matchMedia && window.matchMedia("(max-width: 640px)").matches,
+    () => false,
+  );
+  const loadMonthHolidays = (ym: string) =>
+    loadHolidays([ym.slice(0, 4)]).then((map) => setHolidays((prev) => ({ ...prev, ...map })));
   const weekStats = useMemo(() => {
     const weekRes = allReservations.filter((r) => weekDates.includes(r.date));
     return {
@@ -1807,7 +1836,18 @@ export default function PTMemberManager() {
         <button className={`ptm-tab ${view === "delegation" ? "active" : ""}`} onClick={() => setView("delegation")}><UserCog size={15} /> 대리 레슨</button>
       </div>
 
-      {view === "schedule" && (
+      {view === "schedule" && isMobileSchedule && (
+        <MobileMonthSchedule
+          items={mobileScheduleItems}
+          holidays={holidays}
+          todayStr={today()}
+          onMonthChange={loadMonthHolidays}
+          onSelect={openReservationMenu}
+          onAdd={(date) => { resetQuickAddState(); setQuickForm((f) => ({ ...f, date })); setShowQuickAdd(true); }}
+        />
+      )}
+
+      {view === "schedule" && !isMobileSchedule && (
         <>
           <div className="ptm-week-toolbar">
             <div className="ptm-week-nav">

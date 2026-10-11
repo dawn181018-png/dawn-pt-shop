@@ -417,6 +417,48 @@
 .ptm-rec-preview-main { font-size:14.5px; }
 .ptm-rec-skipped { color:#d9822b; }
 
+/* ---- 휴대폰 스케줄: 월 달력 + 선택한 날 일정 목록 (640px 이하에서만 사용) ---- */
+.ptm-mcal { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:14px 10px 10px; }
+.ptm-mcal-top { display:flex; justify-content:space-between; align-items:flex-end; padding:0 6px 10px; }
+.ptm-mcal-year { font-size:13px; color:var(--amber); font-weight:600; }
+.ptm-mcal-month { font-size:30px; font-weight:800; line-height:1.1; }
+.ptm-mcal-actions { display:flex; gap:6px; align-items:center; }
+.ptm-mcal-add { background:var(--amber); color:#fff; border-color:var(--amber); }
+.ptm-mcal-grid { display:grid; grid-template-columns:repeat(7, 1fr); border-top:1px solid var(--line); touch-action:pan-y; }
+.ptm-mcal-head { text-align:center; font-size:11px; color:var(--ink-dim); padding:6px 0 4px; }
+.ptm-mcal-head.weekend { color:#9aa3b0; }
+.ptm-mcal-cell { display:flex; flex-direction:column; align-items:center; gap:5px; padding:7px 0 8px; border:none; border-top:1px solid var(--line); background:none; font:inherit; color:var(--ink); cursor:pointer; min-height:56px; }
+.ptm-mcal-cell.empty { cursor:default; }
+.ptm-mcal-num { width:32px; height:32px; display:flex; align-items:center; justify-content:center; border-radius:50%; font-size:17px; font-weight:600; }
+.ptm-mcal-cell.weekend .ptm-mcal-num { color:#9aa3b0; }
+.ptm-mcal-cell.holiday .ptm-mcal-num { color:var(--coral); }
+.ptm-mcal-cell.selected .ptm-mcal-num { box-shadow:inset 0 0 0 2px var(--amber); }
+.ptm-mcal-cell.today .ptm-mcal-num { background:var(--ink); color:#fff; }
+.ptm-mcal-bar { height:5px; border-radius:3px; background:var(--amber); }
+.ptm-mcal-bar.none { visibility:hidden; width:5px; }
+.ptm-mcal-bar.dot { width:6px; height:6px; border-radius:50%; }
+.ptm-mcal-bar.short { width:44%; }
+.ptm-mcal-bar.long { width:76%; }
+.ptm-mcal-dayhead { font-size:13px; font-weight:700; color:var(--ink-dim); padding:12px 6px 6px; border-top:1px solid var(--line); margin-top:2px; }
+.ptm-mcal-holiday-name { color:var(--coral); font-weight:600; }
+.ptm-mcal-empty { text-align:center; color:var(--ink-dim); font-size:13.5px; padding:22px 0; }
+.ptm-mcal-item { display:flex; align-items:stretch; gap:10px; width:100%; padding:11px 6px; border:none; border-bottom:1px solid var(--line); background:none; font:inherit; color:var(--ink); text-align:left; cursor:pointer; }
+.ptm-mcal-item:last-child { border-bottom:none; }
+.ptm-mcal-item-bar { width:4px; border-radius:2px; background:var(--amber); flex-shrink:0; }
+.ptm-mcal-item.misc .ptm-mcal-item-bar { background:var(--slate); }
+.ptm-mcal-item.done .ptm-mcal-item-bar { background:var(--purple); }
+.ptm-mcal-item.noshow .ptm-mcal-item-bar { background:var(--coral); }
+.ptm-mcal-item.cancelled .ptm-mcal-item-bar { background:var(--line); }
+.ptm-mcal-item.cancelled .ptm-mcal-item-title { text-decoration:line-through; color:var(--ink-dim); }
+.ptm-mcal-item-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+.ptm-mcal-item-title { font-size:16px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ptm-mcal-kind { font-size:11px; font-weight:600; color:var(--ink-dim); margin-left:6px; }
+.ptm-mcal-item-sub { display:flex; flex-wrap:wrap; gap:8px; font-size:12.5px; color:var(--ink-dim); }
+.ptm-mcal-done { color:var(--purple); font-weight:600; display:inline-flex; align-items:center; gap:2px; }
+.ptm-mcal-note { display:inline-flex; align-items:center; gap:3px; }
+.ptm-mcal-item-time { display:flex; flex-direction:column; align-items:flex-end; font-size:14.5px; font-weight:600; flex-shrink:0; }
+.ptm-mcal-item-end { color:var(--ink-dim); font-weight:500; }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }
