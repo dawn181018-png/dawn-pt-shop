@@ -461,15 +461,34 @@
 
 /* ---- 휴대폰 매출 계획: 카드 목록 (640px 이하에서만 렌더) ---- */
 @media (max-width:640px) { .ptm-pay-grid.ptm-fc-summary { grid-template-columns:repeat(2,1fr); } }
-.ptm-fc-list { display:flex; flex-direction:column; gap:8px; }
-.ptm-fc-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:11px 12px; cursor:pointer; }
-.ptm-fc-card.planned { background:rgba(224,67,63,0.08); }
-.ptm-fc-card.closed { background:var(--panel-2); opacity:0.7; }
-.ptm-fc-card-top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
-.ptm-fc-name { font-size:16px; font-weight:700; min-width:0; }
-.ptm-fc-meta { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12.5px; color:var(--ink-dim); margin-top:4px; }
-.ptm-fc-meta b { color:var(--ink); }
-.ptm-fc-hold { width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* 기존 고객 한 줄 목록: 신규 고객 명단(.ptm-table-compact)과 같은 글자 크기/행 높이/구분선 */
+.ptm-fc-rows { background:var(--panel); border:1px solid var(--line); border-radius:12px; }
+.ptm-fc-row { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr) 46px 54px 26px; align-items:center; column-gap:6px; padding:3px 6px 3px 10px; min-height:33px; font-size:12.5px; line-height:1.3; border-bottom:1px solid var(--line); cursor:pointer; }
+.ptm-fc-row:last-child { border-bottom:none; border-radius:0 0 12px 12px; }
+.ptm-fc-row > span { min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ptm-fc-row .num { text-align:right; font-variant-numeric:tabular-nums; overflow:visible; }
+.ptm-fc-row.planned { background:rgba(224,67,63,0.08); }
+.ptm-fc-row.closed { background:var(--panel-2); color:var(--ink-dim); }
+.ptm-fc-row .ptm-icon-btn { width:22px; height:22px; }
+.ptm-fc-row-head { position:sticky; top:0; z-index:3; background:var(--panel); color:var(--ink-dim); font-weight:600; padding-top:6px; padding-bottom:6px; cursor:default; border-radius:12px 12px 0 0; }
+.ptm-fc-cell-name { display:flex; align-items:center; gap:4px; }
+.ptm-fc-name-text { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+.ptm-fc-tag { flex-shrink:0; font-size:10px; padding:0 4px; border-radius:4px; border:1px solid var(--line); color:var(--ink-dim); }
+.ptm-fc-tag.missed { color:var(--coral); border-color:var(--coral); }
+.ptm-fc-cell-hold { color:var(--ink-dim); }
+.ptm-fc-menu-info { font-size:12.5px; color:var(--ink-dim); line-height:1.6; padding:0 2px 8px; border-bottom:1px solid var(--line); margin-bottom:4px; }
+/* 신규 고객 명단 표: 휴대폰에서 가로 스크롤 없이 열 너비 고정, 예상금액은 잘리지 않게 오른쪽 정렬 */
+@media (max-width:640px) {
+  .ptm-table-wrap:has(.ptm-fc-prospects) { overflow-x:visible; }
+  .ptm-fc-prospects { table-layout:fixed; }
+  .ptm-fc-prospects th, .ptm-fc-prospects td { padding-left:6px; padding-right:6px; overflow:hidden; }
+  .ptm-fc-prospects th:nth-child(1) { width:27%; }
+  .ptm-fc-prospects th:nth-child(2) { width:27%; }
+  .ptm-fc-prospects th:nth-child(4) { width:82px; }
+  .ptm-fc-prospects td:nth-child(2) .ptm-cell-input { text-align:right; font-variant-numeric:tabular-nums; padding-left:2px; padding-right:2px; }
+  .ptm-fc-prospects .ptm-cell-input { text-overflow:ellipsis; }
+  .ptm-fc-prospects .ptm-actions { flex-wrap:nowrap; justify-content:flex-end; gap:3px; }
+}
 .ptm-sheet.ptm-fc-menu { max-width:360px; }
 .ptm-fc-menu .ptm-ctx-item { width:100%; text-align:left; }
 

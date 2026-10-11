@@ -94,6 +94,20 @@ const addRepeatInterval = (dateStr: string, repeatType: string, n: number): stri
 };
 const mondayOf = (dateStr: string): string => { const d = new Date(dateStr); const day = d.getDay(); return addDays(dateStr, day === 0 ? -6 : 1 - day); };
 const koDate = (dateStr: string): string => { const d = new Date(dateStr); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
+// 휴대폰 매출 계획 한 줄 목록용 표시 헬퍼(값 계산은 그대로, 보여주는 글자만 줄인다)
+// 보유 이용권: "PT 50회 이용권" → "PT 50회", 여러 개면 "PT 30회+1"
+const shortHoldLabel = (names: string[]): string => {
+  if (names.length === 0) return "-";
+  const first = names[0].replace(/\s*이용권\s*$/, "").trim();
+  return names.length > 1 ? `${first}+${names.length - 1}` : first;
+};
+// 예상금액: 1만 미만은 그대로, 1만 이상은 "144만"/"83.3만", 1억 이상은 "1.2억", 0은 "-"
+const formatManwon = (n: number): string => {
+  if (!n) return "-";
+  if (n >= 100000000) return `${Math.round(n / 10000000) / 10}억`;
+  if (n >= 10000) return `${Math.round(n / 1000) / 10}만`;
+  return n.toLocaleString();
+};
 const parseBulkLine = (line: string) => {
   const sep = line.includes("\t") ? "\t" : ",";
   const parts = line.split(sep).map((s) => s.trim());
@@ -554,7 +568,7 @@ export default function PTMemberManager() {
   // 휴대폰 매출 계획 카드를 눌렀을 때 여는 메뉴(예상 입력/실패/미루기/되돌리기/삭제/고객 정보)
   const [forecastMenuRow, setForecastMenuRow] = useState<{
     customerId: string; customerName: string; forecastId: string | null; status: ForecastStatus; expectedAmount: number; achieved: boolean;
-    expectedSessions?: number | null; note?: string;
+    expectedSessions?: number | null; note?: string; holdFull?: string; totalRemain?: number | null;
   } | null>(null);
 
   // ---- 매출 계획 상태: 실패 / 다음달로 미루기(연기) ----
@@ -2229,29 +2243,26 @@ export default function PTMemberManager() {
             // 휴대폰: 이름 / 보유세션(잔여 남은 이용권, "외 n개"로 줄임) / 잔여세션 합계 / 예상금액만 카드로.
             // 값은 PC 표와 같은 forecastRows를 그대로 쓰고(계산 변경 없음), 강조/정렬도 같다.
             // 카드를 누르면 실패/미루기 등 메뉴, 연필은 예상세션·금액 입력.
-            <div className="ptm-fc-list">
+            <div className="ptm-fc-rows">
+              <div className="ptm-fc-row ptm-fc-row-head">
+                <span>이름</span><span>보유</span><span className="num">잔여</span><span className="num">예상</span><span />
+              </div>
               {filteredForecastRows.length === 0 ? (
                 <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
               ) : filteredForecastRows.map((r) => {
                 const activeNames = r.activeTicketCount > 0 ? r.totalSummary.split(" / ") : [];
-                const holdLabel = activeNames.length === 0 ? "보유 이용권 없음" : activeNames.length === 1 ? activeNames[0] : `${activeNames[0]} 외 ${activeNames.length - 1}개`;
                 const tone = r.status === "missed" || r.status === "postponed" ? " closed" : r.expectedAmount > 0 ? " planned" : "";
+                const tag = r.status === "missed" ? "실패" : r.status === "postponed" ? "연기" : r.carriedFrom ? "이월" : "";
                 return (
-                  <div key={r.customerId} className={`ptm-fc-card${tone}`} onClick={() => setForecastMenuRow(r)}>
-                    <div className="ptm-fc-card-top">
-                      <span className="ptm-fc-name">
-                        {r.customerName}
-                        {r.status === "missed" && <> <span className="ptm-badge unpaid">실패</span></>}
-                        {r.status === "postponed" && <> <span className="ptm-badge">연기 → {forecastMonthLabel(nextForecastMonth(forecastMonth))}</span></>}
-                        {r.carriedFrom && <> <span className="ptm-badge forecast">{r.carriedFrom}에서 이월</span></>}
-                      </span>
-                      <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={(e) => { e.stopPropagation(); openForecastFor(r); }}><Pencil size={14} /></button>
-                    </div>
-                    <div className="ptm-fc-meta">
-                      <span className="ptm-fc-hold">{holdLabel}</span>
-                      <span>잔여 <b>{r.totalRemain !== null ? `${r.totalRemain}회` : "-"}</b></span>
-                      <span>예상 <b>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</b></span>
-                    </div>
+                  <div key={r.customerId} className={`ptm-fc-row${tone}`} onClick={() => setForecastMenuRow({ ...r, holdFull: activeNames.join(" / ") })}>
+                    <span className="ptm-fc-cell-name">
+                      <span className="ptm-fc-name-text">{r.customerName}</span>
+                      {tag && <span className={`ptm-fc-tag${r.status === "missed" ? " missed" : ""}`}>{tag}</span>}
+                    </span>
+                    <span className="ptm-fc-cell-hold">{shortHoldLabel(activeNames)}</span>
+                    <span className="num">{r.totalRemain !== null ? `${r.totalRemain}회` : "-"}</span>
+                    <span className="num">{formatManwon(r.expectedAmount)}</span>
+                    <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={(e) => { e.stopPropagation(); openForecastFor(r); }}><Pencil size={13} /></button>
                   </div>
                 );
               })}
@@ -2318,7 +2329,7 @@ export default function PTMemberManager() {
             아직 등록 안 된 신규 고객도 이름과 예상 매출을 적어두면 위 이번달 예상 총매출에 함께 합산돼요.
           </div>
           <div className="ptm-table-wrap">
-            <table className="ptm-table ptm-table-compact">
+            <table className="ptm-table ptm-table-compact ptm-fc-prospects">
               <thead><tr><th>이름</th><th>예상금액</th><th>메모</th><th></th></tr></thead>
               <tbody>
                 {prospectRows.map((f) => (
@@ -2587,6 +2598,10 @@ export default function PTMemberManager() {
               <div className="ptm-sheet-head">
                 <span className="ptm-sheet-title">{r.customerName}</span>
                 <button className="ptm-icon-btn" onClick={close}><X size={16} /></button>
+              </div>
+              <div className="ptm-fc-menu-info">
+                <div>보유: {r.holdFull || "보유 이용권 없음"}</div>
+                <div>잔여 {r.totalRemain ?? "-"}회 · 예상 {r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</div>
               </div>
               <button className="ptm-ctx-item" onClick={() => { close(); openForecastFor(r); }}>예상세션·예상금액 입력</button>
               {canClose && <button className="ptm-ctx-item" onClick={() => { close(); requestMarkForecastFailed(r.forecastId as string); }}>실패로 표시</button>}
