@@ -551,6 +551,12 @@ export default function PTMemberManager() {
   };
   const requestRemoveForecast = (id: string, message: string) => askConfirm(message, () => removeForecast(id));
 
+  // 휴대폰 매출 계획 카드를 눌렀을 때 여는 메뉴(예상 입력/실패/미루기/되돌리기/삭제/고객 정보)
+  const [forecastMenuRow, setForecastMenuRow] = useState<{
+    customerId: string; customerName: string; forecastId: string | null; status: ForecastStatus; expectedAmount: number; achieved: boolean;
+    expectedSessions?: number | null; note?: string;
+  } | null>(null);
+
   // ---- 매출 계획 상태: 실패 / 다음달로 미루기(연기) ----
   // 매출 계획(renewal_forecasts) 안의 기록만 바꾼다 — 이용권/잔여횟수/결제 데이터는 전혀 건드리지 않는다.
   // 원래 입력한 예상세션/예상금액/메모는 그대로 보존돼 지난달 화면에서 이력으로 볼 수 있다.
@@ -2180,7 +2186,7 @@ export default function PTMemberManager() {
             </div>
           </div>
 
-          <div className="ptm-pay-grid">
+          <div className="ptm-pay-grid ptm-fc-summary">
             <div className="ptm-pay-card">
               <div className="ptm-pay-card-label">이번달 예상 총매출</div>
               <div className="ptm-pay-card-num">{forecastStats.totalExpected.toLocaleString()}원</div>
@@ -2219,60 +2225,93 @@ export default function PTMemberManager() {
 보유한 이용권 전체의 잔여세션 합산이 적은 고객이 위로 정렬돼요. 행의 연필 아이콘을 눌러 예상세션·예상금액을 바로 입력하세요.
           </div>
 
-          <div className="ptm-table-wrap">
-            {filteredForecastRows.length === 0 ? (
-              <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
-            ) : (
-              <table className="ptm-table ptm-table-compact">
-                <thead><tr><th>고객명</th><th>연락처</th><th>주요 운동시간대</th><th>주당 평균 횟수</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
-                <tbody>
-                  {filteredForecastRows.map((r) => {
-                    const visitTitle = r.recentVisits.length
-                      ? `최근 방문: ${r.recentVisits.map((d) => koDate(d)).join(", ")}`
-                      : "완료 처리된 예약 기록이 없어요";
-                    return (
-                    <tr key={r.customerId} className={r.status === "missed" || r.status === "postponed" ? "ptm-row-closed" : r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
-                      <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>
+          {isMobileSchedule ? (
+            // 휴대폰: 이름 / 보유세션(잔여 남은 이용권, "외 n개"로 줄임) / 잔여세션 합계 / 예상금액만 카드로.
+            // 값은 PC 표와 같은 forecastRows를 그대로 쓰고(계산 변경 없음), 강조/정렬도 같다.
+            // 카드를 누르면 실패/미루기 등 메뉴, 연필은 예상세션·금액 입력.
+            <div className="ptm-fc-list">
+              {filteredForecastRows.length === 0 ? (
+                <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
+              ) : filteredForecastRows.map((r) => {
+                const activeNames = r.activeTicketCount > 0 ? r.totalSummary.split(" / ") : [];
+                const holdLabel = activeNames.length === 0 ? "보유 이용권 없음" : activeNames.length === 1 ? activeNames[0] : `${activeNames[0]} 외 ${activeNames.length - 1}개`;
+                const tone = r.status === "missed" || r.status === "postponed" ? " closed" : r.expectedAmount > 0 ? " planned" : "";
+                return (
+                  <div key={r.customerId} className={`ptm-fc-card${tone}`} onClick={() => setForecastMenuRow(r)}>
+                    <div className="ptm-fc-card-top">
+                      <span className="ptm-fc-name">
                         {r.customerName}
                         {r.status === "missed" && <> <span className="ptm-badge unpaid">실패</span></>}
                         {r.status === "postponed" && <> <span className="ptm-badge">연기 → {forecastMonthLabel(nextForecastMonth(forecastMonth))}</span></>}
                         {r.carriedFrom && <> <span className="ptm-badge forecast">{r.carriedFrom}에서 이월</span></>}
-                      </td>
-                      <td>{r.customerPhone || "-"}</td>
-                      <td title={visitTitle}>{r.timeSlotLabel}</td>
-                      <td title={visitTitle}>{r.weeklyAvgLabel}</td>
-                      <td>{r.totalSummary}</td>
-                      <td title={r.activeTicketCount > 1 ? `이용권별 잔여: ${r.remainDetail}` : undefined}>{r.remainSummary}</td>
-                      <td>{r.expectedSessions ?? "-"}</td>
-                      <td>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</td>
-                      <td style={r.actual > 0 ? { color: "var(--teal)" } : {}}>
-                        {r.actual > 0 || r.unpaid > 0 ? `${r.actual.toLocaleString()}원` : "-"}
-                        {r.unpaid > 0 && <div style={{ color: "var(--coral)", fontSize: 11.5 }}>미수 {r.unpaid.toLocaleString()}원</div>}
-                      </td>
-                      <td style={r.expectedAmount > 0 && r.gap > 0 ? { color: "var(--coral)" } : {}}>{r.expectedAmount > 0 ? `${r.gap.toLocaleString()}원` : "-"}</td>
-                      <td>{r.note || "-"}</td>
-                      <td>
-                        <div className="ptm-actions">
-                          <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={() => openForecastFor(r)}><Pencil size={14} /></button>
-                          {r.forecastId && r.status === "pending" && r.expectedAmount > 0 && !r.achieved && (
-                            <>
-                              <button className="ptm-icon-btn" title="실패로 표시" onClick={() => requestMarkForecastFailed(r.forecastId as string)}><CircleX size={14} /></button>
-                              <button className="ptm-icon-btn" title="다음달로 미루기" onClick={() => requestPostponeForecast(r.forecastId as string)}><Forward size={14} /></button>
-                            </>
-                          )}
-                          {r.forecastId && r.status === "missed" && (
-                            <button className="ptm-icon-btn" title="대기중으로 되돌리기" onClick={() => revertForecastToPending(r.forecastId as string)}><Undo2 size={14} /></button>
-                          )}
-                          {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId as string, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
-                        </div>
-                      </td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+                      </span>
+                      <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={(e) => { e.stopPropagation(); openForecastFor(r); }}><Pencil size={14} /></button>
+                    </div>
+                    <div className="ptm-fc-meta">
+                      <span className="ptm-fc-hold">{holdLabel}</span>
+                      <span>잔여 <b>{r.totalRemain !== null ? `${r.totalRemain}회` : "-"}</b></span>
+                      <span>예상 <b>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</b></span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="ptm-table-wrap">
+              {filteredForecastRows.length === 0 ? (
+                <div className="ptm-table-empty">{customers.length === 0 ? "등록된 고객이 없어요" : "검색 결과가 없어요"}</div>
+              ) : (
+                <table className="ptm-table ptm-table-compact">
+                  <thead><tr><th>고객명</th><th>연락처</th><th>주요 운동시간대</th><th>주당 평균 횟수</th><th>보유세션</th><th>잔여세션</th><th>예상세션</th><th>예상금액</th><th>이번달 등록금액</th><th>부족액</th><th>메모</th><th></th></tr></thead>
+                  <tbody>
+                    {filteredForecastRows.map((r) => {
+                      const visitTitle = r.recentVisits.length
+                        ? `최근 방문: ${r.recentVisits.map((d) => koDate(d)).join(", ")}`
+                        : "완료 처리된 예약 기록이 없어요";
+                      return (
+                      <tr key={r.customerId} className={r.status === "missed" || r.status === "postponed" ? "ptm-row-closed" : r.expectedAmount > 0 ? "ptm-row-planned" : ""}>
+                        <td className="ptm-hover-link" onClick={() => { setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>
+                          {r.customerName}
+                          {r.status === "missed" && <> <span className="ptm-badge unpaid">실패</span></>}
+                          {r.status === "postponed" && <> <span className="ptm-badge">연기 → {forecastMonthLabel(nextForecastMonth(forecastMonth))}</span></>}
+                          {r.carriedFrom && <> <span className="ptm-badge forecast">{r.carriedFrom}에서 이월</span></>}
+                        </td>
+                        <td>{r.customerPhone || "-"}</td>
+                        <td title={visitTitle}>{r.timeSlotLabel}</td>
+                        <td title={visitTitle}>{r.weeklyAvgLabel}</td>
+                        <td>{r.totalSummary}</td>
+                        <td title={r.activeTicketCount > 1 ? `이용권별 잔여: ${r.remainDetail}` : undefined}>{r.remainSummary}</td>
+                        <td>{r.expectedSessions ?? "-"}</td>
+                        <td>{r.expectedAmount > 0 ? `${r.expectedAmount.toLocaleString()}원` : "-"}</td>
+                        <td style={r.actual > 0 ? { color: "var(--teal)" } : {}}>
+                          {r.actual > 0 || r.unpaid > 0 ? `${r.actual.toLocaleString()}원` : "-"}
+                          {r.unpaid > 0 && <div style={{ color: "var(--coral)", fontSize: 11.5 }}>미수 {r.unpaid.toLocaleString()}원</div>}
+                        </td>
+                        <td style={r.expectedAmount > 0 && r.gap > 0 ? { color: "var(--coral)" } : {}}>{r.expectedAmount > 0 ? `${r.gap.toLocaleString()}원` : "-"}</td>
+                        <td>{r.note || "-"}</td>
+                        <td>
+                          <div className="ptm-actions">
+                            <button className="ptm-icon-btn" title="예상세션·금액 입력" onClick={() => openForecastFor(r)}><Pencil size={14} /></button>
+                            {r.forecastId && r.status === "pending" && r.expectedAmount > 0 && !r.achieved && (
+                              <>
+                                <button className="ptm-icon-btn" title="실패로 표시" onClick={() => requestMarkForecastFailed(r.forecastId as string)}><CircleX size={14} /></button>
+                                <button className="ptm-icon-btn" title="다음달로 미루기" onClick={() => requestPostponeForecast(r.forecastId as string)}><Forward size={14} /></button>
+                              </>
+                            )}
+                            {r.forecastId && r.status === "missed" && (
+                              <button className="ptm-icon-btn" title="대기중으로 되돌리기" onClick={() => revertForecastToPending(r.forecastId as string)}><Undo2 size={14} /></button>
+                            )}
+                            {r.forecastId && <button className="ptm-icon-btn" title="예정 삭제" onClick={() => requestRemoveForecast(r.forecastId as string, `"${r.customerName}"의 재등록 예정을 삭제할까요?`)}><Trash2 size={14} /></button>}
+                          </div>
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
 
           <div className="ptm-detail-section-title" style={{ marginTop: 22 }}>신규 고객 명단</div>
           <div className="ptm-no-product-msg" style={{ marginTop: -6, marginBottom: 10 }}>
@@ -2537,6 +2576,28 @@ export default function PTMemberManager() {
           flash={flash}
         />
       )}
+
+      {forecastMenuRow && (() => {
+        const r = forecastMenuRow;
+        const close = () => setForecastMenuRow(null);
+        const canClose = !!r.forecastId && r.status === "pending" && r.expectedAmount > 0 && !r.achieved;
+        return (
+          <div className="ptm-overlay" onClick={close}>
+            <div className="ptm-sheet ptm-fc-menu" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">{r.customerName}</span>
+                <button className="ptm-icon-btn" onClick={close}><X size={16} /></button>
+              </div>
+              <button className="ptm-ctx-item" onClick={() => { close(); openForecastFor(r); }}>예상세션·예상금액 입력</button>
+              {canClose && <button className="ptm-ctx-item" onClick={() => { close(); requestMarkForecastFailed(r.forecastId as string); }}>실패로 표시</button>}
+              {canClose && <button className="ptm-ctx-item" onClick={() => { close(); requestPostponeForecast(r.forecastId as string); }}>다음달로 미루기</button>}
+              {r.forecastId && r.status === "missed" && <button className="ptm-ctx-item" onClick={() => { close(); revertForecastToPending(r.forecastId as string); }}>대기중으로 되돌리기</button>}
+              <button className="ptm-ctx-item" onClick={() => { close(); setCustomerDetailId(r.customerId); setCustomerDetailTab("home"); }}>고객 정보 보기</button>
+              {r.forecastId && <button className="ptm-ctx-item danger" onClick={() => { close(); requestRemoveForecast(r.forecastId as string, `"${r.customerName}"의 재등록 예정을 삭제할까요?`); }}>예정 삭제</button>}
+            </div>
+          </div>
+        );
+      })()}
 
       {recurringSheet && (() => {
         const info = unbookedSessions(recurringSheet.customerId, products, reservations);
