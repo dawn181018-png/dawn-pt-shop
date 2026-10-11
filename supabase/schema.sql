@@ -1127,5 +1127,30 @@ $$;
 revoke execute on function proxy_customer_has_sessions(uuid) from public, anon, authenticated;
 revoke execute on function proxy_delegation_valid_for(lesson_delegations, uuid) from public, anon, authenticated;
 
+-- ---------- 잔여 횟수 기준 반복예약: 반복 규칙(reservation_series) ----------
+-- 회차는 지금처럼 reservations에 한 줄씩 미리 만들고(series_id = 이 표의 id), 이 표에는 "어떤 규칙으로 만들었는지"만
+-- 저장한다 — 재등록으로 잔여가 늘었을 때 같은 규칙(요일/시간/공휴일 처리)으로 이어서 연장하기 위해서다.
+-- 기존 반복예약(series_id만 있고 이 표에 규칙이 없는 것)은 그대로 두며 연장 대상이 아니다.
+-- 새 테이블만 추가하고 기존 테이블/데이터는 건드리지 않는다. 재실행해도 안전하다.
+create table if not exists reservation_series (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  customer_id uuid not null references customers(id) on delete cascade,
+  weekdays int[] not null check (cardinality(weekdays) > 0), -- 0=일 ~ 6=토
+  time text not null,          -- 'HH:MM'
+  duration int not null default 50,
+  skip_holidays boolean not null default true, -- 공휴일 회차를 건너뛰고 다음 요일로 이어갈지
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_reservation_series_owner on reservation_series(owner_id);
+create index if not exists idx_reservation_series_customer on reservation_series(customer_id);
+
+alter table reservation_series enable row level security;
+drop policy if exists "reservation_series_owner_all" on reservation_series;
+create policy "reservation_series_owner_all" on reservation_series
+  for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
+grant select, insert, update, delete on reservation_series to authenticated;
+grant select, insert, update, delete on reservation_series to service_role;
+
 -- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
 notify pgrst, 'reload schema';
