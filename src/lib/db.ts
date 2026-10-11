@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -353,4 +353,21 @@ export async function revokeDelegation(id: string): Promise<LessonDelegation> {
     .select()
     .single();
   return mapDelegation(must(row, error));
+}
+
+// ---------- reservation_series (잔여 횟수 기준 반복예약 규칙) ----------
+function mapSeries(row: Record<string, unknown>): ReservationSeries {
+  return withEpochCreatedAt(toCamel<ReservationSeries>(row));
+}
+export async function listReservationSeries(): Promise<ReservationSeries[]> {
+  const { data, error } = await supabase.from("reservation_series").select("*").order("created_at", { ascending: true });
+  return must(data, error).map(mapSeries);
+}
+export async function insertReservationSeries(data: Omit<ReservationSeries, "id" | "createdAt">): Promise<ReservationSeries> {
+  const { data: row, error } = await supabase.from("reservation_series").insert(toSnake(data)).select().single();
+  return mapSeries(must(row, error));
+}
+export async function updateReservationSeries(id: string, data: Partial<Pick<ReservationSeries, "weekdays" | "time" | "duration">>): Promise<ReservationSeries> {
+  const { data: row, error } = await supabase.from("reservation_series").update(toSnake(data)).eq("id", id).select().single();
+  return mapSeries(must(row, error));
 }

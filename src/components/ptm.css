@@ -405,6 +405,18 @@
 .ptm-px-cal-legend i.scheduled { background:var(--amber); }
 .ptm-px-cal-legend i.done { background:var(--purple); }
 
+/* ---- 잔여 횟수 기준 반복예약 창 ---- */
+.ptm-rec-open { width:100%; margin:4px 0 12px; text-align:left; font-size:13px; }
+.ptm-rec-summary { font-size:13px; background:var(--panel-2); border-radius:8px; padding:9px 11px; margin-bottom:12px; line-height:1.5; }
+.ptm-rec-rule { font-size:13.5px; font-weight:600; margin-bottom:10px; }
+.ptm-rec-weekdays { display:flex; gap:6px; }
+.ptm-rec-day { flex:1; padding:9px 0; border-radius:8px; border:1px solid var(--line); background:var(--panel); font-size:14px; font-weight:600; color:var(--ink); cursor:pointer; }
+.ptm-rec-day.weekend { color:#d9822b; }
+.ptm-rec-day.active { background:var(--amber); border-color:var(--amber); color:#fff; }
+.ptm-rec-preview { border:1.5px solid var(--amber); border-radius:10px; background:rgba(59,111,224,0.05); padding:11px 13px; font-size:13px; line-height:1.7; margin:6px 0 4px; }
+.ptm-rec-preview-main { font-size:14.5px; }
+.ptm-rec-skipped { color:#d9822b; }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }

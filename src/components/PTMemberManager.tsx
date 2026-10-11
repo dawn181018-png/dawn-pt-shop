@@ -15,6 +15,8 @@ import SignatureModal from "./SignatureModal";
 import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
 import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
+import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
+import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
 import { createDelegateLoginLink } from "@/app/delegationActions";
 import { signLinkUrl } from "@/lib/pendingSale";
 import PassTransferModal from "./PassTransferModal";
@@ -23,7 +25,7 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -369,6 +371,36 @@ export default function PTMemberManager() {
     if (inFlightRef.current.has(key)) return;
     inFlightRef.current.add(key);
     try { await fn(); } finally { inFlightRef.current.delete(key); }
+  };
+
+  // ---- 잔여 횟수 기준 반복예약 ----
+  // 규칙(reservation_series)은 기존 데이터 불러오기와 분리해서 읽는다(못 읽어도 다른 기능엔 영향 없음).
+  const [seriesRules, setSeriesRules] = useState<ReservationSeries[]>([]);
+  const [recurringSheet, setRecurringSheet] = useState<{
+    mode: "new" | "extend"; customerId: string; seriesId?: string; startDate: string; rule: RecurringRule; intro?: string;
+  } | null>(null);
+  // 새 방식 반복의 회차 하나를 취소했을 때 "끝에 1회 이어서 추가할까요?"
+  const [seriesAppendPrompt, setSeriesAppendPrompt] = useState<{ seriesId: string; customerId: string } | null>(null);
+  const seriesLastDate = (seriesId: string) =>
+    reservations.filter((r) => r.seriesId === seriesId).reduce((max, r) => (r.date > max ? r.date : max), "");
+  // 재등록 등으로 새 이용권이 생겼을 때: 그 고객에게 새 방식 반복이 있고 아직 예약 안 된 횟수가 생겼으면,
+  // 같은 규칙으로 이어서 잡을지 확인 창을 띄운다(자동으로 몰래 연장하지 않는다).
+  const offerSeriesExtension = (customerId: string, productList: Product[]) => {
+    const rule = [...seriesRules].reverse().find((s) => s.customerId === customerId);
+    if (!rule) return;
+    const { unbooked } = unbookedSessions(customerId, productList, reservations);
+    if (unbooked <= 0) return;
+    const last = seriesLastDate(rule.id);
+    const start = last && addDays(last, 1) > today() ? addDays(last, 1) : today();
+    setRecurringSheet({
+      mode: "extend", customerId, seriesId: rule.id, startDate: start,
+      rule: { weekdays: rule.weekdays, time: rule.time, duration: rule.duration, skipHolidays: rule.skipHolidays },
+      intro: `재등록으로 잔여가 늘었어요. 기존 반복(매주 ${weekdaysLabel(rule.weekdays)} ${rule.time})을 이어서 잡을까요?`,
+    });
+  };
+  const offerExtensionForNewProducts = (before: Product[], after: Product[]) => {
+    const added = after.find((p) => !before.some((b) => b.id === p.id));
+    if (added) offerSeriesExtension(added.customerId, after);
   };
 
   // 소진된 이용권을 대신할, 그 고객의 등록순으로 가장 먼저 등록된 유효한(잔여 있는) 이용권을 찾는다.
@@ -720,6 +752,7 @@ export default function PTMemberManager() {
         // 별도로 예정 레코드를 갱신할 필요가 없다 — 상품을 등록하는 순간 자동으로 반영된다.
         // 이 고객이 이전 이용권 소진으로 예약됨 상태에 발이 묶여 있었다면, 방금 등록한 이 이용권으로 바로 이어준다.
         await reconnectScheduledReservations(reservations, [...products, created]);
+        offerSeriesExtension(created.customerId, [...products, created]);
         flash("상품 등록됨");
       }
       setShowProductForm(false);
@@ -748,6 +781,7 @@ export default function PTMemberManager() {
         setCustomers(customersData);
         setProducts(productsData);
         await reconnectScheduledReservations(reservations, productsData);
+        offerExtensionForNewProducts(products, productsData);
       }
     } catch { /* 서명 대기 목록만 못 불러온 경우 — 다른 기능엔 영향 없음 */ }
   };
@@ -908,6 +942,7 @@ export default function PTMemberManager() {
       // 잔여를 전부 넘겨 소진된 원본 이용권에 묶인 예약, 새 이용권을 받은 수령인의 멈춰 있던 예약을
       // 상품 등록 때와 똑같이 유효한 이용권으로 바로 이어준다(예전엔 앱을 다시 열어야 반영됐다).
       await reconnectScheduledReservations(reservations, productsData);
+      offerExtensionForNewProducts(products, productsData);
     } catch {
       flash("양도는 완료됐어요. 화면이 갱신되지 않았다면 새로고침해주세요", 5000);
     }
@@ -1126,7 +1161,12 @@ export default function PTMemberManager() {
       const switched = targetProductId !== r.productId;
       if (newStatus === "done") flash(switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
       else if (newStatus === "noshow") flash(switched ? "노쇼 처리 · 다른 이용권으로 전환되어 차감됨" : "노쇼 처리 · 세션 1회 차감");
-      else if (newStatus === "cancelled") flash("예약 취소됨");
+      else if (newStatus === "cancelled") {
+        flash("예약 취소됨");
+        if (r.seriesId && r.customerId && seriesRules.some((s) => s.id === r.seriesId)) {
+          setSeriesAppendPrompt({ seriesId: r.seriesId, customerId: r.customerId });
+        }
+      }
     } catch { flash("처리 실패, 다시 시도해주세요"); }
   });
 
@@ -1235,11 +1275,68 @@ export default function PTMemberManager() {
   };
 
   // ---- 드롭다운으로 예약 시간 정확히 수정 ----
+  // ---- 잔여 횟수 기준 반복예약: 생성 / 연장 / 취소 후 1회 추가 ----
+  useEffect(() => {
+    if (!loaded) return;
+    db.listReservationSeries().then(setSeriesRules).catch(() => {});
+  }, [loaded]);
+  const openRecurringFor = (customerId: string, startDate: string, time: string, duration: number) => {
+    setRecurringSheet({
+      mode: "new", customerId, startDate,
+      rule: { weekdays: [new Date(`${startDate}T00:00:00`).getDay()], time: time.slice(0, 5), duration: duration || 50, skipHolidays: true },
+    });
+  };
+  // 회차 저장: 이용권은 지금처럼 "가장 먼저 등록한 유효 이용권"에 연결(완료 시점에 소진됐으면 다른 유효 이용권으로
+  // 자동 전환되는 기존 규칙 그대로). 예약을 만드는 것만으로는 잔여가 줄지 않는다.
+  const confirmRecurring = async (rule: RecurringRule, dates: string[]): Promise<boolean> => {
+    if (!recurringSheet) return false;
+    const { customerId } = recurringSheet;
+    try {
+      let seriesId = recurringSheet.seriesId;
+      if (!seriesId) {
+        const created = await db.insertReservationSeries({ customerId, ...rule });
+        setSeriesRules((cur) => [...cur, created]);
+        seriesId = created.id;
+      }
+      const productId = emptyToNull(pickActiveProductId(customerId));
+      const rows = dates.map((date) => ({
+        customerId, productId, seriesId, date, time: rule.time, duration: rule.duration, memo: "", status: "scheduled" as const,
+      }));
+      const createdRows = await db.insertReservations(rows);
+      setReservations((prev) => [...prev, ...createdRows]);
+      flash(`반복 예약 ${createdRows.length}회 등록됨`);
+      return true;
+    } catch {
+      flash("저장 실패, 다시 시도해주세요");
+      return false;
+    }
+  };
+  // 반복 회차 하나를 취소한 뒤 "끝에 1회 추가": 그 반복의 마지막 회차 다음 날부터 같은 규칙으로 1회.
+  const appendOneToSeries = (seriesId: string, customerId: string) => runExclusive(`series-append:${seriesId}`, async () => {
+    const rule = seriesRules.find((s) => s.id === seriesId);
+    if (!rule) return;
+    try {
+      const start = addDays(seriesLastDate(seriesId) || today(), 1);
+      const holidays = await loadHolidays([start.slice(0, 4), String(Number(start.slice(0, 4)) + 1)]);
+      const { dates } = generateSlotDates({ startDate: start, weekdays: rule.weekdays, count: 1, skipHolidays: rule.skipHolidays, holidays });
+      if (dates.length === 0) return;
+      const [created] = await db.insertReservations([{
+        customerId, productId: emptyToNull(pickActiveProductId(customerId)), seriesId, date: dates[0],
+        time: rule.time, duration: rule.duration, memo: "", status: "scheduled",
+      }]);
+      setReservations((prev) => [...prev, created]);
+      flash(`${koDate(created.date)} ${created.time}에 1회 추가됨`);
+    } catch { flash("추가 실패, 다시 시도해주세요"); }
+  });
+
   const [timeEditRes, setTimeEditRes] = useState<ReservationLike | null>(null);
+  // 반복 회차의 날짜/시간 변경 범위: 이 회차만 / 이 회차 이후 전체(같은 반복의 예약됨 회차를 같은 만큼 옮김)
+  const [timeEditScope, setTimeEditScope] = useState<"one" | "following">("one");
   const [timeEditForm, setTimeEditForm] = useState<{ date: string; hour: string; minute: string; duration: number | string; title: string }>({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
   const openTimeEdit = (r: ReservationLike) => {
     const [h, m] = r.time.split(":");
     setTimeEditRes(r);
+    setTimeEditScope("one");
     setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50, title: r.type === "misc" ? (r.memo || "") : "" });
   };
   const saveTimeEdit = async () => {
@@ -1247,14 +1344,33 @@ export default function PTMemberManager() {
     try {
       const isMisc = timeEditRes.type === "misc";
       if (isMisc && !timeEditForm.title.trim()) { flash("제목을 입력해주세요"); return; }
-      const updated = await db.updateReservation(timeEditRes.id, {
-        date: timeEditForm.date,
-        time: `${timeEditForm.hour}:${timeEditForm.minute}`,
-        duration: Number(timeEditForm.duration) || 50,
-        ...(isMisc ? { memo: timeEditForm.title.trim() } : {}),
-      });
-      setReservations((prev) => prev.map((r) => (r.id === timeEditRes.id ? updated : r)));
-      flash("예약 일정이 변경됨");
+      const newTime = `${timeEditForm.hour}:${timeEditForm.minute}`;
+      const newDuration = Number(timeEditForm.duration) || 50;
+      if (!isMisc && timeEditScope === "following" && timeEditRes.seriesId) {
+        // 이 회차 이후 전체: 같은 반복의 "예약됨" 회차들을 날짜 차이만큼 옮기고 시간/길이를 맞춘다(완료/노쇼/취소는 그대로).
+        const shift = daysBetween(timeEditForm.date, timeEditRes.date);
+        const targets = reservations.filter((r) => r.seriesId === timeEditRes.seriesId && r.date >= timeEditRes.date && r.status === "scheduled");
+        const updatedRows = await Promise.all(targets.map((r) =>
+          db.updateReservation(r.id, { date: addDays(r.date, shift), time: newTime, duration: newDuration })));
+        setReservations((prev) => prev.map((r) => updatedRows.find((u) => u.id === r.id) || r));
+        // 새 방식 반복이면 규칙도 맞춰 둔다(나중에 연장할 때 바뀐 요일/시간으로 이어지도록).
+        const rule = seriesRules.find((s) => s.id === timeEditRes.seriesId);
+        if (rule) {
+          const weekdays = rule.weekdays.map((w) => (((w + shift) % 7) + 7) % 7);
+          const updatedRule = await db.updateReservationSeries(rule.id, { weekdays, time: newTime, duration: newDuration });
+          setSeriesRules((cur) => cur.map((s) => (s.id === rule.id ? updatedRule : s)));
+        }
+        flash(`이후 ${updatedRows.length}회차 일정이 변경됨`);
+      } else {
+        const updated = await db.updateReservation(timeEditRes.id, {
+          date: timeEditForm.date,
+          time: newTime,
+          duration: newDuration,
+          ...(isMisc ? { memo: timeEditForm.title.trim() } : {}),
+        });
+        setReservations((prev) => prev.map((r) => (r.id === timeEditRes.id ? updated : r)));
+        flash("예약 일정이 변경됨");
+      }
     } catch { flash("변경 실패, 다시 시도해주세요"); }
     setTimeEditRes(null);
   };
@@ -2375,10 +2491,44 @@ export default function PTMemberManager() {
             setProducts((cur) => [...cur, product]);
             // 재등록으로 새 이용권이 생겼으니, 이전 이용권 소진으로 발 묶여 있던 예약됨 상태의 예약을 바로 이어준다.
             await reconnectScheduledReservations(reservations, [...products, product]);
+            offerSeriesExtension(customer.id, [...products, product]);
             setSalePrefill(null);
           }}
           flash={flash}
         />
+      )}
+
+      {recurringSheet && (() => {
+        const info = unbookedSessions(recurringSheet.customerId, products, reservations);
+        return (
+          <RecurringBookingSheet
+            mode={recurringSheet.mode}
+            customerName={customers.find((c) => c.id === recurringSheet.customerId)?.name || "고객"}
+            remaining={info.remaining}
+            scheduled={info.scheduled}
+            unbooked={info.unbooked}
+            initialStartDate={recurringSheet.startDate}
+            initialRule={recurringSheet.rule}
+            intro={recurringSheet.intro}
+            onConfirm={confirmRecurring}
+            onClose={() => setRecurringSheet(null)}
+          />
+        );
+      })()}
+
+      {seriesAppendPrompt && (
+        <div className="ptm-overlay" onClick={() => setSeriesAppendPrompt(null)}>
+          <div className="ptm-sheet" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-title" style={{ marginBottom: 8 }}>반복 일정 끝에 1회 추가할까요?</div>
+            <div className="ptm-no-product-msg" style={{ marginTop: 0 }}>
+              취소한 회차만큼 아직 예약 안 된 횟수가 1회 늘었어요. 같은 요일·시간으로 마지막 회차 다음에 1회를 이어서 잡을 수 있어요.
+            </div>
+            <div className="ptm-row2">
+              <button className="ptm-save-btn" style={{ marginTop: 0 }} onClick={() => { appendOneToSeries(seriesAppendPrompt.seriesId, seriesAppendPrompt.customerId); setSeriesAppendPrompt(null); }}>1회 추가</button>
+              <button className="ptm-series-btn ghost" onClick={() => setSeriesAppendPrompt(null)}>안 함</button>
+            </div>
+          </div>
+        </div>
       )}
 
       {linkSheet && (
@@ -2960,6 +3110,12 @@ export default function PTMemberManager() {
                 {resForm.repeat !== "none" && (
                   <div className="ptm-discount-note">{repeatLabel[resForm.repeat]} 간격으로 총 {Math.max(1, Number(resForm.repeatCount) || 1)}회 예약이 등록돼요</div>
                 )}
+                <button
+                  className="ptm-series-btn ghost ptm-rec-open"
+                  onClick={() => openRecurringFor(resSheetCustomer.id, resForm.date, resForm.time, Number(resForm.duration) || 50)}
+                >
+                  ↻ 잔여 횟수만큼 반복 예약 (요일 선택 · 아직 예약 안 된 {unbookedSessions(resSheetCustomer.id, products, reservations).unbooked}회)
+                </button>
               </>
             )}
             {reservations.filter((r) => r.productId === resSheetProduct.id).length === 0 ? (
@@ -3103,6 +3259,17 @@ export default function PTMemberManager() {
             </div>
             {quickForm.repeat !== "none" && (
               <div className="ptm-discount-note">{repeatLabel[quickForm.repeat]} 간격으로 총 {Math.max(1, Number(quickForm.repeatCount) || 1)}회 예약이 등록돼요</div>
+            )}
+            {!quickIsMisc && !quickIsNew && quickForm.customerId && (
+              <button
+                className="ptm-series-btn ghost ptm-rec-open"
+                onClick={() => {
+                  openRecurringFor(quickForm.customerId, quickForm.date, quickForm.time, Number(quickForm.duration) || 50);
+                  setShowQuickAdd(false);
+                }}
+              >
+                ↻ 잔여 횟수만큼 반복 예약 (요일 선택 · 아직 예약 안 된 {unbookedSessions(quickForm.customerId, products, reservations).unbooked}회)
+              </button>
             )}
             {!quickIsMisc && (
               <div className="ptm-field"><label>메모</label>
@@ -3390,6 +3557,14 @@ export default function PTMemberManager() {
             <div className="ptm-field"><label>진행 시간(분) — 50분이 기본이지만 직접 바꿀 수 있어요</label>
               <input type="number" min="1" onFocus={(e) => e.target.select()} value={timeEditForm.duration} onChange={(e) => setTimeEditForm({ ...timeEditForm, duration: e.target.value })} placeholder="50" />
             </div>
+            {timeEditRes.type !== "misc" && timeEditRes.seriesId && (
+              <div className="ptm-field"><label>반복 예약 — 바꿀 범위</label>
+                <div className="ptm-type-toggle">
+                  <button className={`ptm-type-btn ${timeEditScope === "one" ? "active" : ""}`} onClick={() => setTimeEditScope("one")}>이 회차만</button>
+                  <button className={`ptm-type-btn ${timeEditScope === "following" ? "active" : ""}`} onClick={() => setTimeEditScope("following")}>이 회차 이후 전체</button>
+                </div>
+              </div>
+            )}
             <button className="ptm-save-btn" onClick={saveTimeEdit}>저장</button>
           </div>
         </div>

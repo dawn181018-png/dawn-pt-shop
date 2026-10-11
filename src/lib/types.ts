@@ -157,3 +157,14 @@ export interface LessonDelegation {
   delegateUserId: string | null; // 로그인 링크를 만들 때 연결되는 대리 계정
   createdAt?: number;
 }
+
+// 잔여 횟수 기준 반복예약의 규칙. 회차(reservations)의 seriesId가 이 id를 가리킨다.
+export interface ReservationSeries {
+  id: string;
+  customerId: string;
+  weekdays: number[]; // 0=일 ~ 6=토
+  time: string; // HH:MM
+  duration: number;
+  skipHolidays: boolean;
+  createdAt?: number;
+}
