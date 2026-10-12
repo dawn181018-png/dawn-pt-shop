@@ -154,7 +154,9 @@ create policy "renewal_forecasts_owner_all" on renewal_forecasts
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.customers to authenticated;
 grant select, insert, update, delete on public.catalog_items to authenticated;
-grant select, insert, update, delete on public.products to authenticated;
+grant select, insert, update on public.products to authenticated;
+-- 이용권은 앱 계정으로 완전 삭제할 수 없다(2026-10-13) — 지울 땐 판매내역의 "삭제(복구 가능)" = delete_product 함수만 쓴다.
+revoke delete on public.products from anon, authenticated;
 grant select, insert, update, delete on public.reservations to authenticated;
 grant select, insert, update, delete on public.payroll_settings to authenticated;
 grant select, insert, update, delete on public.renewal_forecasts to authenticated;
