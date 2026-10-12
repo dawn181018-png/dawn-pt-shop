@@ -4,7 +4,7 @@
 // 연다 — 예약 생성/수정/세션 차감 로직은 이 파일에 없다.
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, Plus, Check, NotebookPen } from "lucide-react";
 import { addDays } from "@/lib/formatUtils";
 import type { HolidayMap } from "@/lib/holidays";
@@ -41,11 +41,16 @@ const shiftYm = (ym: string, delta: number) => {
 };
 const lastDayOf = (ym: string) => addDays(`${shiftYm(ym, 1)}-01`, -1);
 const dowOf = (d: string) => new Date(`${d}T00:00:00`).getDay();
+// 현재 시각(하루 중 분). 30초마다 다시 확인해 "지금" 선을 옮긴다. 서버에서 그릴 땐 -1(표시 안 함).
+const subscribeClock = (onChange: () => void) => { const id = setInterval(onChange, 30000); return () => clearInterval(id); };
+const nowMinute = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes(); };
+const useNowMinute = () => useSyncExternalStore(subscribeClock, nowMinute, () => -1);
 
 export default function MobileMonthSchedule({ items, holidays, todayStr, onMonthChange, onSelect, onAdd }: MobileMonthScheduleProps) {
   const [month, setMonth] = useState(todayStr.slice(0, 7));
   const [selected, setSelected] = useState(todayStr);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+  const now = useNowMinute();
 
   const goMonth = (ym: string) => {
     setMonth(ym);
@@ -134,28 +139,49 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
       {dayItems.length === 0 ? (
         <div className="ptm-mcal-empty">일정이 없어요</div>
       ) : (
-        dayItems.map((r) => (
-          <button key={r.id} className={`ptm-mcal-item ${r.status} ${r.type}`} onClick={(e) => onSelect(r.id, e.clientX, e.clientY)}>
-            <span className="ptm-mcal-item-bar" />
-            <span className="ptm-mcal-item-main">
-              <span className="ptm-mcal-item-title">
-                {r.title}
-                <span className="ptm-mcal-kind">{r.type === "misc" ? "기타" : "PT"}</span>
-              </span>
-              <span className="ptm-mcal-item-sub">
-                {r.status === "done" && <span className="ptm-mcal-done"><Check size={12} /> 완료{r.signed ? " · 서명" : ""}</span>}
-                {r.status === "noshow" && <span className="ptm-noshow-mark" style={{ fontSize: 11.5 }}>NO SHOW</span>}
-                {r.status === "cancelled" && <span>취소</span>}
-                {r.status === "scheduled" && r.subtitle && <span>{r.subtitle}</span>}
-                {r.hasNote && <span className="ptm-mcal-note"><NotebookPen size={12} /> 운동일지</span>}
-              </span>
-            </span>
-            <span className="ptm-mcal-item-time">
-              <span>{r.time}</span>
-              <span className="ptm-mcal-item-end">{fromMin(toMin(r.time) + (r.duration || 50))}</span>
-            </span>
-          </button>
-        ))
+        (() => {
+          // 오늘을 볼 때: 지금 시각 위치에 빨간 "지금" 선, 진행 중인 레슨 표시, 시간이 지났는데 아직 완료/노쇼 처리를
+          // 안 한 레슨은 "처리 전", 완료/노쇼/취소는 흐리게(남은 레슨이 눈에 띄도록). 지난 날짜도 처리 전 표시.
+          const isToday = selected === todayStr && now >= 0;
+          const isPastDay = selected < todayStr;
+          let nowShown = false;
+          const nowLine = <div key="now" className="ptm-mcal-now"><span>지금 {fromMin(now)}</span></div>;
+          const rows = dayItems.map((r) => {
+            const start = toMin(r.time), end = start + (r.duration || 50);
+            const before = isToday && !nowShown && start > now ? (nowShown = true, nowLine) : null;
+            const inProgress = isToday && r.status === "scheduled" && start <= now && now < end;
+            const overdue = r.status === "scheduled" && (isPastDay || (isToday && end <= now));
+            const finished = r.status !== "scheduled";
+            return (
+              <Fragment key={r.id}>
+                {before}
+                <button className={`ptm-mcal-item ${r.status} ${r.type}${finished ? " finished" : ""}${inProgress ? " in-progress" : ""}`} onClick={(e) => onSelect(r.id, e.clientX, e.clientY)}>
+                  <span className="ptm-mcal-item-bar" />
+                  <span className="ptm-mcal-item-main">
+                    <span className="ptm-mcal-item-title">
+                      {r.title}
+                      <span className="ptm-mcal-kind">{r.type === "misc" ? "기타" : "PT"}</span>
+                    </span>
+                    <span className="ptm-mcal-item-sub">
+                      {inProgress && <span className="ptm-mcal-live">진행 중</span>}
+                      {overdue && r.type !== "misc" && <span className="ptm-mcal-overdue">처리 전</span>}
+                      {r.status === "done" && <span className="ptm-mcal-done"><Check size={12} /> 완료{r.signed ? " · 서명" : ""}</span>}
+                      {r.status === "noshow" && <span className="ptm-noshow-mark" style={{ fontSize: 11.5 }}>NO SHOW</span>}
+                      {r.status === "cancelled" && <span>취소</span>}
+                      {r.status === "scheduled" && r.subtitle && <span>{r.subtitle}</span>}
+                      {r.hasNote && <span className="ptm-mcal-note"><NotebookPen size={12} /> 운동일지</span>}
+                    </span>
+                  </span>
+                  <span className="ptm-mcal-item-time">
+                    <span>{r.time}</span>
+                    <span className="ptm-mcal-item-end">{fromMin(end)}</span>
+                  </span>
+                </button>
+              </Fragment>
+            );
+          });
+          return isToday && !nowShown ? [...rows, nowLine] : rows;
+        })()
       )}
     </div>
   );
