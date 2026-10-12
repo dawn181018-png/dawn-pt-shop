@@ -123,21 +123,27 @@ alter table payroll_settings enable row level security;
 alter table renewal_forecasts enable row level security;
 
 -- ---------- RLS 정책: 본인(owner_id) 데이터만 CRUD 가능 ----------
+drop policy if exists "customers_owner_all" on customers;
 create policy "customers_owner_all" on customers
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+drop policy if exists "catalog_items_owner_all" on catalog_items;
 create policy "catalog_items_owner_all" on catalog_items
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+drop policy if exists "products_owner_all" on products;
 create policy "products_owner_all" on products
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+drop policy if exists "reservations_owner_all" on reservations;
 create policy "reservations_owner_all" on reservations
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+drop policy if exists "payroll_settings_owner_all" on payroll_settings;
 create policy "payroll_settings_owner_all" on payroll_settings
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
+drop policy if exists "renewal_forecasts_owner_all" on renewal_forecasts;
 create policy "renewal_forecasts_owner_all" on renewal_forecasts
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
@@ -231,6 +237,7 @@ create index if not exists idx_contract_signatures_product on contract_signature
 
 alter table contract_signatures enable row level security;
 
+drop policy if exists "contract_signatures_owner_all" on contract_signatures;
 create policy "contract_signatures_owner_all" on contract_signatures
   for all using (owner_id = auth.uid()) with check (owner_id = auth.uid());
 
