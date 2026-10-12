@@ -466,6 +466,32 @@
 .ptm-mcal-item.in-progress { background:rgba(59,111,224,0.08); border-radius:8px; }
 .ptm-mcal-live { color:var(--amber); font-weight:700; }
 .ptm-mcal-overdue { color:var(--coral); font-weight:700; }
+/* 모바일 시간표: 30분 빈 칸(연하게, 누르면 그 시간 예약) 위에 일정 카드를 시작 시각·길이대로 겹쳐 그린다 */
+.ptm-mtl-scroll { --mtl-gutter:40px; max-height:62vh; overflow-y:auto; border-top:1px solid var(--line); -webkit-overflow-scrolling:touch; }
+.ptm-mtl { position:relative; margin:8px 0; }
+.ptm-mtl-slot { position:absolute; left:0; right:0; border-top:1px dashed rgba(221,227,238,0.55); cursor:pointer; }
+.ptm-mtl-slot.hour { border-top:1px solid var(--line); }
+.ptm-mtl-slot.past { background:rgba(100,116,139,0.045); }
+.ptm-mtl-slot:active { background:rgba(59,111,224,0.10); }
+.ptm-mtl-hour { position:absolute; left:2px; top:-7px; font-size:10.5px; color:var(--ink-dim); background:var(--panel); padding-right:4px; line-height:1.2; }
+.ptm-mtl-item { position:absolute; z-index:1; display:flex; flex-direction:column; gap:2px; padding:4px 6px 4px 8px; border:none; border-left:4px solid var(--amber); border-radius:6px; background:#e7eefc; font:inherit; color:var(--ink); text-align:left; cursor:pointer; overflow:hidden; }
+.ptm-mtl-item.new-customer { border-left-color:var(--teal); background:#e2f5ea; }
+.ptm-mtl-item.misc { border-left-color:var(--slate); background:#eceff3; }
+.ptm-mtl-item.cancelled { border-left-color:var(--line); background:var(--panel-2); }
+.ptm-mtl-item.cancelled .ptm-mtl-item-title { text-decoration:line-through; color:var(--ink-dim); }
+.ptm-mtl-item.finished { opacity:0.55; }
+.ptm-mtl-item.in-progress { outline:2px solid var(--amber); outline-offset:-2px; }
+.ptm-mtl-item.new-customer.in-progress { outline-color:var(--teal); }
+.ptm-mtl-item.compact { flex-direction:row; align-items:center; gap:6px; padding-top:2px; padding-bottom:2px; }
+.ptm-mtl-item-head { display:flex; align-items:center; gap:5px; min-width:0; }
+.ptm-mtl-item-title { font-size:14px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.ptm-mtl-new { font-size:9.5px; font-weight:800; letter-spacing:0.3px; color:#fff; background:var(--teal); border-radius:4px; padding:1px 4px; flex-shrink:0; }
+.ptm-mtl-item-time { margin-left:auto; font-size:11px; color:var(--ink-dim); font-weight:600; flex-shrink:0; padding-left:4px; }
+.ptm-mtl-item.compact .ptm-mtl-item-time { display:none; }
+.ptm-mtl-item .ptm-mcal-item-sub { font-size:11.5px; gap:6px; flex-wrap:nowrap; white-space:nowrap; overflow:hidden; }
+.ptm-mtl-now { position:absolute; left:var(--mtl-gutter); right:0; height:0; border-top:2px solid var(--coral); z-index:2; pointer-events:none; }
+.ptm-mtl-now::before { content:""; position:absolute; left:-5px; top:-6px; width:10px; height:10px; border-radius:50%; background:var(--coral); }
+.ptm-mtl-now span { position:absolute; left:calc(-1 * var(--mtl-gutter)); top:-8px; font-size:10.5px; font-weight:700; color:var(--coral); background:var(--panel); padding-right:2px; }
 
 /* ---- 휴대폰 매출 계획: 카드 목록 (640px 이하에서만 렌더) ---- */
 @media (max-width:640px) { .ptm-pay-grid.ptm-fc-summary { grid-template-columns:repeat(2,1fr); } }

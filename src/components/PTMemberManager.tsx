@@ -26,7 +26,7 @@ import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
-import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage } from "@/lib/productUtils";
+import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage, isNewCustomer } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 import "./ptm.css";
 
@@ -1578,11 +1578,17 @@ export default function PTMemberManager() {
     });
   }, [reservations, products, customers, archivedProducts, archivedCustomers]);
 
+  // 모바일 시간표의 신규 고객 색 구분용 — 판단 기준은 productUtils.isNewCustomer 한 곳(보관된 이용권까지 포함해서 본다).
+  const newCustomerIds = useMemo(() => {
+    const all = [...products, ...archivedProducts];
+    return new Set([...customers, ...archivedCustomers].filter((c) => isNewCustomer(c.id, all)).map((c) => c.id));
+  }, [customers, archivedCustomers, products, archivedProducts]);
   const mobileScheduleItems = useMemo<MobileScheduleItem[]>(() => allReservations.map((r) => ({
     id: r.id, date: r.date, time: r.time, duration: r.duration || 50, status: r.status, type: r.type,
     title: r.customerName, subtitle: r.type === "misc" ? "" : r.productName,
     signed: !!r.signatureUrl, hasNote: !!(r.workoutNote || "").trim(),
-  })), [allReservations]);
+    isNewCustomer: !!r.customerId && newCustomerIds.has(r.customerId),
+  })), [allReservations, newCustomerIds]);
   // 모바일 목록에서 일정을 누르면 PC 그리드에서 블록을 누를 때와 똑같은 기존 예약 메뉴를 연다.
   const openReservationMenu = (id: string, x: number, y: number) => {
     const r = allReservations.find((x) => x.id === id);
@@ -1913,7 +1919,7 @@ export default function PTMemberManager() {
           todayStr={today()}
           onMonthChange={loadMonthHolidays}
           onSelect={openReservationMenu}
-          onAdd={(date) => { resetQuickAddState(); setQuickForm((f) => ({ ...f, date })); setShowQuickAdd(true); }}
+          onAdd={(date, time) => { resetQuickAddState(); setQuickForm((f) => ({ ...f, date, ...(time ? { time } : {}) })); setShowQuickAdd(true); }}
         />
       )}
 
