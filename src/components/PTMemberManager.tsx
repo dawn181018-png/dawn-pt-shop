@@ -144,6 +144,8 @@ function nameGroup(name: string): string {
   const chosung = CHOSUNG_LIST[Math.floor((ch.charCodeAt(0) - 0xac00) / 588)];
   return CHOSUNG_MERGE[chosung] || chosung;
 }
+// 그래프 금액 눈금을 짧게: 12,000,000 → "1,200만" (긴 숫자가 왼쪽에서 잘려 보이지 않게)
+const fmtWonShort = (v: number): string => (Math.abs(v) >= 10000 ? `${Math.round(v / 10000).toLocaleString()}만` : String(v));
 const paymentMethodLabel: Record<string, string> = { card: "카드", cash: "현금", transfer: "계좌이체" };
 const urgencyRank: Record<string, number> = { critical: 0, warn: 1, ok: 2 };
 
@@ -2732,7 +2734,7 @@ export default function PTMemberManager() {
                 <BarChart data={statsTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
-                  <YAxis stroke="#8a94a6" fontSize={11} width={40} />
+                  <YAxis stroke="#8a94a6" fontSize={11} width={52} tickFormatter={fmtWonShort} />
                   <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="regRevenue" name="등록 매출(결제 기준)" radius={[4, 4, 0, 0]}>
                     {statsTrend.map((entry, idx) => <Cell key={idx} fill={idx === 11 ? "#3b6fe0" : "#1aa35a"} />)}
@@ -2746,7 +2748,7 @@ export default function PTMemberManager() {
                 <BarChart data={statsTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
-                  <YAxis stroke="#8a94a6" fontSize={11} width={40} />
+                  <YAxis stroke="#8a94a6" fontSize={11} width={52} tickFormatter={fmtWonShort} />
                   <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
                     {statsTrend.map((entry, idx) => <Cell key={idx} fill={idx === 11 ? "#3b6fe0" : "#7c6fd6"} />)}
@@ -2773,7 +2775,7 @@ export default function PTMemberManager() {
                 <BarChart data={statsTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
-                  <YAxis stroke="#8a94a6" fontSize={11} width={40} />
+                  <YAxis stroke="#8a94a6" fontSize={11} width={52} tickFormatter={fmtWonShort} />
                   <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="newRevenue" name="신규" stackId="a" radius={[4, 4, 0, 0]} fill="#3b6fe0" />
                   <Bar dataKey="renewRevenue" name="재등록" stackId="a" fill="#7c6fd6" />
@@ -2959,7 +2961,7 @@ export default function PTMemberManager() {
                 <BarChart data={trend6}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e6ee" vertical={false} />
                   <XAxis dataKey="label" stroke="#8a94a6" fontSize={11} />
-                  <YAxis stroke="#8a94a6" fontSize={11} width={40} />
+                  <YAxis stroke="#8a94a6" fontSize={11} width={52} tickFormatter={fmtWonShort} />
                   <Tooltip contentStyle={{ background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8, color: "#1f2937" }} formatter={(v) => Number(v ?? 0).toLocaleString() + "원"} />
                   <Bar dataKey="매출" fill="#3b6fe0" radius={[4, 4, 0, 0]} />
                 </BarChart>
