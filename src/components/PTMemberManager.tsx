@@ -1015,21 +1015,64 @@ export default function PTMemberManager() {
       flash("양도는 완료됐어요. 화면이 갱신되지 않았다면 새로고침해주세요", 5000);
     }
   };
-  // 이용권 "삭제" 대신 "보관": 행·예약 연결·양도 이력이 모두 남는다. 보관한 이용권은 예전 삭제처럼 잔여·매출
-  // 계산과 예약 선택에서 빠지고, 고객 상세 > 이용권 탭의 "보관된 이용권"에서 복원할 수 있다.
-  const setProductArchived = async (p: Product, archived: boolean) => {
-    try {
-      const updated = await db.setProductArchived(p.id, archived);
-      setProducts((cur) => (archived ? cur.filter((x) => x.id !== p.id) : [...cur, updated]));
-      setArchivedProducts((cur) => (archived ? [...cur, updated] : cur.filter((x) => x.id !== p.id)));
-      flash(archived ? "이용권 보관됨 · 이용권 탭 아래 '보관된 이용권'에서 복원할 수 있어요" : `"${p.name}" 이용권을 복원했어요`, 3000);
-    } catch { flash(archived ? "보관 실패, 다시 시도해주세요" : "복원 실패, 다시 시도해주세요"); }
+  // 판매내역 상품 "삭제"(복구 가능): 행은 지우지 않고 보관 표시(archived_at)를 켠다 — 보관된 이용권은 이미 모든
+  // 화면(잔여·회계·통계·매출 계획·마이페이지·대리 화면·반복예약)에서 빠지므로 제외 조건은 그 한 곳이다.
+  // 누르면 먼저 검사: 사용된 상품·양도 관련 상품은 막고, 연결된 미래 예약/잔여 초과/서명 계약은 경고만 한다.
+  // (같은 검사를 DB 함수 delete_product도 다시 한다.) 예약은 자동으로 지우거나 바꾸지 않는다.
+  const [prodDelete, setProdDelete] = useState<{
+    product: Product; customerName: string; step: 1 | 2; blocked: string | null;
+    linkedRes: Reservation[]; overflow: number; signed: boolean;
+    reasonKind: string; reasonText: string; nameInput: string; saving: boolean;
+  } | null>(null);
+  const [showDeletedSales, setShowDeletedSales] = useState(false);
+  const requestDeleteProduct = async (p: Product) => {
+    const cust = customers.find((c) => c.id === p.customerId);
+    const doneCount = reservations.filter((r) => r.productId === p.id && countsAsUsed(r.status)).length;
+    const used = Math.max(p.usedSessions || 0, doneCount);
+    let blocked: string | null = null;
+    if (used > 0) blocked = `이미 ${used}회 사용된 상품이라 삭제할 수 없습니다. 금액이나 정보 수정이 필요하면 수정 기능을 이용해주세요.`;
+    else if (passTransfers.some((t) => t.sourceProductId === p.id || t.recipientProductId === p.id)) blocked = "양도와 연결된 상품(양도받은 이용권 또는 양도한 원본)은 삭제할 수 없어요.";
+    const linkedRes = reservations
+      .filter((r) => r.productId === p.id && r.status === "scheduled" && r.date >= today())
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+    // 삭제하면 이 고객의 남은 횟수보다 앞으로 잡힌 PT 예약이 많아지는지
+    const remainAfter = products
+      .filter((x) => x.customerId === p.customerId && x.id !== p.id && x.type === "session")
+      .reduce((s, x) => s + Math.max(0, remainingSessions(x)), 0);
+    const futureBookings = reservations.filter((r) => r.customerId === p.customerId && r.type === "pt" && r.status === "scheduled" && r.date >= today()).length;
+    let signed = false;
+    try { signed = (await db.listSignedProductIds()).includes(p.id); } catch { /* 경고용 조회라 실패해도 진행 */ }
+    setProdDelete({
+      product: p, customerName: cust?.name || "", step: 1, blocked, linkedRes,
+      overflow: p.type === "session" ? Math.max(0, futureBookings - remainAfter) : 0, signed,
+      reasonKind: "", reasonText: "", nameInput: "", saving: false,
+    });
   };
-  const requestArchiveProduct = (p: Product) => {
-    const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
-    const lines: string[] = ["목록과 잔여·매출 계산에서 빠지지만 기록(예약·서명·양도 이력)은 모두 그대로 남고 언제든 복원할 수 있어요."];
-    if (upcoming > 0) lines.push(`이 이용권에 잡힌 예정 예약 ${upcoming}건은 그대로 남아요(완료할 때 다른 유효한 이용권으로 차감돼요).`);
-    askConfirm(`"${p.name}" 이용권을 보관할까요? ${lines.join(" ")}`, () => setProductArchived(p, true), "보관");
+  const deleteReasonOf = (d: { reasonKind: string; reasonText: string }) =>
+    d.reasonKind === "기타" ? d.reasonText.trim() ? `기타: ${d.reasonText.trim()}` : "" : d.reasonKind;
+  const confirmDeleteProduct = async () => {
+    if (!prodDelete || prodDelete.saving) return;
+    setProdDelete({ ...prodDelete, saving: true });
+    try {
+      const updated = await db.deleteProductSoft(prodDelete.product.id, deleteReasonOf(prodDelete));
+      setProducts((cur) => cur.filter((x) => x.id !== updated.id));
+      setArchivedProducts((cur) => [...cur.filter((x) => x.id !== updated.id), updated]);
+      setProdDelete(null);
+      flash("삭제 완료. 되돌리려면 삭제된 내역에서 복구하세요", 3500);
+    } catch (e) {
+      setProdDelete((cur) => (cur ? { ...cur, saving: false } : cur));
+      flash(`삭제 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4500);
+    }
+  };
+  const restoreDeletedProduct = (p: Product) => {
+    askConfirm(`"${p.name}"을(를) 복구할까요? 잔여 횟수와 매출 집계에 다시 포함돼요.`, async () => {
+      try {
+        const updated = await db.restoreProduct(p.id);
+        setArchivedProducts((cur) => cur.filter((x) => x.id !== updated.id));
+        setProducts((cur) => [...cur.filter((x) => x.id !== updated.id), updated]);
+        flash(`"${p.name}" 복구됨`, 2500);
+      } catch (e) { flash(`복구 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000); }
+    }, "복구");
   };
   const bumpSession = async (id: string, delta: number) => {
     const p = products.find((x) => x.id === id);
@@ -3114,7 +3157,6 @@ export default function PTMemberManager() {
                               <button className="ptm-icon-btn" title="이용권 양도" onClick={() => setTransferSourceProductId(p.id)}><ArrowRightLeft size={14} /></button>
                             )}
                             <button className="ptm-icon-btn" onClick={() => openEditProduct(p)}><Pencil size={14} /></button>
-                            <button className="ptm-icon-btn" title="보관 (기록은 남고 목록·계산에서만 빠짐)" onClick={() => requestArchiveProduct(p)}><Archive size={14} /></button>
                           </div>
                         </div>
                         <div className="ptm-gauge-row">
@@ -3145,21 +3187,7 @@ export default function PTMemberManager() {
                   })}
                   <button className="ptm-add-product-btn" onClick={() => openNewProduct(cust.id)}><Plus size={14} /> 상품(이용권) 추가</button>
                   {archivedProducts.some((p) => p.customerId === cust.id) && (
-                    <div className="ptm-archived-block">
-                      <div className="ptm-detail-section-title" style={{ margin: "6px 0" }}>보관된 이용권 (잔여·매출 계산에서 빠져 있어요)</div>
-                      {archivedProducts.filter((p) => p.customerId === cust.id).map((p) => (
-                        <div key={p.id} className="ptm-prod-row depleted">
-                          <div className="ptm-prod-top">
-                            <div>
-                              <span className="ptm-prod-name">{p.name}</span>{" "}
-                              <span className="ptm-badge dormant">보관됨</span>
-                              <div className="ptm-pending-sale-sub">{p.type === "session" ? `잔여 ${remainingSessions(p)}/${p.totalSessions}회 · ` : ""}{Number(p.price || 0).toLocaleString()}원</div>
-                            </div>
-                            <button className="ptm-res-btn" onClick={() => setProductArchived(p, false)}><ArchiveRestore size={13} /> 복원</button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <div className="ptm-acct-hint" style={{ marginTop: 8 }}>삭제된 이용권은 판매내역 탭의 “삭제된 내역 보기”에서 볼 수 있고 복구할 수 있어요.</div>
                   )}
                 </div>
               )}
@@ -3186,7 +3214,7 @@ export default function PTMemberManager() {
                         <div className="ptm-table-empty">판매 내역이 없어요</div>
                       ) : (
                         <table className="ptm-table">
-                          <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th></tr></thead>
+                          <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th><th className="ptm-sale-del-col"></th></tr></thead>
                           <tbody>
                             {sortProductsByUsage(custProducts).map((p) => (
                               <tr key={p.id} className="ptm-row-clickable" onClick={() => openEditProduct(p)}>
@@ -3196,12 +3224,43 @@ export default function PTMemberManager() {
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{paymentMethodLabel[p.paymentMethod] || "-"}</td>
                                 <td>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</td>
+                                <td className="ptm-sale-del-col">
+                                  <button className="ptm-sale-del-btn" title="이 판매 건 삭제(복구 가능)" onClick={(e) => { e.stopPropagation(); requestDeleteProduct(p); }}><Trash2 size={14} /></button>
+                                </td>
                               </tr>
                             ))}
                           </tbody>
                         </table>
                       )}
                     </div>
+                    {pendingSales.some((s) => s.customerId === cust.id && s.status === "pending") && (
+                      <div className="ptm-acct-hint" style={{ marginTop: 8 }}>링크 서명 대기 중인 건은 아직 판매가 아니라 삭제 대상이 아니에요 — 위 서명 대기 목록에서 링크를 취소해주세요.</div>
+                    )}
+                    {archivedProducts.some((p) => p.customerId === cust.id) && (
+                      <button className="ptm-sale-deleted-toggle" onClick={() => setShowDeletedSales(!showDeletedSales)}>
+                        {showDeletedSales ? "삭제된 내역 숨기기" : `삭제된 내역 보기 (${archivedProducts.filter((p) => p.customerId === cust.id).length}건)`}
+                      </button>
+                    )}
+                    {showDeletedSales && archivedProducts.some((p) => p.customerId === cust.id) && (
+                      <div className="ptm-table-wrap">
+                        <table className="ptm-table ptm-sale-deleted">
+                          <thead><tr><th>등록일</th><th>상품명</th><th>판매가</th><th>결제금액</th><th>삭제일</th><th>사유</th><th></th></tr></thead>
+                          <tbody>
+                            {archivedProducts.filter((p) => p.customerId === cust.id).map((p) => (
+                              <tr key={p.id}>
+                                <td>{koDate(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
+                                <td>{p.name}</td>
+                                <td>{Number(p.price || 0).toLocaleString()}원</td>
+                                <td>{getPaidAmount(p).toLocaleString()}원</td>
+                                <td>{koDate(toLocalDateStr(new Date(p.deletedAt || p.archivedAt || Date.now())))}</td>
+                                <td>{p.deleteReason || (p.deletedAt ? "-" : "예전 보관")}</td>
+                                <td><button className="ptm-res-btn" onClick={() => restoreDeletedProduct(p)}><ArchiveRestore size={13} /> 복구</button></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </>
                 );
               })()}
@@ -3994,6 +4053,86 @@ export default function PTMemberManager() {
           </div>
         </div>
       )}
+
+      {prodDelete && (() => {
+        const d = prodDelete;
+        const p = d.product;
+        const paid = getPaidAmount(p);
+        const reason = deleteReasonOf(d);
+        const close = () => !d.saving && setProdDelete(null);
+        return (
+          <div className="ptm-overlay" onClick={close}>
+            <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">{d.blocked ? "삭제할 수 없어요" : d.step === 1 ? "판매 건 삭제" : "마지막 확인"}</span>
+                <button className="ptm-icon-btn" onClick={close}><X size={16} /></button>
+              </div>
+              <div className="ptm-acct-edit-who">{d.customerName} · {p.name}</div>
+              {d.blocked ? (
+                <>
+                  <div className="ptm-acct-warn danger">{d.blocked}</div>
+                  <button className="ptm-save-btn" onClick={close}>확인</button>
+                </>
+              ) : d.step === 1 ? (
+                <>
+                  <ul className="ptm-acct-diff">
+                    <li>고객 {d.customerName}</li>
+                    <li>상품 {p.name}{p.type === "session" ? ` · ${p.totalSessions}회` : ""}</li>
+                    <li>판매가 {Number(p.price || 0).toLocaleString()}원 · 결제금액 {paid.toLocaleString()}원</li>
+                    <li>등록일 {p.createdAt ? koDate(toLocalDateStr(new Date(p.createdAt))) : "-"}</li>
+                  </ul>
+                  <div className="ptm-acct-warn">삭제하면 이 고객의 잔여 횟수와 {p.createdAt ? `${new Date(p.createdAt).getMonth() + 1}월` : "이번 달"} 매출에서 빠집니다. 삭제된 내역에서 언제든 복구할 수 있어요.</div>
+                  {d.signed && <div className="ptm-acct-warn danger">서명된 계약서가 있는 건입니다.</div>}
+                  {d.linkedRes.length > 0 && (
+                    <div className="ptm-acct-warn danger">
+                      이 이용권으로 잡힌 앞으로의 예약 {d.linkedRes.length}건은 그대로 남아요. 완료할 때 이 고객의 다른 유효한 이용권에서 차감되고, 없으면 완료가 막혀요.
+                      <ul className="ptm-acct-diff" style={{ margin: "6px 0 0" }}>
+                        {d.linkedRes.slice(0, 8).map((r) => <li key={r.id}>{koDate(r.date)} {r.time}</li>)}
+                        {d.linkedRes.length > 8 && <li>외 {d.linkedRes.length - 8}건</li>}
+                      </ul>
+                    </div>
+                  )}
+                  {d.overflow > 0 && <div className="ptm-acct-warn danger">삭제하면 앞으로 잡힌 PT 예약이 남은 횟수보다 {d.overflow}건 많아져요. 예약은 자동으로 바뀌지 않아요.</div>}
+                  <div className="ptm-field"><label>삭제 사유</label>
+                    <div className="ptm-type-toggle">
+                      {["중복 입력", "잘못 입력", "기타"].map((k) => (
+                        <button key={k} className={`ptm-type-btn ${d.reasonKind === k ? "active" : ""}`} onClick={() => setProdDelete({ ...d, reasonKind: k })}>{k}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {d.reasonKind === "기타" && (
+                    <div className="ptm-field"><label>기타 사유</label>
+                      <input value={d.reasonText} onChange={(e) => setProdDelete({ ...d, reasonText: e.target.value })} placeholder="사유를 적어주세요" />
+                    </div>
+                  )}
+                  <button className="ptm-save-btn ptm-danger-btn" disabled={!reason} onClick={() => setProdDelete({ ...d, step: 2, nameInput: "" })}>
+                    {reason ? "삭제하시겠습니까?" : "삭제 사유를 골라주세요"}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div className="ptm-acct-reason">사유: {reason}</div>
+                  {paid > 0 ? (
+                    <div className="ptm-field"><label>결제금액 {paid.toLocaleString()}원이 있는 건이에요. 확인을 위해 고객 이름 &quot;{d.customerName}&quot;을(를) 그대로 입력해주세요</label>
+                      <input value={d.nameInput} onChange={(e) => setProdDelete({ ...d, nameInput: e.target.value })} placeholder={d.customerName} autoFocus />
+                    </div>
+                  ) : (
+                    <div className="ptm-acct-note">결제금액 0원인 건이에요. 아래 버튼을 한 번 더 누르면 삭제돼요.</div>
+                  )}
+                  <div className="ptm-row2">
+                    <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={d.saving} onClick={() => setProdDelete({ ...d, step: 1 })}>이전</button>
+                    <button className="ptm-save-btn ptm-danger-btn" style={{ marginTop: 0 }}
+                      disabled={d.saving || (paid > 0 && d.nameInput.trim() !== d.customerName.trim())}
+                      onClick={confirmDeleteProduct}>
+                      {d.saving ? "삭제 중..." : "정말 삭제"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {confirmState && (
         <div className="ptm-overlay" onClick={() => setConfirmState(null)}>

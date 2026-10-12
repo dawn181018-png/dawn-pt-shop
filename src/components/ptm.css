@@ -591,6 +591,15 @@
   .ptm-acct-days { grid-template-columns:repeat(4,1fr); }
 }
 
+/* 판매내역 상품 삭제(복구 가능): 붉은 휴지통은 다른 버튼과 떨어진 오른쪽 끝 칸에만 둔다 */
+.ptm-table .ptm-sale-del-col { width:1%; text-align:right; padding-left:28px; }
+.ptm-sale-del-btn { display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px; border:1px solid rgba(224,67,63,0.35); border-radius:8px; background:rgba(224,67,63,0.06); color:var(--coral); cursor:pointer; }
+.ptm-sale-del-btn:hover { background:rgba(224,67,63,0.14); }
+.ptm-sale-deleted-toggle { margin:10px 0 6px; border:none; background:none; color:var(--ink-dim); font:inherit; font-size:12.5px; text-decoration:underline; cursor:pointer; padding:0; }
+.ptm-table.ptm-sale-deleted td { color:var(--ink-dim); background:var(--panel-2); }
+.ptm-save-btn.ptm-danger-btn { background:var(--coral); }
+.ptm-save-btn.ptm-danger-btn:disabled { opacity:0.45; }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }
