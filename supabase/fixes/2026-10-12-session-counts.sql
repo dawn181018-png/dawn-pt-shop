@@ -4,7 +4,7 @@
 --
 -- A) 횟수권 사용 횟수 < (이 이용권으로 완료·노쇼된 예약 수 + 양도로 넘긴 횟수) 인 이용권만,
 --    사용 횟수를 그 합으로 올린다(총 횟수를 넘지 않게). 사용 횟수가 더 많은 이용권(수기 조정분)은 건드리지 않는다.
--- B) 이용권 없이 완료/노쇼된 PT 예약을, 그 레슨 날짜(한국 날짜) 이전에 산 잔여 있는 횟수권 중 가장 먼저 산 것에
+-- B) 이용권 없이 완료/노쇼된 PT 예약을, 그 레슨 날짜 이전에 시작(등록일) 또는 앱에 입력된 잔여 있는 횟수권 중 가장 먼저 산 것에
 --    연결하고 1회 차감한다. 레슨 날짜보다 뒤에 산 이용권밖에 없으면(등록 전 체험) 그대로 둔다.
 --
 -- 되돌리기(필요할 때만):
@@ -50,7 +50,7 @@ with lonely as (
   select r.id as res_id,
     (select p.id from products p
       where p.customer_id = r.customer_id and p.owner_id = r.owner_id and p.type = 'session' and p.archived_at is null
-        and (p.created_at at time zone 'Asia/Seoul')::date <= r.date
+        and least(coalesce(p.start_date, 'infinity'::date), (p.created_at at time zone 'Asia/Seoul')::date) <= r.date
         and p.total_sessions - p.used_sessions > 0
       order by p.created_at asc limit 1) as product_id
   from reservations r
