@@ -68,7 +68,7 @@ export async function updateSession(request: NextRequest) {
     // 대리 레슨 트레이너(role === "delegate")는 /proxy(대리 레슨 전용 화면) 밖으로 나갈 수 없다 —
     // 주소창에 관리자 경로(/ 등)나 마이페이지를 직접 입력해도 /proxy로 되돌린다. (/auth/*는 새 로그인 링크용)
     // 화면 이동만 막는 게 아니라, 데이터 자체도 DB에서 지정 고객/기간으로 제한된다(proxy_* 함수).
-    if (isDelegate && !isProxyPath && !pathname.startsWith("/auth/")) {
+    if (isDelegate && !isProxyPath && !pathname.startsWith("/auth/") && !pathname.startsWith("/api/report-error")) {
       const url = request.nextUrl.clone();
       url.pathname = "/proxy";
       url.search = "";

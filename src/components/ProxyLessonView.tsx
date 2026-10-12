@@ -13,6 +13,7 @@ import {
   type ProxyContext, type ProxyProduct, type ProxyReservation,
 } from "@/lib/proxyDb";
 import { proxyCompleteWithSignature, logoutProxy } from "@/app/proxy/actions";
+import { reportError } from "@/lib/reportError";
 import "@/components/ptm.css";
 
 const weekdayFull = ["일", "월", "화", "수", "목", "금", "토"];
@@ -82,7 +83,9 @@ export default function ProxyLessonView() {
       await reload();
       return true;
     } catch (e) {
-      flash(e instanceof Error ? e.message : "처리 실패, 다시 시도해주세요");
+      const msg = e instanceof Error ? e.message : "처리 실패, 다시 시도해주세요";
+      if (!msg.includes("대리 권한이 없거나")) reportError("대리 레슨 화면", msg);
+      flash(msg);
       await reload();
       return false;
     } finally {

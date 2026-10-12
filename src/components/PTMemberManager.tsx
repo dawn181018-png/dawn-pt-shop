@@ -20,6 +20,7 @@ import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSched
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
 import { createDelegateLoginLink } from "@/app/delegationActions";
 import { signLinkUrl } from "@/lib/pendingSale";
+import { reportError } from "@/lib/reportError";
 import PassTransferModal from "./PassTransferModal";
 import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
@@ -382,6 +383,8 @@ export default function PTMemberManager() {
   // 타이머가 방금 띄운 (더 긴) 안내까지 일찍 지워버린다.
   const [toastTick, setToastTick] = useState<{ seq: number; ms: number }>({ seq: 0, ms: 1800 });
   const flash = (msg: string, ms = 1800) => {
+    // 저장/처리 실패 안내는 사장님이 나중에라도 알 수 있게 서버에 기록하고 이메일로 알린다(5단계 오류 알림).
+    if (msg.includes("실패")) reportError(`관리자 화면 · ${view}`, msg);
     setToast(msg);
     setToastTick((prev) => ({ seq: prev.seq + 1, ms }));
   };
@@ -478,8 +481,9 @@ export default function PTMemberManager() {
         // 아래 자동 재연결은 데이터 불러오기와 별개라, 실패해도 "불러오기 실패" 안내를 띄우지 않는다
         // (다음에 앱을 열 때 다시 시도된다).
         reconnectScheduledReservations(reservationsData, productsData).catch(() => {});
-      } catch {
+      } catch (e) {
         setLoadError(true);
+        reportError("관리자 화면 · 처음 불러오기", e instanceof Error ? e.message : "데이터를 불러오지 못했어요");
       }
       setLoaded(true);
     })();

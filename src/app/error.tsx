@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportError } from "@/lib/reportError";
 
 export default function GlobalError({
   error,
@@ -11,6 +12,7 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     console.error("[app-error-boundary]", error);
+    reportError("화면 오류(흰 화면 대신 다시 시도 화면 표시)", `${error.message}${error.digest ? ` (digest ${error.digest})` : ""}`);
   }, [error]);
 
   return (
