@@ -729,6 +729,8 @@ export default function PTMemberManager() {
       setCustomers((cur) => (archived ? cur.filter((x) => x.id !== c.id) : [...cur, updated]));
       setArchivedCustomers((cur) => (archived ? [...cur, updated] : cur.filter((x) => x.id !== c.id)));
       if (archived) setCustomerDetailId(null);
+      // 마지막 보관 고객을 복원하면 "보관된 고객" 버튼이 사라지므로, 빈 보관 목록에 갇히지 않게 필터를 푼다.
+      if (!archived && quickFilter === "archived" && !archivedCustomers.some((x) => x.id !== c.id)) setQuickFilter(null);
       flash(archived ? "보관됨 · 고객관리의 '보관된 고객'에서 복원할 수 있어요" : `"${c.name}" 고객을 복원했어요`, 3000);
     } catch { flash(archived ? "보관 실패, 다시 시도해주세요" : "복원 실패, 다시 시도해주세요"); }
   };
