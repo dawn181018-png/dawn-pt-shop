@@ -246,7 +246,9 @@ alter table catalog_items add column if not exists period_unit text not null def
 
 -- 데이터 마이그레이션: 기존 "PT n회" 이용권은 위 컬럼 추가 시 이미 기본값 'daily_pt'로 채워지므로
 -- 그대로 두고, "Premium Conditioning" 이용권만 'premium'으로 재분류한다.
-update catalog_items set category = 'premium' where name ilike 'premium%' and category = 'daily_pt';
+-- ※ 이미 운영 DB에 한 번 적용된 일회성 데이터 변경이다. 이 파일을 처음부터 다시 실행하면 그사이 손으로 바꾼
+--   카테고리를 다시 덮어쓸 수 있으므로 주석으로 막아 둔다(새 DB를 처음 만들 때만 필요하면 주석을 풀어 실행).
+-- update catalog_items set category = 'premium' where name ilike 'premium%' and category = 'daily_pt';
 
 -- ---------- 회원용 마이페이지 (customers <-> auth.users 연결) ----------
 -- 회원이 매직링크(OTP)로 로그인했을 때, 어떤 auth 계정이 어떤 customers 행 본인인지 연결하는 컬럼.
