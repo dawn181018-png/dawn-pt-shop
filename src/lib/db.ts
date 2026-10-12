@@ -56,10 +56,6 @@ export async function setCustomerArchived(id: string, archived: boolean): Promis
   const { data: row, error } = await supabase.from("customers").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id).select().single();
   return mapCustomer(must(row, error));
 }
-export async function deleteCustomer(id: string): Promise<void> {
-  const { error } = await supabase.from("customers").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-}
 
 // ---------- products ----------
 export async function listProducts(): Promise<Product[]> {
@@ -81,10 +77,6 @@ export async function updateProduct(id: string, data: Partial<Product>): Promise
 export async function setProductArchived(id: string, archived: boolean): Promise<Product> {
   const { data: row, error } = await supabase.from("products").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id).select().single();
   return mapProduct(must(row, error));
-}
-export async function deleteProduct(id: string): Promise<void> {
-  const { error } = await supabase.from("products").delete().eq("id", id);
-  if (error) throw new Error(error.message);
 }
 // 세션 사용횟수 원자적 증감(DB에서 현재값+delta 계산) — 동시에 여러 건을 처리해도 누락되지 않는다.
 export async function adjustUsedSessions(productId: string, delta: number): Promise<Product> {

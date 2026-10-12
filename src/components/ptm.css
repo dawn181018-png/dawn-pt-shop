@@ -500,6 +500,9 @@
 .ptm-sheet.ptm-fc-menu { max-width:360px; }
 .ptm-fc-menu .ptm-ctx-item { width:100%; text-align:left; }
 
+/* 고객 상세 > 이용권: 보관된 이용권 묶음 */
+.ptm-archived-block { margin-top:14px; padding-top:8px; border-top:1px dashed var(--line); display:flex; flex-direction:column; gap:8px; }
+
 /* ---- 고객 링크 서명 화면 (/sign/[token]) ---- */
 .ptm-sign-root { max-width:560px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
 .ptm-sign-card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:18px; }

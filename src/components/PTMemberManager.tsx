@@ -7,7 +7,7 @@ import { useState, useEffect, useMemo, useRef, useSyncExternalStore } from "reac
 import {
   Plus, Search, Phone, Trash2, Pencil, X, Minus,
   CalendarClock, Check, UserX, Ban, Moon, ChevronLeft, ChevronRight, Users, CalendarDays,
-  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft, CircleX, Forward, Undo2, UserCog,
+  Wallet, Settings2, Tag, Receipt, TrendingUp, Target, ShoppingBag, ArrowRightLeft, CircleX, Forward, Undo2, UserCog, Archive, ArchiveRestore,
 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import * as db from "@/lib/db";
@@ -260,6 +260,19 @@ function layoutDayReservations(dayRes: DisplayReservation[]): LaidOutReservation
 export default function PTMemberManager() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  // 보관(삭제 대신)된 고객/이용권. 화면 목록·계산은 위의 customers/products(보관 안 된 것)만 쓰고, 보관된 것은
+  // 이름 표시와 "보관함 → 복원"에만 쓴다. 고객 보관은 결제 기록을 그대로 두지만(실제로 받은 돈), 이용권 보관은
+  // 잘못 등록/환불 같은 경우라 예전 "삭제"처럼 잔여·매출 계산에서 빠진다(행은 남아 있어 복원 가능).
+  const [archivedCustomers, setArchivedCustomers] = useState<Customer[]>([]);
+  const [archivedProducts, setArchivedProducts] = useState<Product[]>([]);
+  const applyCustomers = (list: Customer[]) => {
+    setCustomers(list.filter((c) => !c.archivedAt));
+    setArchivedCustomers(list.filter((c) => !!c.archivedAt));
+  };
+  const applyProducts = (list: Product[]) => {
+    setProducts(list.filter((p) => !p.archivedAt));
+    setArchivedProducts(list.filter((p) => !!p.archivedAt));
+  };
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loaded, setLoaded] = useState(false);
   // 처음 데이터 불러오기가 실패하면 목록이 전부 비어 "등록된 고객이 없어요"처럼 보여 데이터가 사라진 것으로
@@ -455,8 +468,8 @@ export default function PTMemberManager() {
           db.listRenewalForecasts(),
           db.listPassTransfers(),
         ]);
-        setCustomers(customersData);
-        setProducts(productsData);
+        applyCustomers(customersData);
+        applyProducts(productsData);
         setReservations(reservationsData);
         setCatalog(catalogData);
         setRenewalForecasts(forecastsData);
@@ -690,23 +703,23 @@ export default function PTMemberManager() {
       flash(updated.isDormant ? "휴면 상태로 변경됨 · 매출 계획에서 제외돼요" : "휴면 상태 해제됨");
     } catch { flash("변경 실패, 다시 시도해주세요"); }
   };
-  const removeCustomer = async (id: string) => {
+  // 고객 "삭제" 대신 "보관": 행을 지우지 않아 이용권·예약·서명·운동일지·양도 이력이 모두 그대로 남는다.
+  const setCustomerArchived = async (c: Customer, archived: boolean) => {
     try {
-      await db.deleteCustomer(id); // DB cascade가 관련 products/reservations도 함께 삭제
-      setCustomers(customers.filter((c) => c.id !== id));
-      setProducts(products.filter((p) => p.customerId !== id));
-      setReservations(reservations.filter((r) => r.customerId !== id));
-      flash("고객 삭제됨");
-    } catch { flash("삭제 실패, 다시 시도해주세요"); }
+      const updated = await db.setCustomerArchived(c.id, archived);
+      setCustomers((cur) => (archived ? cur.filter((x) => x.id !== c.id) : [...cur, updated]));
+      setArchivedCustomers((cur) => (archived ? [...cur, updated] : cur.filter((x) => x.id !== c.id)));
+      if (archived) setCustomerDetailId(null);
+      flash(archived ? "보관됨 · 고객관리의 '보관된 고객'에서 복원할 수 있어요" : `"${c.name}" 고객을 복원했어요`, 3000);
+    } catch { flash(archived ? "보관 실패, 다시 시도해주세요" : "복원 실패, 다시 시도해주세요"); }
   };
-  const requestRemoveCustomer = (c: Customer) => {
-    const prodCount = products.filter((p) => p.customerId === c.id).length;
-    const resCount = reservations.filter((r) => r.customerId === c.id).length;
-    const parts = [];
-    if (prodCount > 0) parts.push(`보유 상품 ${prodCount}개`);
-    if (resCount > 0) parts.push(`예약 ${resCount}건`);
-    const suffix = parts.length > 0 ? ` ${parts.join(", ")}도 함께 삭제됩니다.` : "";
-    askConfirm(`"${c.name}" 고객을 삭제할까요?${suffix}`, () => removeCustomer(c.id));
+  const requestArchiveCustomer = (c: Customer) => {
+    const upcoming = reservations.filter((r) => r.customerId === c.id && r.status === "scheduled" && r.date >= today()).length;
+    askConfirm(
+      `"${c.name}" 고객을 보관할까요? 고객 목록에서만 숨겨지고 이용권·결제·예약·서명·운동일지 기록은 모두 그대로 남아요. 언제든 '보관된 고객'에서 복원할 수 있어요.${upcoming > 0 ? ` 앞으로 예정된 예약 ${upcoming}건은 스케줄에 그대로 남아요(필요하면 취소해주세요).` : ""}`,
+      () => setCustomerArchived(c, true),
+      "보관",
+    );
   };
 
   const bulkRows = useMemo(() => {
@@ -799,8 +812,8 @@ export default function PTMemberManager() {
       setPendingSales(list);
       if (gone) {
         const [customersData, productsData] = await Promise.all([db.listCustomers(), db.listProducts()]);
-        setCustomers(customersData);
-        setProducts(productsData);
+        applyCustomers(customersData);
+        applyProducts(productsData);
         await reconnectScheduledReservations(reservations, productsData);
         offerExtensionForNewProducts(products, productsData);
       }
@@ -957,8 +970,8 @@ export default function PTMemberManager() {
       const [customersData, productsData, passTransfersData] = await Promise.all([
         db.listCustomers(), db.listProducts(), db.listPassTransfers(),
       ]);
-      setCustomers(customersData);
-      setProducts(productsData);
+      applyCustomers(customersData);
+      applyProducts(productsData);
       setPassTransfers(passTransfersData);
       // 잔여를 전부 넘겨 소진된 원본 이용권에 묶인 예약, 새 이용권을 받은 수령인의 멈춰 있던 예약을
       // 상품 등록 때와 똑같이 유효한 이용권으로 바로 이어준다(예전엔 앱을 다시 열어야 반영됐다).
@@ -968,36 +981,21 @@ export default function PTMemberManager() {
       flash("양도는 완료됐어요. 화면이 갱신되지 않았다면 새로고침해주세요", 5000);
     }
   };
-  const removeProduct = async (id: string) => {
+  // 이용권 "삭제" 대신 "보관": 행·예약 연결·양도 이력이 모두 남는다. 보관한 이용권은 예전 삭제처럼 잔여·매출
+  // 계산과 예약 선택에서 빠지고, 고객 상세 > 이용권 탭의 "보관된 이용권"에서 복원할 수 있다.
+  const setProductArchived = async (p: Product, archived: boolean) => {
     try {
-      await db.deleteProduct(id);
-      setProducts(products.filter((p) => p.id !== id));
-      // schema.sql상 reservations.product_id는 "on delete set null"이라, 이용권을 지워도 예약 행 자체는
-      // DB에 남고 이용권 연결만 끊긴다. 예전엔 화면에서만 예약을 지워버려 새로고침하면 다시 나타났으므로,
-      // DB에 실제로 남은 상태(예약, 함께 삭제된 양도 이력)를 다시 읽어와 화면과 DB를 일치시킨다.
-      try {
-        const [reservationsData, passTransfersData] = await Promise.all([db.listReservations(), db.listPassTransfers()]);
-        setReservations(reservationsData);
-        setPassTransfers(passTransfersData);
-      } catch {
-        setReservations(reservations.map((r) => (r.productId === id ? { ...r, productId: null } : r)));
-      }
-      flash("상품 삭제됨");
-    } catch { flash("삭제 실패, 다시 시도해주세요"); }
+      const updated = await db.setProductArchived(p.id, archived);
+      setProducts((cur) => (archived ? cur.filter((x) => x.id !== p.id) : [...cur, updated]));
+      setArchivedProducts((cur) => (archived ? [...cur, updated] : cur.filter((x) => x.id !== p.id)));
+      flash(archived ? "이용권 보관됨 · 이용권 탭 아래 '보관된 이용권'에서 복원할 수 있어요" : `"${p.name}" 이용권을 복원했어요`, 3000);
+    } catch { flash(archived ? "보관 실패, 다시 시도해주세요" : "복원 실패, 다시 시도해주세요"); }
   };
-  const requestRemoveProduct = (p: Product) => {
-    // DB상 예약은 이용권이 지워져도 행이 남고 연결만 끊기며(on delete set null), 양도 이력은 함께 지워진다
-    // (on delete cascade). 안내 문구를 실제로 일어나는 일과 똑같이 맞춘다.
-    const resCount = reservations.filter((r) => r.productId === p.id).length;
-    const doneCount = reservations.filter((r) => r.productId === p.id && r.status === "done").length;
-    const transferCount = passTransfers.filter((t) => t.sourceProductId === p.id || t.recipientProductId === p.id).length;
-    const lines: string[] = [];
-    if (p.type === "session") lines.push(`잔여 ${Math.max(0, remainingSessions(p))}회는 사라집니다.`);
-    if (resCount > 0) lines.push(`관련 예약 ${resCount}건은 기록으로 남고 이용권 연결만 끊어집니다.`);
-    if (doneCount > 0) lines.push(`이 이용권으로 완료한 수업 ${doneCount}건은 급여(세션 매출) 계산에서 빠집니다.`);
-    if (transferCount > 0) lines.push(`이 이용권의 양도 이력 ${transferCount}건은 함께 삭제됩니다.`);
-    const suffix = lines.length > 0 ? ` ${lines.join(" ")}` : "";
-    askConfirm(`"${p.name}" 상품을 삭제할까요?${suffix}`, () => removeProduct(p.id));
+  const requestArchiveProduct = (p: Product) => {
+    const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
+    const lines: string[] = ["목록과 잔여·매출 계산에서 빠지지만 기록(예약·서명·양도 이력)은 모두 그대로 남고 언제든 복원할 수 있어요."];
+    if (upcoming > 0) lines.push(`이 이용권에 잡힌 예정 예약 ${upcoming}건은 그대로 남아요(완료할 때 다른 유효한 이용권으로 차감돼요).`);
+    askConfirm(`"${p.name}" 이용권을 보관할까요? ${lines.join(" ")}`, () => setProductArchived(p, true), "보관");
   };
   const bumpSession = async (id: string, delta: number) => {
     const p = products.find((x) => x.id === id);
@@ -1498,7 +1496,7 @@ export default function PTMemberManager() {
         <div className="ptm-actions">
           <button className={`ptm-icon-btn ${c.isDormant ? "active" : ""}`} title={c.isDormant ? "휴면 해제" : "휴면 상태로 표시 (매출 계획에서 제외)"} onClick={(e) => { e.stopPropagation(); toggleDormant(c); }}><Moon size={14} /></button>
           <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); openEditCustomer(c); }}><Pencil size={14} /></button>
-          <button className="ptm-icon-btn" onClick={(e) => { e.stopPropagation(); requestRemoveCustomer(c); }}><Trash2 size={14} /></button>
+          <button className="ptm-icon-btn" title="보관 (기록은 남고 목록에서만 숨김)" onClick={(e) => { e.stopPropagation(); requestArchiveCustomer(c); }}><Archive size={14} /></button>
         </div>
       </div>
     </div>
@@ -1516,8 +1514,8 @@ export default function PTMemberManager() {
           totalSessions: null,
         };
       }
-      const product = products.find((p) => p.id === r.productId);
-      const customer = customers.find((c) => c.id === r.customerId);
+      const product = products.find((p) => p.id === r.productId) || archivedProducts.find((p) => p.id === r.productId);
+      const customer = customers.find((c) => c.id === r.customerId) || archivedCustomers.find((c) => c.id === r.customerId);
       return {
         ...r,
         customerName: customer ? customer.name : "(삭제된 고객)",
@@ -1527,7 +1525,7 @@ export default function PTMemberManager() {
         totalSessions: product && product.type === "session" ? product.totalSessions : null,
       };
     });
-  }, [reservations, products, customers]);
+  }, [reservations, products, customers, archivedProducts, archivedCustomers]);
 
   const mobileScheduleItems = useMemo<MobileScheduleItem[]>(() => allReservations.map((r) => ({
     id: r.id, date: r.date, time: r.time, duration: r.duration || 50, status: r.status, type: r.type,
@@ -1796,10 +1794,10 @@ export default function PTMemberManager() {
     let rows = products
       .filter((p) => (p.createdAt || 0) >= startTs && (p.createdAt || 0) <= endTs)
       .map((p) => {
-        const cust = customers.find((c) => c.id === p.customerId);
+        const cust = customers.find((c) => c.id === p.customerId) || archivedCustomers.find((c) => c.id === p.customerId);
         return {
           ...p,
-          customerName: cust ? cust.name : "(삭제된 고객)",
+          customerName: cust ? `${cust.name}${cust.archivedAt ? " (보관)" : ""}` : "(삭제된 고객)",
           phone: cust ? cust.phone : "",
           isNew: firstPurchaseAt[p.customerId] === p.createdAt,
         };
@@ -1807,7 +1805,7 @@ export default function PTMemberManager() {
     if (acctMethodFilter !== "all") rows = rows.filter((r) => r.paymentMethod === acctMethodFilter);
     if (acctQuery.trim()) rows = rows.filter((r) => r.customerName.includes(acctQuery) || (r.phone || "").includes(acctQuery));
     return rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }, [products, customers, acctRange, acctMethodFilter, acctQuery, firstPurchaseAt]);
+  }, [products, customers, archivedCustomers, acctRange, acctMethodFilter, acctQuery, firstPurchaseAt]);
 
   const acctStats = useMemo(() => {
     const totalAmount = acctRows.reduce((s, r) => s + Number(r.price || 0), 0);
@@ -2014,6 +2012,9 @@ export default function PTMemberManager() {
             <button className={`ptm-quickfilter-btn ${quickFilter === "remain10" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "remain10" ? null : "remain10")}>#잔여 10회 미만</button>
             <button className={`ptm-quickfilter-btn ${quickFilter === "inactive10" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "inactive10" ? null : "inactive10")}>#미방문 10일 이상</button>
             <button className={`ptm-quickfilter-btn ${quickFilter === "inactive20" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "inactive20" ? null : "inactive20")}>#미방문 20일 이상</button>
+            {archivedCustomers.length > 0 && (
+              <button className={`ptm-quickfilter-btn ${quickFilter === "archived" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "archived" ? null : "archived")}>#보관된 고객 {archivedCustomers.length}명</button>
+            )}
             {quickFilter && <button className="ptm-quickfilter-clear" onClick={() => setQuickFilter(null)}>필터 해제</button>}
           </div>
           <div className="ptm-toolbar">
@@ -2028,7 +2029,24 @@ export default function PTMemberManager() {
             <button className="ptm-add ghost" onClick={() => { setBulkText(""); setShowBulkImport(true); }}><Users size={16} /> 일괄 등록</button>
           </div>
 
-          {!loaded ? (
+          {quickFilter === "archived" ? (
+            <div className="ptm-list">
+              <div className="ptm-no-product-msg" style={{ margin: 0 }}>보관된 고객이에요. 기록은 모두 그대로 있고, 복원하면 다시 고객 목록에 나타나요.</div>
+              {archivedCustomers.filter((c) => c.name.includes(query) || (c.phone || "").includes(query)).map((c) => (
+                <div className="ptm-card" key={c.id} style={{ opacity: 0.75 }}>
+                  <div className="ptm-card-top">
+                    <div>
+                      <div className="ptm-name-row"><span className="ptm-name">{c.name}</span><span className="ptm-badge dormant">보관됨</span></div>
+                      {c.phone && <div className="ptm-phone"><Phone size={11} /> {c.phone}</div>}
+                    </div>
+                    <div className="ptm-actions">
+                      <button className="ptm-res-btn" onClick={() => setCustomerArchived(c, false)}><ArchiveRestore size={13} /> 복원</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : !loaded ? (
             <div className="ptm-empty">불러오는 중...</div>
           ) : filteredCustomers.length === 0 ? (
             <div className="ptm-empty">
@@ -2862,7 +2880,7 @@ export default function PTMemberManager() {
                               <button className="ptm-icon-btn" title="이용권 양도" onClick={() => setTransferSourceProductId(p.id)}><ArrowRightLeft size={14} /></button>
                             )}
                             <button className="ptm-icon-btn" onClick={() => openEditProduct(p)}><Pencil size={14} /></button>
-                            <button className="ptm-icon-btn" onClick={() => requestRemoveProduct(p)}><Trash2 size={14} /></button>
+                            <button className="ptm-icon-btn" title="보관 (기록은 남고 목록·계산에서만 빠짐)" onClick={() => requestArchiveProduct(p)}><Archive size={14} /></button>
                           </div>
                         </div>
                         <div className="ptm-gauge-row">
@@ -2892,6 +2910,23 @@ export default function PTMemberManager() {
                     );
                   })}
                   <button className="ptm-add-product-btn" onClick={() => openNewProduct(cust.id)}><Plus size={14} /> 상품(이용권) 추가</button>
+                  {archivedProducts.some((p) => p.customerId === cust.id) && (
+                    <div className="ptm-archived-block">
+                      <div className="ptm-detail-section-title" style={{ margin: "6px 0" }}>보관된 이용권 (잔여·매출 계산에서 빠져 있어요)</div>
+                      {archivedProducts.filter((p) => p.customerId === cust.id).map((p) => (
+                        <div key={p.id} className="ptm-prod-row depleted">
+                          <div className="ptm-prod-top">
+                            <div>
+                              <span className="ptm-prod-name">{p.name}</span>{" "}
+                              <span className="ptm-badge dormant">보관됨</span>
+                              <div className="ptm-pending-sale-sub">{p.type === "session" ? `잔여 ${remainingSessions(p)}/${p.totalSessions}회 · ` : ""}{Number(p.price || 0).toLocaleString()}원</div>
+                            </div>
+                            <button className="ptm-res-btn" onClick={() => setProductArchived(p, false)}><ArchiveRestore size={13} /> 복원</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
