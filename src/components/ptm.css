@@ -600,6 +600,38 @@
 .ptm-save-btn.ptm-danger-btn { background:var(--coral); }
 .ptm-save-btn.ptm-danger-btn:disabled { opacity:0.45; }
 
+/* 넓은 고객 상세 창(PC): 왼쪽 고객 요약 + 오른쪽 탭/내용. 휴대폰에서는 예전처럼 한 단으로(요약은 홈 탭에 있음) */
+.ptm-sheet.ptm-cust-modal { max-width:1240px; width:94vw; height:88vh; padding:0; overflow:hidden; }
+.ptm-cust-modal-body { display:flex; height:100%; }
+.ptm-cust-aside { width:250px; flex-shrink:0; border-right:1px solid var(--line); padding:22px 16px; overflow-y:auto; background:var(--panel-2); }
+.ptm-cust-main { flex:1; min-width:0; padding:18px 24px 24px; overflow-y:auto; }
+.ptm-cust-aside-top { display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+.ptm-cust-avatar { width:46px; height:46px; border-radius:50%; background:var(--amber); color:#fff; display:flex; align-items:center; justify-content:center; font-size:19px; font-weight:700; flex-shrink:0; }
+.ptm-cust-aside-name { font-size:17px; font-weight:800; display:flex; align-items:center; gap:6px; }
+.ptm-cust-aside-gender { font-size:11px; font-weight:700; color:var(--amber); background:rgba(59,111,224,0.12); border-radius:4px; padding:1px 5px; }
+.ptm-cust-aside-phone { font-size:13px; color:var(--ink-dim); margin-top:2px; }
+.ptm-cust-aside-info { display:grid; grid-template-columns:auto 1fr; gap:0; margin:0 0 14px; border-top:1px solid var(--line); }
+.ptm-cust-aside-info dt, .ptm-cust-aside-info dd { margin:0; padding:9px 0; border-bottom:1px solid var(--line); font-size:12.5px; }
+.ptm-cust-aside-info dt { color:var(--ink-dim); padding-right:12px; white-space:nowrap; }
+.ptm-cust-aside-info dd { text-align:right; font-weight:600; }
+.ptm-cust-aside-email { word-break:break-all; }
+.ptm-cust-aside-actions { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+.ptm-cust-aside-actions .ptm-res-btn { justify-content:center; width:100%; }
+.ptm-cust-aside-memo { white-space:pre-wrap; margin-bottom:0; }
+.ptm-cust-modal .ptm-cust-main > .ptm-sheet-head .ptm-sheet-title { visibility:hidden; }
+.ptm-cust-modal .ptm-cust-main > .ptm-sheet-head .ptm-actions .ptm-icon-btn:not(:last-child) { display:none; }
+.ptm-cust-modal .ptm-detail-tabs { width:100%; }
+.ptm-cust-modal .ptm-detail-tab { flex:1; padding:9px 14px; font-size:13.5px; }
+.ptm-cust-modal .ptm-detail-stat-num { font-size:17px; }
+@media (max-width:760px) {
+  .ptm-sheet.ptm-cust-modal { width:100%; height:auto; max-height:88vh; overflow-y:auto; }
+  .ptm-cust-modal-body { display:block; height:auto; }
+  .ptm-cust-aside { display:none; }
+  .ptm-cust-main { padding:18px; overflow:visible; }
+  .ptm-cust-modal .ptm-cust-main > .ptm-sheet-head .ptm-sheet-title { visibility:visible; }
+  .ptm-cust-modal .ptm-cust-main > .ptm-sheet-head .ptm-actions .ptm-icon-btn:not(:last-child) { display:inline-flex; }
+}
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }

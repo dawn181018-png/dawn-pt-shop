@@ -96,6 +96,8 @@ const addRepeatInterval = (dateStr: string, repeatType: string, n: number): stri
 };
 const mondayOf = (dateStr: string): string => { const d = new Date(dateStr); const day = d.getDay(); return addDays(dateStr, day === 0 ? -6 : 1 - day); };
 const koDate = (dateStr: string): string => { const d = new Date(dateStr); return `${d.getMonth() + 1}월 ${d.getDate()}일`; };
+// 올해가 아니면 연도까지 붙인다 (예: "2025년 11월 10일") — 판매내역처럼 여러 해에 걸친 날짜를 비교할 때 헷갈리지 않게.
+const koDateY = (dateStr: string): string => { const d = new Date(dateStr); return d.getFullYear() === new Date().getFullYear() ? koDate(dateStr) : `${d.getFullYear()}년 ${koDate(dateStr)}`; };
 // 휴대폰 매출 계획 한 줄 목록용 표시 헬퍼(값 계산은 그대로, 보여주는 글자만 줄인다)
 // 보유 이용권: "PT 50회 이용권" → "PT 50회", 여러 개면 "PT 30회+1"
 const shortHoldLabel = (names: string[]): string => {
@@ -3051,7 +3053,33 @@ export default function PTMemberManager() {
         const custForecasts = [...renewalForecasts].filter((f) => f.customerId === cust.id).sort((a, b) => b.targetMonth.localeCompare(a.targetMonth));
         return (
           <div className="ptm-overlay" onClick={() => setCustomerDetailId(null)}>
-            <div className="ptm-sheet ptm-detail-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet ptm-detail-sheet ptm-cust-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-cust-modal-body">
+              {/* 넓은 고객 상세: 왼쪽은 고객 요약(항상 보임), 오른쪽은 탭과 내용. 휴대폰에서는 위아래로 쌓인다. */}
+              <aside className="ptm-cust-aside">
+                <div className="ptm-cust-aside-top">
+                  <div className="ptm-cust-avatar">{cust.name.slice(0, 1)}</div>
+                  <div>
+                    <div className="ptm-cust-aside-name">{cust.name}{cust.gender ? <span className="ptm-cust-aside-gender">{cust.gender === "male" ? "남" : cust.gender === "female" ? "여" : ""}</span> : null}</div>
+                    <div className="ptm-cust-aside-phone">{cust.phone || "연락처 없음"}</div>
+                  </div>
+                </div>
+                <dl className="ptm-cust-aside-info">
+                  <dt>회원 등록일</dt><dd>{cust.createdAt ? koDateY(toLocalDateStr(new Date(cust.createdAt))) : "-"}</dd>
+                  <dt>최근 방문일</dt><dd>{(() => { const last = custReservations.find((r) => r.status === "done"); return last ? koDateY(last.date) : "-"; })()}</dd>
+                  <dt>보유 이용권</dt><dd>{custProducts.length}개{custProducts.some((p) => p.type === "session") ? ` · 잔여 ${custProducts.filter((p) => p.type === "session").reduce((s, p) => s + Math.max(0, remainingSessions(p)), 0)}회` : ""}</dd>
+                  <dt>누적 결제</dt><dd>{totalPaid.toLocaleString()}원</dd>
+                  <dt>미수금</dt><dd style={totalUnpaid > 0 ? { color: "var(--coral)", fontWeight: 700 } : {}}>{totalUnpaid.toLocaleString()}원</dd>
+                  {cust.birthdate && (<><dt>생년월일</dt><dd>{cust.birthdate}</dd></>)}
+                  {cust.email && (<><dt>이메일</dt><dd className="ptm-cust-aside-email">{cust.email}</dd></>)}
+                </dl>
+                <div className="ptm-cust-aside-actions">
+                  <button className="ptm-res-btn" onClick={() => openEditCustomer(cust)}><Pencil size={13} /> 회원 정보 수정</button>
+                  <button className="ptm-res-btn" onClick={() => openDelegationFor(cust.id)}><UserCog size={13} /> 대리 레슨 지정</button>
+                </div>
+                {cust.memo && <div className="ptm-detail-memo ptm-cust-aside-memo">{cust.memo}</div>}
+              </aside>
+              <div className="ptm-cust-main">
               <div className="ptm-sheet-head">
                 <span className="ptm-sheet-title">{cust.name}{cust.phone ? ` · ${cust.phone}` : ""}</span>
                 <div className="ptm-actions">
@@ -3197,8 +3225,8 @@ export default function PTMemberManager() {
                 const paidTotal = custProducts.reduce((s, p) => s + getPaidAmount(p), 0);
                 const unpaidTotal = custProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
                 const createdDates = custProducts.map((p) => p.createdAt || 0).filter(Boolean).sort((a, b) => a - b);
-                const firstPayDate = createdDates.length ? koDate(toLocalDateStr(new Date(createdDates[0]))) : "-";
-                const lastPayDate = createdDates.length ? koDate(toLocalDateStr(new Date(createdDates[createdDates.length - 1]))) : "-";
+                const firstPayDate = createdDates.length ? koDateY(toLocalDateStr(new Date(createdDates[0]))) : "-";
+                const lastPayDate = createdDates.length ? koDateY(toLocalDateStr(new Date(createdDates[createdDates.length - 1]))) : "-";
                 return (
                   <>
                     {renderPendingSales(pendingSales.filter((s) => s.customerId === cust.id))}
@@ -3216,9 +3244,9 @@ export default function PTMemberManager() {
                         <table className="ptm-table">
                           <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th><th className="ptm-sale-del-col"></th></tr></thead>
                           <tbody>
-                            {sortProductsByUsage(custProducts).map((p) => (
+                            {[...custProducts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((p) => (
                               <tr key={p.id} className="ptm-row-clickable" onClick={() => openEditProduct(p)}>
-                                <td>{koDate(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
+                                <td>{koDateY(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
                                 <td>{p.name}</td>
                                 <td>{Number(p.listPrice ?? p.price ?? 0).toLocaleString()}원</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
@@ -3248,7 +3276,7 @@ export default function PTMemberManager() {
                           <tbody>
                             {archivedProducts.filter((p) => p.customerId === cust.id).map((p) => (
                               <tr key={p.id}>
-                                <td>{koDate(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
+                                <td>{koDateY(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
                                 <td>{p.name}</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{getPaidAmount(p).toLocaleString()}원</td>
@@ -3328,6 +3356,8 @@ export default function PTMemberManager() {
                   </div>
                 );
               })()}
+              </div>
+              </div>
             </div>
           </div>
         );
@@ -4079,7 +4109,7 @@ export default function PTMemberManager() {
                     <li>고객 {d.customerName}</li>
                     <li>상품 {p.name}{p.type === "session" ? ` · ${p.totalSessions}회` : ""}</li>
                     <li>판매가 {Number(p.price || 0).toLocaleString()}원 · 결제금액 {paid.toLocaleString()}원</li>
-                    <li>등록일 {p.createdAt ? koDate(toLocalDateStr(new Date(p.createdAt))) : "-"}</li>
+                    <li>등록일 {p.createdAt ? koDateY(toLocalDateStr(new Date(p.createdAt))) : "-"}</li>
                   </ul>
                   <div className="ptm-acct-warn">삭제하면 이 고객의 잔여 횟수와 {p.createdAt ? `${new Date(p.createdAt).getMonth() + 1}월` : "이번 달"} 매출에서 빠집니다. 삭제된 내역에서 언제든 복구할 수 있어요.</div>
                   {d.signed && <div className="ptm-acct-warn danger">서명된 계약서가 있는 건입니다.</div>}
