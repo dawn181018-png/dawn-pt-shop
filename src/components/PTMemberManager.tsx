@@ -1058,6 +1058,20 @@ export default function PTMemberManager() {
       time: data.time, duration: Number(data.duration) || 50, memo: data.memo || "", status,
       ...extra,
     }));
+    // 지난 시간을 출석/결석으로 바로 등록하는 경우(횟수권): 예약 저장과 차감을 DB 함수 하나로 한 번에 처리한다.
+    if (countsAsUsed(status) && productId && customerId && status !== "scheduled") {
+      const p = products.find((x) => x.id === productId);
+      if (p && p.type === "session") {
+        const atomic = await db.registerUsedReservations(customerId, productId, status as "done" | "noshow",
+          rows.map((r) => ({ date: r.date, time: r.time, duration: r.duration, memo: r.memo })));
+        if (atomic) {
+          setReservations((prev) => [...prev, ...atomic.reservations]);
+          setProducts((prev) => prev.map((x) => (x.id === productId ? atomic.product : x)));
+          return atomic.reservations.length;
+        }
+      }
+    }
+    // (DB 함수가 아직 없거나 횟수권이 아닌 경우) 예전 방식: 예약 저장 → 차감
     const created = await db.insertReservations(rows);
     setReservations((prev) => [...prev, ...created]);
     // 지난 시간을 출석/결석으로 바로 등록한 경우, 그만큼 세션도 함께 차감한다.
@@ -1244,6 +1258,13 @@ export default function PTMemberManager() {
       }
     });
     try {
+      const atomic = await db.closeSeriesFrom(seriesId, fromDate, false);
+      if (atomic) {
+        setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" as const } : r)));
+        setProducts((prev) => prev.map((x) => atomic.products.find((u) => u.id === x.id) || x));
+        flash("이후 반복 예약 전체 취소됨");
+        return;
+      }
       await db.cancelReservationSeriesFrom(seriesId, fromDate);
       setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" as const } : r)));
       let sessionsOk = true;
@@ -1259,6 +1280,13 @@ export default function PTMemberManager() {
       if (r.seriesId === seriesId && r.date >= fromDate && countsAsUsed(r.status) && r.productId) deltaByProduct[r.productId] = (deltaByProduct[r.productId] || 0) - 1;
     });
     try {
+      const atomic = await db.closeSeriesFrom(seriesId, fromDate, true);
+      if (atomic) {
+        setReservations((prev) => prev.filter((r) => !(r.seriesId === seriesId && r.date >= fromDate)));
+        setProducts((prev) => prev.map((x) => atomic.products.find((u) => u.id === x.id) || x));
+        flash("이후 반복 예약 전체 삭제됨");
+        return;
+      }
       await db.deleteReservationSeriesFrom(seriesId, fromDate);
       setReservations((prev) => prev.filter((r) => !(r.seriesId === seriesId && r.date >= fromDate)));
       let sessionsOk = true;

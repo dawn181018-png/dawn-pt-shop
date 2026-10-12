@@ -154,6 +154,32 @@ export async function deleteReservationAtomic(reservationId: string): Promise<{ 
   return { product: result.product ? mapProduct(result.product) : null };
 }
 
+// 지난 시간 출석/결석 등록(예약 여러 건 + 차감)과 반복 "이후 전체" 취소/삭제(+복구)를 DB 함수 하나로 처리한다.
+// 함수가 아직 설치되지 않았으면(PGRST202) null — 호출한 쪽은 예전 방식(여러 번 요청)으로 처리한다.
+export async function registerUsedReservations(
+  customerId: string, productId: string, status: "done" | "noshow",
+  rows: { date: string; time: string; duration: number; memo: string }[],
+): Promise<{ reservations: Reservation[]; product: Product } | null> {
+  const { data, error } = await supabase.rpc("register_used_reservations", {
+    p_customer_id: customerId, p_product_id: productId, p_status: status, p_rows: rows,
+  });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { reservations: Record<string, unknown>[]; product: Record<string, unknown> };
+  return { reservations: result.reservations.map(mapReservation), product: mapProduct(result.product) };
+}
+export async function closeSeriesFrom(seriesId: string, fromDate: string, del: boolean): Promise<{ products: Product[] } | null> {
+  const { data, error } = await supabase.rpc("close_series_from", { p_series_id: seriesId, p_from: fromDate, p_delete: del });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { products: Record<string, unknown>[] };
+  return { products: (result.products || []).map(mapProduct) };
+}
+
 // 출석(완료) 서명 이미지 업로드 → signature_url 컬럼에 저장할 스토리지 경로를 반환.
 // signatures 버킷은 private이라, 조회 시엔 getSignatureUrl로 그때그때 signed URL을 새로 발급받는다.
 export async function uploadSignature(reservationId: string, blob: Blob): Promise<string> {

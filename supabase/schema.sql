@@ -1168,5 +1168,92 @@ grant select, insert, update, delete on reservation_series to service_role;
 alter table customers add column if not exists archived_at timestamptz;
 alter table products add column if not exists archived_at timestamptz;
 
+-- ---------- 여러 건 예약 처리 + 세션 차감을 한 번에 (원자적 처리) ----------
+-- 아래 세 작업은 예전엔 "예약 저장"과 "이용권별 차감/복구"를 앱이 여러 번 나눠 요청해서, 중간에 통신이 끊기면
+-- 일부만 반영될 수 있었다. 각각 한 트랜잭션으로 묶는다(차감 규칙은 앱과 동일: 완료/노쇼 1건당 1회, 0~총횟수 제한,
+-- 횟수권만). 새 함수만 추가하며 기존 테이블/데이터는 건드리지 않는다. 앱은 이 함수가 없으면 예전 방식으로 동작한다.
+
+-- 지난 시간을 출석/결석으로 바로 등록: 예약 행들을 done/noshow로 만들고 그 수만큼 차감. 잔여보다 많으면 거절.
+create or replace function register_used_reservations(
+  p_customer_id uuid, p_product_id uuid, p_status text, p_rows jsonb
+) returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_p products%rowtype;
+  v_count int := jsonb_array_length(p_rows);
+  v_series uuid;
+  v_r jsonb;
+  v_created jsonb := '[]'::jsonb;
+  v_row reservations%rowtype;
+begin
+  if p_status not in ('done', 'noshow') then raise exception '잘못된 상태예요'; end if;
+  if v_count < 1 then raise exception '등록할 예약이 없어요'; end if;
+  select * into v_p from products where id = p_product_id and owner_id = v_owner and customer_id = p_customer_id for update;
+  if not found then raise exception '이용권을 찾을 수 없어요'; end if;
+  if v_p.type = 'session' and v_p.total_sessions - v_p.used_sessions < v_count then
+    raise exception '남은 횟수(%회)보다 많이 출석/결석으로 등록할 수 없어요', v_p.total_sessions - v_p.used_sessions;
+  end if;
+  if v_count > 1 then v_series := gen_random_uuid(); end if;
+  for v_r in select * from jsonb_array_elements(p_rows) loop
+    insert into reservations (owner_id, customer_id, product_id, series_id, date, time, duration, memo, status, type)
+    values (v_owner, p_customer_id, p_product_id, v_series, (v_r->>'date')::date, v_r->>'time',
+      coalesce((v_r->>'duration')::int, 50), coalesce(v_r->>'memo', ''), p_status, 'pt')
+    returning * into v_row;
+    v_created := v_created || to_jsonb(v_row);
+  end loop;
+  if v_p.type = 'session' then
+    update products set used_sessions = greatest(0, least(total_sessions, used_sessions + v_count))
+      where id = p_product_id returning * into v_p;
+  end if;
+  return jsonb_build_object('reservations', v_created, 'product', to_jsonb(v_p));
+end;
+$$;
+grant execute on function register_used_reservations(uuid, uuid, text, jsonb) to authenticated;
+grant execute on function register_used_reservations(uuid, uuid, text, jsonb) to service_role;
+
+-- 반복 예약 "이 날짜 이후 전체" 취소(p_delete=false) 또는 삭제(p_delete=true): 그중 완료/노쇼였던 건만큼 이용권별로 복구.
+create or replace function close_series_from(p_series_id uuid, p_from date, p_delete boolean)
+returns jsonb
+language plpgsql
+security invoker
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_affected int;
+  v_products jsonb := '[]'::jsonb;
+  v_fix record;
+  v_p products%rowtype;
+begin
+  -- 대상 행을 먼저 잠근다(동시에 다른 처리와 겹치지 않게)
+  perform 1 from reservations where series_id = p_series_id and owner_id = v_owner and date >= p_from for update;
+
+  for v_fix in
+    select product_id, count(*)::int as n from reservations
+    where series_id = p_series_id and owner_id = v_owner and date >= p_from
+      and status in ('done', 'noshow') and product_id is not null
+    group by product_id
+  loop
+    update products set used_sessions = greatest(0, least(total_sessions, used_sessions - v_fix.n))
+      where id = v_fix.product_id and owner_id = v_owner and type = 'session'
+      returning * into v_p;
+    if found then v_products := v_products || to_jsonb(v_p); end if;
+  end loop;
+
+  if p_delete then
+    delete from reservations where series_id = p_series_id and owner_id = v_owner and date >= p_from;
+  else
+    update reservations set status = 'cancelled'
+      where series_id = p_series_id and owner_id = v_owner and date >= p_from and status <> 'cancelled';
+  end if;
+  get diagnostics v_affected = row_count;
+  return jsonb_build_object('affected', v_affected, 'products', v_products);
+end;
+$$;
+grant execute on function close_series_from(uuid, date, boolean) to authenticated;
+grant execute on function close_series_from(uuid, date, boolean) to service_role;
+
 -- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
 notify pgrst, 'reload schema';
