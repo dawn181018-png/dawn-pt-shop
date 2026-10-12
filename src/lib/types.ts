@@ -9,6 +9,7 @@ export interface Customer {
   memo?: string;
   gender?: Gender | null;
   isDormant?: boolean;
+  archivedAt?: string | null; // 보관(삭제 대신)한 시각. 값이 있으면 목록에서 숨긴다
   createdAt?: number;
 }
 
@@ -29,6 +30,7 @@ export interface Product {
   price: number;
   paidAmount: number;
   paymentMethod: PaymentMethod;
+  archivedAt?: string | null; // 보관(삭제 대신)한 시각. 값이 있으면 잔여·매출 계산과 목록에서 뺀다
   createdAt?: number;
 }
 

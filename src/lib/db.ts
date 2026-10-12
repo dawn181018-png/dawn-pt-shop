@@ -51,6 +51,11 @@ export async function updateCustomer(id: string, data: Partial<Customer>): Promi
   const { data: row, error } = await supabase.from("customers").update(toSnake(data)).eq("id", id).select().single();
   return mapCustomer(must(row, error));
 }
+// 보관/복원: 행을 지우지 않고 archived_at만 바꾼다(고객의 예약·서명·운동일지·양도 이력이 모두 그대로 남음).
+export async function setCustomerArchived(id: string, archived: boolean): Promise<Customer> {
+  const { data: row, error } = await supabase.from("customers").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id).select().single();
+  return mapCustomer(must(row, error));
+}
 export async function deleteCustomer(id: string): Promise<void> {
   const { error } = await supabase.from("customers").delete().eq("id", id);
   if (error) throw new Error(error.message);
@@ -71,6 +76,10 @@ export async function insertProduct(customerId: string, data: Partial<Product>):
 }
 export async function updateProduct(id: string, data: Partial<Product>): Promise<Product> {
   const { data: row, error } = await supabase.from("products").update(toSnake(data)).eq("id", id).select().single();
+  return mapProduct(must(row, error));
+}
+export async function setProductArchived(id: string, archived: boolean): Promise<Product> {
+  const { data: row, error } = await supabase.from("products").update({ archived_at: archived ? new Date().toISOString() : null }).eq("id", id).select().single();
   return mapProduct(must(row, error));
 }
 export async function deleteProduct(id: string): Promise<void> {

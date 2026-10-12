@@ -1161,5 +1161,12 @@ create policy "reservation_series_owner_all" on reservation_series
 grant select, insert, update, delete on reservation_series to authenticated;
 grant select, insert, update, delete on reservation_series to service_role;
 
+-- ---------- 고객/이용권 "보관"(삭제 대신) ----------
+-- 휴지통 버튼이 행을 지우면 고객의 예약·서명·운동일지·양도 이력까지 연쇄 삭제돼 되돌릴 수 없었다. 이제 앱은
+-- 지우지 않고 archived_at에 보관 시각만 적어 목록에서 숨긴다(복원하면 NULL로 되돌림). 기존 행은 NULL(=보관 안 함).
+-- nullable 컬럼 추가만 하므로 기존 데이터는 바뀌지 않는다. 재실행해도 안전하다.
+alter table customers add column if not exists archived_at timestamptz;
+alter table products add column if not exists archived_at timestamptz;
+
 -- 앱(PostgREST)이 새 함수를 바로 인식하도록 스키마 캐시 새로고침
 notify pgrst, 'reload schema';
