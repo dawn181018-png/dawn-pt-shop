@@ -72,6 +72,11 @@
 .ptm-block.done .ptm-block-name { color:#4a3fae; }
 .ptm-block.noshow { background:var(--coral); border-color:var(--coral); }
 .ptm-block.cancelled { background:rgba(154,163,176,0.12); border-color:var(--line); text-decoration:line-through; opacity:0.6; }
+/* 신규 고객(이용권 산 적 없음) 레슨: 예정은 초록, 완료는 연한 초록 — 노쇼/취소는 상태 색 그대로 */
+.ptm-block.new-customer.scheduled { background:var(--teal); border-color:var(--teal); }
+.ptm-block.new-customer.done { background:rgba(26,163,90,0.18); border-color:var(--teal); }
+.ptm-block.new-customer.done .ptm-block-time, .ptm-block.new-customer.done .ptm-block-sub, .ptm-block.new-customer.done .ptm-block-name { color:#137a43; }
+.ptm-block-new { display:inline-block; font-size:8px; font-weight:800; line-height:1; padding:2px 3px; margin-right:3px; border-radius:3px; background:#fff; color:var(--teal); vertical-align:1px; text-decoration:none; }
 .ptm-block-time { font-size:9.5px; color:rgba(255,255,255,0.85); line-height:1.15; }
 .ptm-block-name { font-size:12px; font-weight:600; line-height:1.2; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; color:#ffffff; }
 .ptm-block-sub { font-size:9.5px; color:rgba(255,255,255,0.85); line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

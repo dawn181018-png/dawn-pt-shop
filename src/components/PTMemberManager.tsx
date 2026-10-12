@@ -2003,8 +2003,10 @@ export default function PTMemberManager() {
                       {dayRes.map((r) => {
                         const widthPct = 100 / (r.columnCount ?? 1);
                         const leftPct = (r.col ?? 0) * widthPct;
+                        // 신규 고객(아직 이용권을 산 적 없는 고객) 레슨 — 모바일 시간표와 같은 기준(productUtils.isNewCustomer)
+                        const isNewLesson = r.type === "pt" && !!r.customerId && newCustomerIds.has(r.customerId);
                         return (
-                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}`}
+                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}`}
                             style={{
                               top: timeTopPx(r.time), height: durHeightPx(r.duration || 50),
                               left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
@@ -2022,7 +2024,7 @@ export default function PTMemberManager() {
                               <span className="ptm-block-badge">{r.totalSessions}/{r.remainCount}</span>
                             )}
                             <div className="ptm-block-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))}</div>
-                            <div className="ptm-block-name">{r.customerName}</div>
+                            <div className="ptm-block-name">{isNewLesson && <span className="ptm-block-new">NEW</span>}{r.customerName}</div>
                             <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}{r.delegateName ? ` · 대리 ${r.delegateName}` : ""}</div>
                           </div>
                         );
