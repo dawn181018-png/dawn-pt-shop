@@ -455,8 +455,11 @@ export default function PTMemberManager() {
           if (r.type !== "pt" || !r.customerId || !r.createdAt) return null;
           const alt = findAlternativeProduct(r.customerId, productList);
           if (!alt || !alt.createdAt) return null;
-          const bookedBeforePurchase = Date.parse(r.createdAt) < alt.createdAt;
-          const onOrAfterPurchase = r.date >= toLocalDateStr(new Date(alt.createdAt));
+          // 이용권의 createdAt은 등록일(그날 0시)로 저장되므로 시각이 아니라 날짜로 비교한다 —
+          // 같은 날 구매 전에 잡은 예약도 "구매 전 예약"으로 본다.
+          const purchaseDate = toLocalDateStr(new Date(alt.createdAt));
+          const bookedBeforePurchase = toLocalDateStr(new Date(r.createdAt)) <= purchaseDate;
+          const onOrAfterPurchase = r.date >= purchaseDate;
           return bookedBeforePurchase && onOrAfterPurchase ? { id: r.id, productId: alt.id } : null;
         }
         const linked = productList.find((p) => p.id === r.productId);
