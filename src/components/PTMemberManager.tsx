@@ -438,7 +438,7 @@ export default function PTMemberManager() {
   // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
   const findAlternativeProduct = (customerId: string | null, productList: Product[]): Product | undefined =>
     productList
-      .filter((p) => p.customerId === customerId && p.type === "session" && remainingSessions(p) > 0)
+      .filter((p) => p.customerId === customerId && p.type === "session" && !p.archivedAt && remainingSessions(p) > 0)
       .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
   // 완료 처리를 기다리지 않고, 예약됨(scheduled) 상태인 예약이 이미 소진된 이용권을 물고 있으면
   // 그 고객의 다른 유효한 이용권으로 조용히 재연결한다 — 새 이용권을 등록하는 시점과 앱을 새로
@@ -449,7 +449,8 @@ export default function PTMemberManager() {
       .filter((r) => r.status === "scheduled" && r.productId)
       .map((r) => {
         const linked = productList.find((p) => p.id === r.productId);
-        if (!linked || linked.type !== "session" || remainingSessions(linked) > 0) return null;
+        // 묶인 이용권이 소진됐거나 보관됐으면 다른 유효 이용권으로 옮긴다.
+        if (!linked || (!linked.archivedAt && (linked.type !== "session" || remainingSessions(linked) > 0))) return null;
         const alt = findAlternativeProduct(r.customerId, productList);
         return alt ? { id: r.id, productId: alt.id } : null;
       })
@@ -1170,7 +1171,9 @@ export default function PTMemberManager() {
     let targetProductId = r.productId;
     if (delta === 1 && r.productId) {
       const linked = products.find((x) => x.id === r.productId);
-      if (linked && linked.type === "session" && remainingSessions(linked) <= 0) {
+      // 묶인 이용권이 소진됐거나 보관된(목록에 없는) 경우 다른 유효 이용권으로 전환
+      const linkedArchived = !linked && archivedProducts.some((x) => x.id === r.productId);
+      if (linkedArchived || (linked && linked.type === "session" && remainingSessions(linked) <= 0)) {
         const alt = findAlternativeProduct(r.customerId, products);
         if (!alt) {
           flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");

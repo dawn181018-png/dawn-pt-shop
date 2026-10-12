@@ -32,6 +32,7 @@ export default async function MyPage() {
       .from("products")
       .select("id, customer_id, name, type, total_sessions, used_sessions, start_date, end_date, session_duration, created_at")
       .eq("customer_id", customer.id)
+      .is("archived_at", null) // 트레이너가 보관(잘못 등록/환불 등)한 이용권은 회원에게 보이지 않는다
       .order("created_at", { ascending: true }),
     admin
       .from("reservations")
