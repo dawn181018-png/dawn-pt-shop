@@ -446,8 +446,19 @@ export default function PTMemberManager() {
   // 묶여 있는 채로 방치되지 않게 한다.
   const reconnectScheduledReservations = async (reservationList: Reservation[], productList: Product[]) => {
     const fixes = reservationList
-      .filter((r) => r.status === "scheduled" && r.productId)
+      .filter((r) => r.status === "scheduled")
       .map((r) => {
+        // 이용권 없이 잡혀 있던 PT 예약(신규 고객이 등록 전에 잡은 스케줄): 예약을 잡은 "뒤에" 산 이용권이 있고
+        // 레슨 날짜가 그 구매일 이후면 그 이용권에 연결해 차감이 시작되게 한다. 구매일 전 레슨(체험)과
+        // 이용권이 이미 있는데 일부러 연결 없이 잡은 예약은 그대로 단발로 둔다.
+        if (!r.productId) {
+          if (r.type !== "pt" || !r.customerId || !r.createdAt) return null;
+          const alt = findAlternativeProduct(r.customerId, productList);
+          if (!alt || !alt.createdAt) return null;
+          const bookedBeforePurchase = Date.parse(r.createdAt) < alt.createdAt;
+          const onOrAfterPurchase = r.date >= toLocalDateStr(new Date(alt.createdAt));
+          return bookedBeforePurchase && onOrAfterPurchase ? { id: r.id, productId: alt.id } : null;
+        }
         const linked = productList.find((p) => p.id === r.productId);
         // 묶인 이용권이 소진됐거나 보관됐으면 다른 유효 이용권으로 옮긴다.
         if (!linked || (!linked.archivedAt && (linked.type !== "session" || remainingSessions(linked) > 0))) return null;
