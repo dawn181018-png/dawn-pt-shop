@@ -58,16 +58,8 @@ export function sortProductsByUsage(list: Product[]): Product[] {
 }
 
 // "신규 고객" 판단 — 스케줄 색 구분 등 여러 화면이 같은 기준을 쓰도록 여기 한 곳에서만 계산한다.
-// 이용권이 아직 없거나(등록 전 체험·상담), 이용권이 1개뿐(보관된 것 포함)이고 그 사용 횟수가
-// NEW_CUSTOMER_MAX_USED 이하이면 신규. 다른 시스템에서 옮겨온 회원은 레슨 기록이 앱에 다 없으므로
-// 완료 예약 수가 아니라 이용권의 사용 횟수(used_sessions)로 본다. 기간권 1개뿐이면 시작 30일 이내까지 신규.
-// allProducts에는 보관된 이용권까지 모두 넣어야 한다(재등록 고객이 신규로 잘못 잡히지 않게).
-export const NEW_CUSTOMER_MAX_USED = 3;
+// 신규 = 아직 이용권을 한 번도 사지 않은 고객(등록 전 체험·상담 레슨). 이용권을 사면 첫 레슨부터 기존 회원으로 본다.
+// allProducts에는 보관된 이용권까지 모두 넣어야 한다(이용권을 보관한 기존 회원이 신규로 잘못 잡히지 않게).
 export function isNewCustomer(customerId: string, allProducts: Product[]): boolean {
-  const own = allProducts.filter((p) => p.customerId === customerId);
-  if (own.length === 0) return true;
-  if (own.length > 1) return false;
-  const p = own[0];
-  if (p.type === "session") return p.usedSessions <= NEW_CUSTOMER_MAX_USED;
-  return daysBetween(today(), p.startDate) <= 30;
+  return !allProducts.some((p) => p.customerId === customerId);
 }
