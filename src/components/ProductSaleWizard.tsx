@@ -9,9 +9,10 @@ import { Search, Check, ChevronLeft, Link2 } from "lucide-react";
 import SignaturePad from "signature_pad";
 import * as db from "@/lib/db";
 import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
-import { today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
+import { today, addDays, addMonths, fmtNum, parseNum, formatPhone } from "@/lib/formatUtils";
 import { CONTRACT_VERSION, CONTRACT_SECTIONS } from "@/lib/contract";
-import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, Gender, PendingSale } from "@/lib/types";
+import { signPendingSale } from "@/app/sign/[token]/actions";
+import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, PendingSale } from "@/lib/types";
 
 const isPhoneLike = (v: string): boolean => /^[0-9-\s]+$/.test(v.trim()) && v.trim() !== "";
 
@@ -150,19 +151,12 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
 
   const clearSignature = () => { padRef.current?.clear(); setIsSignatureEmpty(true); };
 
-  // 서명 완료 시 고객 → 이용권 → 서명 이미지 → 계약서 기록 순으로 저장하는데, 중간(예: 서명 업로드)에서
-  // 실패하면 앞 단계는 이미 DB에 들어가 있다. 이 상태로 "다시 시도"하면 고객/이용권이 한 번 더 만들어져
-  // 중복 등록(매출 이중 집계)이 되므로, 이번 판매 건에서 이미 저장된 고객/이용권을 기억해뒀다가 재시도 땐
-  // 새로 만들지 않고 그 행을 현재 입력값으로 갱신해서 재사용한다(재시도 전에 입력을 고쳤어도 반영됨).
-  const savedRef = useRef<{ newCustomer?: Customer; product?: Product }>({});
 
   const [creatingLink, setCreatingLink] = useState(false);
   // 링크 서명은 이용권을 지금 만들지 않고 "서명 대기" 건만 만든다 — 고객이 링크에서 서명하는 순간 DB가
   // 고객/이용권/계약서 기록을 한 번에 확정한다(그 전엔 횟수·매출·통계에 반영되지 않음).
   const createSignLink = async () => {
     if (creatingLink) return;
-    // 현장 서명 도중 일부(고객/이용권)가 이미 저장된 상태라면 링크로 또 만들면 중복 등록이 된다.
-    if (savedRef.current.product) { flash("이미 저장된 이용권이 있어요. 현장 서명으로 마무리해주세요", 4000); return; }
     setCreatingLink(true);
     try {
       const { usedSessions: _unused, ...product } = productForm;
@@ -183,7 +177,6 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
   };
 
   const resetWizard = () => {
-    savedRef.current = {};
     setSignMode("onsite");
     setStep(1);
     setQuery("");
@@ -196,49 +189,44 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
     setIsSignatureEmpty(true);
   };
 
+  // 현장 서명 저장: 링크 서명과 같은 경로를 쓴다 — 서명 대기 건을 만든 뒤 곧바로 이 화면의 서명으로 확정하면,
+  // DB 함수(confirm_pending_sale)가 고객(신규면 생성)·이용권·계약서 서명 기록을 한 트랜잭션으로 만든다.
+  // 예전처럼 고객→이용권→서명→계약서를 네 번 따로 저장하다 중간에 끊겨 "이용권은 있는데 계약서 기록이 없는"
+  // 반쪽 저장이 생기지 않는다. 확정에 실패하면 만든 서명 대기 건을 취소해 목록에 남지 않게 한다.
   const completeSale = async () => {
     const pad = padRef.current;
     if (!pad || pad.isEmpty() || saving) return;
     setSaving(true);
+    let pendingId: string | null = null;
     try {
-      const saved = savedRef.current;
-      // isNewCustomer가 아니면 1단계에서 이미 고른 기존 고객이 반드시 있다(그래야 2단계로 넘어올 수 있음).
-      let customer = selectedCustomer as Customer;
-      if (isNewCustomer) {
-        const customerData = {
-          name: customerForm.name,
-          gender: emptyToNull(customerForm.gender) as Gender | null,
-          phone: customerForm.phone,
-          birthdate: emptyToNull(customerForm.birthdate),
-        };
-        customer = saved.newCustomer
-          ? await db.updateCustomer(saved.newCustomer.id, customerData)
-          : await db.insertCustomer(customerData);
-        saved.newCustomer = customer;
-      }
-      const productData = { ...productForm, endDate: emptyToNull(productForm.endDate) };
-      const product = saved.product
-        ? await db.updateProduct(saved.product.id, { ...productData, customerId: customer.id })
-        : await db.insertProduct(customer.id, productData);
-      saved.product = product;
-      const dataUrl = pad.toDataURL("image/png");
-      const blob = await (await fetch(dataUrl)).blob();
-      const signatureUrl = await db.uploadContractSignature(customer.id, blob);
-      await db.insertContractSignature({
-        customerId: customer.id,
-        productId: product.id,
-        isNewCustomer,
-        signatureUrl,
+      const { usedSessions: _unused, ...product } = productForm;
+      void _unused;
+      const sale = await db.insertPendingSale({
+        customerId: isNewCustomer ? null : (selectedCustomer as Customer).id,
+        newCustomer: isNewCustomer ? customerForm : null,
+        product,
         contractVersion: CONTRACT_VERSION,
-        signedAt: new Date().toISOString(),
       });
+      pendingId = sale.id;
+      const result = await signPendingSale(sale.token, pad.toDataURL("image/png"));
+      if (!result.ok) throw new Error(result.error);
+      pendingId = null;
+      const [customer, savedProduct] = await Promise.all([db.getCustomer(result.customerId), db.getProduct(result.productId)]);
       flash(`${customer.name}님 ${isNewCustomer ? "신규" : "재등록"} 판매 완료`);
-      onSaleComplete(customer, product, isNewCustomer);
+      onSaleComplete(customer, savedProduct, isNewCustomer);
       resetWizard();
     } catch {
-      flash(savedRef.current.product
-        ? "고객·이용권은 저장됐지만 계약서 서명 저장에 실패했어요. 서명 완료를 다시 눌러주세요"
-        : "판매 처리 실패, 다시 시도해주세요");
+      if (pendingId) {
+        try {
+          await db.cancelPendingSale(pendingId);
+          flash("판매 처리 실패, 다시 시도해주세요 (저장된 것은 없어요)");
+        } catch {
+          // 취소가 "이미 서명됨"으로 거절됐다면 응답만 못 받았을 뿐 판매는 확정된 것이다.
+          flash("판매가 저장됐을 수 있어요. 새로고침해서 고객의 이용권을 확인해주세요", 5000);
+        }
+      } else {
+        flash("판매 처리 실패, 다시 시도해주세요");
+      }
     } finally {
       setSaving(false);
     }

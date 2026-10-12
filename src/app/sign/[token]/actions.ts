@@ -20,7 +20,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 export async function signPendingSale(
   token: string,
   signatureDataUrl: string,
-): Promise<{ ok: true; view: SignViewData } | { ok: false; error: string }> {
+): Promise<{ ok: true; view: SignViewData; customerId: string; productId: string } | { ok: false; error: string }> {
   try {
     if (!isValidSignToken(token)) return { ok: false, error: ERROR_MESSAGES.invalid_token };
     if (!signatureDataUrl.startsWith(PNG_PREFIX) || signatureDataUrl.length > MAX_SIGNATURE_DATA_URL_LENGTH) {
@@ -46,14 +46,15 @@ export async function signPendingSale(
       return { ok: false, error: "서명 저장에 실패했어요. 잠시 후 다시 시도해주세요" };
     }
 
-    const { error: confirmError } = await admin.rpc("confirm_pending_sale", { p_token: token, p_signature_url: path });
+    const { data: confirmed, error: confirmError } = await admin.rpc("confirm_pending_sale", { p_token: token, p_signature_url: path });
     if (confirmError) {
       const known = Object.keys(ERROR_MESSAGES).find((k) => confirmError.message.includes(k));
       if (!known) console.error("[sign] 서명 확정 실패:", confirmError.message);
       return { ok: false, error: known ? ERROR_MESSAGES[known] : "서명 저장에 실패했어요. 잠시 후 다시 시도해주세요" };
     }
 
-    return { ok: true, view: await loadSignView(token) };
+    const ids = (confirmed ?? {}) as { customerId?: string; productId?: string };
+    return { ok: true, view: await loadSignView(token), customerId: ids.customerId ?? "", productId: ids.productId ?? "" };
   } catch (err) {
     console.error("[sign] 예상치 못한 오류:", err instanceof Error ? err.message : err);
     return { ok: false, error: "서명 저장에 실패했어요. 잠시 후 다시 시도해주세요" };

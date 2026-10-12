@@ -39,6 +39,10 @@ export async function listCustomers(): Promise<Customer[]> {
   const { data, error } = await supabase.from("customers").select("*").order("created_at", { ascending: true });
   return must(data, error).map(mapCustomer);
 }
+export async function getCustomer(id: string): Promise<Customer> {
+  const { data: row, error } = await supabase.from("customers").select("*").eq("id", id).single();
+  return mapCustomer(must(row, error));
+}
 export async function insertCustomer(data: Partial<Customer>): Promise<Customer> {
   const { data: row, error } = await supabase.from("customers").insert(toSnake(data)).select().single();
   return mapCustomer(must(row, error));
@@ -61,6 +65,10 @@ export async function setCustomerArchived(id: string, archived: boolean): Promis
 export async function listProducts(): Promise<Product[]> {
   const { data, error } = await supabase.from("products").select("*").order("created_at", { ascending: true });
   return must(data, error).map(mapProduct);
+}
+export async function getProduct(id: string): Promise<Product> {
+  const { data: row, error } = await supabase.from("products").select("*").eq("id", id).single();
+  return mapProduct(must(row, error));
 }
 export async function insertProduct(customerId: string, data: Partial<Product>): Promise<Product> {
   const { data: row, error } = await supabase
