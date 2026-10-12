@@ -27,7 +27,8 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage, isNewCustomer } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog } from "@/lib/types";
+import { buildPaymentRows, summarizePayments, dailyTotals, firstPurchaseMap, type PaymentRow } from "@/lib/accounting";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -366,6 +367,16 @@ export default function PTMemberManager() {
   const [acctDate, setAcctDate] = useState(today());
   const [acctMethodFilter, setAcctMethodFilter] = useState("all");
   const [acctQuery, setAcctQuery] = useState("");
+  const [acctKindFilter, setAcctKindFilter] = useState("all"); // all | new | renew | transfer
+  const [acctUnpaidOnly, setAcctUnpaidOnly] = useState(false);
+  const [acctPageSize, setAcctPageSize] = useState(20);
+  const [acctPage, setAcctPage] = useState(0);
+  // 결제 건 수정 이력(추가만 가능). null = 수정 기능 SQL이 아직 설치되지 않음 → 수정 버튼을 숨긴다.
+  const [paymentLogs, setPaymentLogs] = useState<PaymentEditLog[] | null>(null);
+  const [signedProductIds, setSignedProductIds] = useState<Set<string>>(new Set());
+  const [payEdit, setPayEdit] = useState<{ row: PaymentRow; paid: number; date: string; method: PaymentMethod; reason: string; confirming: boolean } | null>(null);
+  const [payEditSaving, setPayEditSaving] = useState(false);
+  const [payHistoryRow, setPayHistoryRow] = useState<PaymentRow | null>(null);
 
   // ---- 재등록 예정(파이프라인) ----
   const emptyForecast: { customerId: string; targetMonth: string; expectedSessions: number | string; expectedAmount: number; note: string } =
@@ -1687,13 +1698,7 @@ export default function PTMemberManager() {
   // ---- 통계분석 ----
   // 고객별 "첫 상품"의 등록시각을 미리 구해두면, 그 시각과 같은 상품은 신규 등록, 다르면 재등록으로
   // 자동 판별할 수 있다 (사용자가 상품 등록할 때 신규/재등록을 직접 체크할 필요가 없음).
-  const firstPurchaseAt = useMemo(() => {
-    const map: Record<string, number> = {};
-    products.forEach((p) => {
-      if (!(p.customerId in map) || (p.createdAt || 0) < map[p.customerId]) map[p.customerId] = p.createdAt || 0;
-    });
-    return map;
-  }, [products]);
+  const firstPurchaseAt = useMemo(() => firstPurchaseMap(products), [products]);
 
   // "세션 매출"(완료 처리된 레슨 기준, 페이롤과 동일한 산정 방식)과
   // "등록 매출"(회계관리와 동일한, 상품을 등록/결제한 금액 기준)은 서로 다른 지표라 둘 다 보여준다.
@@ -1845,38 +1850,84 @@ export default function PTMemberManager() {
     return `${acctDate.slice(0, 4)}년 ${Number(acctDate.slice(5, 7))}월`;
   }, [acctPeriod, acctDate, acctRange]);
 
+  // 회계관리 숫자는 전부 lib/accounting의 공용 함수로 계산한다 — 일일/주간/월간이 같은 함수를 써서
+  // 같은 기간이면 같은 숫자가 나오고, 통계분석·매출 계획과도 같은 기준(결제일 + 실제 결제금액)이다.
+  // 요약 카드는 기간 전체 기준이고, 아래 필터(구분/결제수단/검색/미수금만)는 리스트에만 적용된다.
+  const transferProductIds = useMemo(() => new Set(passTransfers.map((t) => t.recipientProductId)), [passTransfers]);
+  const acctPeriodRows = useMemo(
+    () => buildPaymentRows(products, [...customers, ...archivedCustomers], acctRange, transferProductIds, firstPurchaseAt),
+    [products, customers, archivedCustomers, acctRange, transferProductIds, firstPurchaseAt],
+  );
+  const acctStats = useMemo(() => summarizePayments(acctPeriodRows), [acctPeriodRows]);
+  const acctDaily = useMemo(() => (acctPeriod === "week" ? dailyTotals(acctPeriodRows, acctRange.start, 7) : []), [acctPeriod, acctPeriodRows, acctRange]);
   const acctRows = useMemo(() => {
-    const startTs = new Date(acctRange.start + "T00:00:00").getTime();
-    const endTs = new Date(acctRange.end + "T23:59:59").getTime();
-    let rows = products
-      .filter((p) => (p.createdAt || 0) >= startTs && (p.createdAt || 0) <= endTs)
-      .map((p) => {
-        const cust = customers.find((c) => c.id === p.customerId) || archivedCustomers.find((c) => c.id === p.customerId);
-        return {
-          ...p,
-          customerName: cust ? `${cust.name}${cust.archivedAt ? " (보관)" : ""}` : "(삭제된 고객)",
-          phone: cust ? cust.phone : "",
-          isNew: firstPurchaseAt[p.customerId] === p.createdAt,
-        };
-      });
+    let rows = acctPeriodRows;
+    if (acctKindFilter === "new" || acctKindFilter === "renew") rows = rows.filter((r) => r.kind === acctKindFilter);
+    if (acctKindFilter === "transfer") rows = rows.filter((r) => r.isTransfer);
     if (acctMethodFilter !== "all") rows = rows.filter((r) => r.paymentMethod === acctMethodFilter);
-    if (acctQuery.trim()) rows = rows.filter((r) => r.customerName.includes(acctQuery) || (r.phone || "").includes(acctQuery));
-    return rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  }, [products, customers, archivedCustomers, acctRange, acctMethodFilter, acctQuery, firstPurchaseAt]);
+    if (acctUnpaidOnly) rows = rows.filter((r) => r.unpaid > 0);
+    if (acctQuery.trim()) rows = rows.filter((r) => r.customerName.includes(acctQuery) || r.phone.includes(acctQuery));
+    return rows;
+  }, [acctPeriodRows, acctKindFilter, acctMethodFilter, acctUnpaidOnly, acctQuery]);
+  const acctPageCount = Math.max(1, Math.ceil(acctRows.length / acctPageSize));
+  const acctPageSafe = Math.min(acctPage, acctPageCount - 1);
+  const acctPageRows = acctRows.slice(acctPageSafe * acctPageSize, (acctPageSafe + 1) * acctPageSize);
+  const paymentLogsByProduct = useMemo(() => {
+    const map: Record<string, PaymentEditLog[]> = {};
+    (paymentLogs || []).forEach((l) => { if (l.productId) (map[l.productId] = map[l.productId] || []).push(l); });
+    return map;
+  }, [paymentLogs]);
 
-  // 회계관리 합계도 통계분석·매출 계획과 같은 "실제 결제(입금)금액" 기준 — 미수금은 매출에 넣지 않고 따로 보여준다.
-  const acctStats = useMemo(() => {
-    const totalAmount = acctRows.reduce((s, r) => s + getPaidAmount(r), 0);
-    const newRows = acctRows.filter((r) => r.isNew);
-    const renewRows = acctRows.filter((r) => !r.isNew);
-    const unpaidAmount = acctRows.reduce((s, r) => s + getUnpaidAmount(r), 0);
-    return {
-      totalAmount, totalCount: acctRows.length,
-      newAmount: newRows.reduce((s, r) => s + getPaidAmount(r), 0), newCount: newRows.length,
-      renewAmount: renewRows.reduce((s, r) => s + getPaidAmount(r), 0), renewCount: renewRows.length,
-      unpaidAmount,
-    };
-  }, [acctRows]);
+  // 수정 이력/서명 목록은 회계관리를 처음 열 때 한 번 불러온다(실패해도 화면은 보기 전용으로 동작).
+  const acctExtrasLoaded = useRef(false);
+  useEffect(() => {
+    if (view !== "accounting" || acctExtrasLoaded.current) return;
+    acctExtrasLoaded.current = true;
+    db.listPaymentEditLogs().then(setPaymentLogs).catch(() => setPaymentLogs(null));
+    db.listSignedProductIds().then((ids) => setSignedProductIds(new Set(ids))).catch(() => {});
+  }, [view]);
+
+  const openPayEdit = (row: PaymentRow) => {
+    if (paymentLogs === null) return;
+    setPayEdit({ row, paid: row.paid, date: row.paidDate, method: row.paymentMethod, reason: "", confirming: false });
+  };
+  // 확인 단계에 보여줄 "전 → 후" 목록과 안내 문구
+  const payEditDiff = useMemo(() => {
+    if (!payEdit) return null;
+    const { row } = payEdit;
+    const lines: string[] = [];
+    if (payEdit.paid !== row.paid) lines.push(`결제금액 ${row.paid.toLocaleString()}원 → ${payEdit.paid.toLocaleString()}원`);
+    if (payEdit.date !== row.paidDate) lines.push(`결제일 ${koDate(row.paidDate)} → ${koDate(payEdit.date)}`);
+    if (payEdit.method !== row.paymentMethod) lines.push(`결제수단 ${paymentMethodLabel[row.paymentMethod]} → ${paymentMethodLabel[payEdit.method]}`);
+    const monthMove = payEdit.date.slice(0, 7) !== row.paidDate.slice(0, 7)
+      ? `이 건은 ${Number(row.paidDate.slice(5, 7))}월 매출에서 ${Number(payEdit.date.slice(5, 7))}월 매출로 이동합니다${payEdit.date.slice(0, 4) !== row.paidDate.slice(0, 4) ? ` (${row.paidDate.slice(0, 4)}년 → ${payEdit.date.slice(0, 4)}년)` : ""}`
+      : null;
+    const signedWarn = payEdit.paid !== row.paid && signedProductIds.has(row.id);
+    // 결제일이 그 고객의 다른 이용권 결제일을 넘어가면 차감 순서(먼저 산 이용권부터)와 신규/재등록 구분이 바뀔 수 있다.
+    const lo = payEdit.date < row.paidDate ? payEdit.date : row.paidDate;
+    const hi = payEdit.date < row.paidDate ? row.paidDate : payEdit.date;
+    const orderWarn = payEdit.date !== row.paidDate && products.some((p) => {
+      if (p.id === row.id || p.customerId !== row.customerId || !p.createdAt) return false;
+      const d = toLocalDateStr(new Date(p.createdAt));
+      return d >= lo && d <= hi;
+    });
+    return { lines, monthMove, signedWarn, orderWarn };
+  }, [payEdit, signedProductIds, products]);
+  const savePayEdit = async () => {
+    if (!payEdit || payEditSaving) return;
+    setPayEditSaving(true);
+    try {
+      const { product, log } = await db.editProductPayment(payEdit.row.id, payEdit.paid, payEdit.date, payEdit.method, payEdit.reason);
+      setProducts((prev) => prev.map((x) => (x.id === product.id ? product : x)));
+      setPaymentLogs((prev) => [log, ...(prev || [])]);
+      setPayEdit(null);
+      flash("결제 내역 수정됨 · 수정 이력이 남았어요");
+    } catch (e) {
+      flash(`수정 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000);
+    } finally {
+      setPayEditSaving(false);
+    }
+  };
 
   const shiftAcctDate = (delta: number) => {
     if (acctPeriod === "day") setAcctDate(addDays(acctDate, delta));
@@ -2205,9 +2256,9 @@ export default function PTMemberManager() {
         <>
           <div className="ptm-week-toolbar">
             <div className="ptm-tabs" style={{ margin: 0 }}>
-              <button className={`ptm-tab ${acctPeriod === "day" ? "active" : ""}`} onClick={() => setAcctPeriod("day")}>일간</button>
-              <button className={`ptm-tab ${acctPeriod === "week" ? "active" : ""}`} onClick={() => setAcctPeriod("week")}>주간</button>
-              <button className={`ptm-tab ${acctPeriod === "month" ? "active" : ""}`} onClick={() => setAcctPeriod("month")}>월간</button>
+              <button className={`ptm-tab ${acctPeriod === "day" ? "active" : ""}`} onClick={() => { setAcctPeriod("day"); setAcctPage(0); }}>일일 매출</button>
+              <button className={`ptm-tab ${acctPeriod === "week" ? "active" : ""}`} onClick={() => { setAcctPeriod("week"); setAcctPage(0); }}>주간 매출</button>
+              <button className={`ptm-tab ${acctPeriod === "month" ? "active" : ""}`} onClick={() => { setAcctPeriod("month"); setAcctPage(0); }}>월간 매출</button>
             </div>
             <div className="ptm-week-nav">
               <button className="ptm-nav-btn" onClick={() => shiftAcctDate(-1)}><ChevronLeft size={16} /></button>
@@ -2217,50 +2268,171 @@ export default function PTMemberManager() {
             </div>
           </div>
 
-          <div className="ptm-pay-grid">
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 합계 (실제 입금 기준)</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건</div></div>
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">신규등록</div><div className="ptm-pay-card-num">{acctStats.newAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.newCount}건</div></div>
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">재등록</div><div className="ptm-pay-card-num">{acctStats.renewAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.renewCount}건</div></div>
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">미수금 (합계에서 제외)</div><div className="ptm-pay-card-num" style={acctStats.unpaidAmount > 0 ? { color: "var(--coral)" } : {}}>{acctStats.unpaidAmount.toLocaleString()}원</div></div>
+          <div className="ptm-pay-grid ptm-acct-cards">
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 (실제 입금 기준)</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건 / {acctStats.totalPeople}명</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">신규등록</div><div className="ptm-pay-card-num">{acctStats.newAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.newCount}건 / {acctStats.newPeople}명</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">재등록</div><div className="ptm-pay-card-num">{acctStats.renewAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.renewCount}건 / {acctStats.renewPeople}명</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">양도 (결제금액 중)</div><div className="ptm-pay-card-num">{acctStats.transferAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.transferCount}건 / {acctStats.transferPeople}명</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">미수금 (합계에서 제외)</div><div className="ptm-pay-card-num" style={acctStats.unpaidAmount > 0 ? { color: "var(--coral)" } : {}}>{acctStats.unpaidAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.unpaidCount}건</div></div>
           </div>
 
-          <div className="ptm-toolbar">
+          {acctPeriod === "week" && (
+            <div className="ptm-acct-days">
+              {acctDaily.map((d, i) => (
+                <button key={d.date} className={`ptm-acct-day${d.date === today() ? " today" : ""}`} onClick={() => { setAcctPeriod("day"); setAcctDate(d.date); }} title="이 날짜의 일일 매출 보기">
+                  <span className="ptm-acct-day-label">{dayLabels[i]} {koDate(d.date)}</span>
+                  <span className="ptm-acct-day-num">{d.amount.toLocaleString()}원</span>
+                  <span className="ptm-acct-day-count">{d.count}건</span>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="ptm-toolbar ptm-acct-filters">
             <div className="ptm-search">
               <Search size={15} color="#8a94a6" />
-              <input placeholder="고객명 또는 전화번호 검색" value={acctQuery} onChange={(e) => setAcctQuery(e.target.value)} />
+              <input placeholder="고객명 또는 전화번호 검색" value={acctQuery} onChange={(e) => { setAcctQuery(e.target.value); setAcctPage(0); }} />
             </div>
-            <select className="ptm-sort" value={acctMethodFilter} onChange={(e) => setAcctMethodFilter(e.target.value)}>
+            <select className="ptm-sort" value={acctKindFilter} onChange={(e) => { setAcctKindFilter(e.target.value); setAcctPage(0); }}>
+              <option value="all">구분 전체</option>
+              <option value="new">신규</option>
+              <option value="renew">재등록</option>
+              <option value="transfer">양도</option>
+            </select>
+            <select className="ptm-sort" value={acctMethodFilter} onChange={(e) => { setAcctMethodFilter(e.target.value); setAcctPage(0); }}>
               <option value="all">결제수단 전체</option>
               <option value="card">카드</option>
               <option value="cash">현금</option>
               <option value="transfer">계좌이체</option>
             </select>
+            <label className="ptm-acct-check"><input type="checkbox" checked={acctUnpaidOnly} onChange={(e) => { setAcctUnpaidOnly(e.target.checked); setAcctPage(0); }} /> 미수금 내역만 보기</label>
+            <select className="ptm-sort" value={acctPageSize} onChange={(e) => { setAcctPageSize(Number(e.target.value)); setAcctPage(0); }}>
+              <option value={20}>20개씩</option>
+              <option value={50}>50개씩</option>
+              <option value={100}>100개씩</option>
+            </select>
           </div>
+          {paymentLogs !== null && <div className="ptm-acct-hint">행을 누르면 결제금액·결제일·결제수단을 고칠 수 있어요. 고친 내용은 수정 이력에 남아요.</div>}
 
           <div className="ptm-table-wrap">
             {acctRows.length === 0 ? (
-              <div className="ptm-table-empty">이 기간에 등록된 매출이 없어요</div>
+              <div className="ptm-table-empty">{acctPeriodRows.length === 0 ? "이 기간에 결제 내역이 없어요" : "조건에 맞는 결제 내역이 없어요"}</div>
             ) : (
-              <table className="ptm-table">
-                <thead><tr><th>등록일시</th><th>고객명</th><th>연락처</th><th>판매상품</th><th>판매구분</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th></tr></thead>
+              <table className="ptm-table ptm-acct-table">
+                <thead><tr><th>결제일</th><th>회원명</th><th>상품명</th><th>판매가</th><th>결제수단</th><th>결제금액</th><th>미수금</th><th>구분</th><th></th></tr></thead>
                 <tbody>
-                  {acctRows.map((r) => (
-                    <tr key={r.id}>
-                      <td>{koDate(toLocalDateStr(new Date(r.createdAt || now.getTime())))}</td>
-                      <td>{r.customerName}</td>
-                      <td>{r.phone || "-"}</td>
-                      <td>{r.name}</td>
-                      <td>{r.isNew ? "신규" : "재등록"}</td>
-                      <td>{Number(r.listPrice ?? r.price ?? 0).toLocaleString()}원</td>
-                      <td>{Number(r.price || 0).toLocaleString()}원</td>
-                      <td>{paymentMethodLabel[r.paymentMethod] || "-"}</td>
-                      <td>{isFullyPaid(r) ? "완납" : `미수 ${getUnpaidAmount(r).toLocaleString()}원`}</td>
-                    </tr>
-                  ))}
+                  {acctPageRows.map((r) => {
+                    const logs = paymentLogsByProduct[r.id];
+                    return (
+                      <tr key={r.id} className={paymentLogs !== null ? "ptm-acct-row-editable" : ""} onClick={() => openPayEdit(r)}>
+                        <td>{koDate(r.paidDate)}</td>
+                        <td>{r.customerName}</td>
+                        <td>{r.name}</td>
+                        <td>{Number(r.price || 0).toLocaleString()}원</td>
+                        <td>{paymentMethodLabel[r.paymentMethod] || "-"}</td>
+                        <td><b>{r.paid.toLocaleString()}원</b></td>
+                        <td style={r.unpaid > 0 ? { color: "var(--coral)", fontWeight: 600 } : {}}>{r.unpaid > 0 ? `${r.unpaid.toLocaleString()}원` : "-"}</td>
+                        <td>{r.kind === "new" ? "신규" : "재등록"}{r.isTransfer && <span className="ptm-acct-tag">양도</span>}</td>
+                        <td>{logs && <button className="ptm-acct-edited" onClick={(e) => { e.stopPropagation(); setPayHistoryRow(r); }}>수정됨{logs.length > 1 ? ` ${logs.length}` : ""}</button>}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
           </div>
+          {acctPageCount > 1 && (
+            <div className="ptm-acct-pager">
+              <button className="ptm-nav-btn" disabled={acctPageSafe === 0} onClick={() => setAcctPage(acctPageSafe - 1)}><ChevronLeft size={16} /></button>
+              <span>{acctPageSafe + 1} / {acctPageCount} 페이지 · {acctRows.length}건</span>
+              <button className="ptm-nav-btn" disabled={acctPageSafe >= acctPageCount - 1} onClick={() => setAcctPage(acctPageSafe + 1)}><ChevronRight size={16} /></button>
+            </div>
+          )}
+
+          {payEdit && payEditDiff && (
+            <div className="ptm-overlay" onClick={() => !payEditSaving && setPayEdit(null)}>
+              <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+                <div className="ptm-sheet-head">
+                  <span className="ptm-sheet-title">{payEdit.confirming ? "수정 내용 확인" : "결제 내역 수정"}</span>
+                  <button className="ptm-icon-btn" onClick={() => !payEditSaving && setPayEdit(null)}><X size={16} /></button>
+                </div>
+                <div className="ptm-acct-edit-who">{payEdit.row.customerName} · {payEdit.row.name}</div>
+                {!payEdit.confirming ? (
+                  <>
+                    <div className="ptm-field"><label>판매가 (페이롤 레슨 단가 기준이라 여기서는 바꾸지 않아요)</label>
+                      <input value={`${Number(payEdit.row.price || 0).toLocaleString()}원`} disabled />
+                    </div>
+                    <div className="ptm-field"><label>결제(입금) 금액</label>
+                      <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(payEdit.paid)} onChange={(e) => setPayEdit({ ...payEdit, paid: parseNum(e.target.value) })} />
+                    </div>
+                    <div className={`ptm-acct-unpaid${Number(payEdit.row.price || 0) - payEdit.paid !== 0 ? " has" : ""}`}>
+                      {payEdit.paid > Number(payEdit.row.price || 0)
+                        ? "결제금액은 판매가보다 클 수 없어요"
+                        : `미수금 ${(Number(payEdit.row.price || 0) - payEdit.paid).toLocaleString()}원`}
+                    </div>
+                    <div className="ptm-field"><label>결제일 — 회계관리·통계·매출 계획 집계 기준일</label>
+                      <input type="date" value={payEdit.date} onChange={(e) => e.target.value && setPayEdit({ ...payEdit, date: e.target.value })} />
+                    </div>
+                    <div className="ptm-field"><label>결제수단</label>
+                      <div className="ptm-type-toggle">
+                        {(["card", "cash", "transfer"] as PaymentMethod[]).map((m) => (
+                          <button key={m} className={`ptm-type-btn ${payEdit.method === m ? "active" : ""}`} onClick={() => setPayEdit({ ...payEdit, method: m })}>{paymentMethodLabel[m]}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="ptm-field"><label>수정 사유 (선택)</label>
+                      <input value={payEdit.reason} onChange={(e) => setPayEdit({ ...payEdit, reason: e.target.value })} placeholder="예: 카드 부분취소 반영, 입금일 착오" />
+                    </div>
+                    <button className="ptm-save-btn"
+                      disabled={payEditDiff.lines.length === 0 || (payEdit.paid > Number(payEdit.row.price || 0) && payEdit.paid !== payEdit.row.paid)}
+                      onClick={() => setPayEdit({ ...payEdit, confirming: true })}>
+                      {payEditDiff.lines.length === 0 ? "바뀐 내용이 없어요" : "다음 — 바뀌는 내용 확인"}
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <ul className="ptm-acct-diff">{payEditDiff.lines.map((l) => <li key={l}>{l}</li>)}</ul>
+                    {payEditDiff.monthMove && <div className="ptm-acct-warn">{payEditDiff.monthMove}</div>}
+                    {payEditDiff.signedWarn && <div className="ptm-acct-warn danger">서명된 계약서의 금액과 달라집니다. 이 사실이 수정 이력에도 표시돼요.</div>}
+                    {payEditDiff.orderWarn && <div className="ptm-acct-warn">결제일이 이 고객의 다른 이용권 결제일을 넘어가요. 먼저 결제한 이용권부터 차감하므로 이용권 사용 순서와 신규/재등록 구분이 바뀔 수 있어요.</div>}
+                    {payEdit.reason.trim() && <div className="ptm-acct-reason">사유: {payEdit.reason.trim()}</div>}
+                    <div className="ptm-acct-note">이용권 횟수·잔여 세션·서명·계약서·예약은 바뀌지 않아요.</div>
+                    <div className="ptm-row2">
+                      <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={payEditSaving} onClick={() => setPayEdit({ ...payEdit, confirming: false })}>이전</button>
+                      <button className="ptm-save-btn" style={{ marginTop: 0 }} disabled={payEditSaving} onClick={savePayEdit}>{payEditSaving ? "저장 중..." : "수정 저장"}</button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {payHistoryRow && (
+            <div className="ptm-overlay" onClick={() => setPayHistoryRow(null)}>
+              <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+                <div className="ptm-sheet-head">
+                  <span className="ptm-sheet-title">수정 이력</span>
+                  <button className="ptm-icon-btn" onClick={() => setPayHistoryRow(null)}><X size={16} /></button>
+                </div>
+                <div className="ptm-acct-edit-who">{payHistoryRow.customerName} · {payHistoryRow.name}</div>
+                {(paymentLogsByProduct[payHistoryRow.id] || []).map((l) => (
+                  <div key={l.id} className="ptm-acct-log">
+                    <div className="ptm-acct-log-when">{new Date(l.editedAt).toLocaleString("ko-KR")}{l.signedContract && <span className="ptm-acct-tag danger">서명된 계약 건</span>}</div>
+                    <ul className="ptm-acct-diff">
+                      {l.changes.map((c, i) => (
+                        <li key={i}>
+                          {c.field === "paid_amount" && `결제금액 ${Number(c.from).toLocaleString()}원 → ${Number(c.to).toLocaleString()}원`}
+                          {c.field === "paid_date" && `결제일 ${koDate(String(c.from))} → ${koDate(String(c.to))}`}
+                          {c.field === "payment_method" && `결제수단 ${paymentMethodLabel[String(c.from)] || c.from} → ${paymentMethodLabel[String(c.to)] || c.to}`}
+                        </li>
+                      ))}
+                    </ul>
+                    {l.reason && <div className="ptm-acct-reason">사유: {l.reason}</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
 
