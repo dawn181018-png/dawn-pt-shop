@@ -304,6 +304,25 @@ export async function listSignedProductIds(): Promise<string[]> {
   return (data || []).map((r) => r.product_id as string | null).filter((id): id is string => !!id);
 }
 
+// 판매내역 상품 삭제/복구 — DB 함수(delete_product / restore_product)가 사용 여부·양도 연결을 다시 검사하고
+// 삭제·복구 이력을 같은 트랜잭션에 남긴다. 행은 지우지 않고 보관 표시(archived_at)만 켜고 끈다.
+export async function deleteProductSoft(id: string, reason: string): Promise<Product> {
+  const { data, error } = await supabase.rpc("delete_product", { p_product_id: id, p_reason: reason });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("삭제 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  return mapProduct(data as Record<string, unknown>);
+}
+export async function restoreProduct(id: string): Promise<Product> {
+  const { data, error } = await supabase.rpc("restore_product", { p_product_id: id });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("복구 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  return mapProduct(data as Record<string, unknown>);
+}
+
 // ---------- payment_edit_logs (회계관리 결제 건 수정 이력, 추가만 가능) ----------
 // 표가 아직 설치되지 않았으면(SQL 미실행) null — 화면은 수정 버튼을 숨기고 예전처럼 보기만 한다.
 export async function listPaymentEditLogs(): Promise<PaymentEditLog[] | null> {
