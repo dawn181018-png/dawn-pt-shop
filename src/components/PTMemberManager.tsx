@@ -1807,15 +1807,16 @@ export default function PTMemberManager() {
     return rows.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   }, [products, customers, archivedCustomers, acctRange, acctMethodFilter, acctQuery, firstPurchaseAt]);
 
+  // 회계관리 합계도 통계분석·매출 계획과 같은 "실제 결제(입금)금액" 기준 — 미수금은 매출에 넣지 않고 따로 보여준다.
   const acctStats = useMemo(() => {
-    const totalAmount = acctRows.reduce((s, r) => s + Number(r.price || 0), 0);
+    const totalAmount = acctRows.reduce((s, r) => s + getPaidAmount(r), 0);
     const newRows = acctRows.filter((r) => r.isNew);
     const renewRows = acctRows.filter((r) => !r.isNew);
     const unpaidAmount = acctRows.reduce((s, r) => s + getUnpaidAmount(r), 0);
     return {
       totalAmount, totalCount: acctRows.length,
-      newAmount: newRows.reduce((s, r) => s + Number(r.price || 0), 0), newCount: newRows.length,
-      renewAmount: renewRows.reduce((s, r) => s + Number(r.price || 0), 0), renewCount: renewRows.length,
+      newAmount: newRows.reduce((s, r) => s + getPaidAmount(r), 0), newCount: newRows.length,
+      renewAmount: renewRows.reduce((s, r) => s + getPaidAmount(r), 0), renewCount: renewRows.length,
       unpaidAmount,
     };
   }, [acctRows]);
@@ -2158,10 +2159,10 @@ export default function PTMemberManager() {
           </div>
 
           <div className="ptm-pay-grid">
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 합계</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 합계 (실제 입금 기준)</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건</div></div>
             <div className="ptm-pay-card"><div className="ptm-pay-card-label">신규등록</div><div className="ptm-pay-card-num">{acctStats.newAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.newCount}건</div></div>
             <div className="ptm-pay-card"><div className="ptm-pay-card-label">재등록</div><div className="ptm-pay-card-num">{acctStats.renewAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.renewCount}건</div></div>
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">미수금</div><div className="ptm-pay-card-num" style={acctStats.unpaidAmount > 0 ? { color: "var(--coral)" } : {}}>{acctStats.unpaidAmount.toLocaleString()}원</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">미수금 (합계에서 제외)</div><div className="ptm-pay-card-num" style={acctStats.unpaidAmount > 0 ? { color: "var(--coral)" } : {}}>{acctStats.unpaidAmount.toLocaleString()}원</div></div>
           </div>
 
           <div className="ptm-toolbar">
