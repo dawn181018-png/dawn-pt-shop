@@ -152,7 +152,9 @@ create policy "renewal_forecasts_owner_all" on renewal_forecasts
 -- 기본 권한이 자동으로 부여되지 않는다. RLS는 GRANT가 있어야 평가되므로 반드시 필요하다.
 -- 이 앱은 로그인한 사용자만 사용하므로 authenticated 역할에만 부여한다.
 grant usage on schema public to authenticated;
-grant select, insert, update, delete on public.customers to authenticated;
+grant select, insert, update on public.customers to authenticated;
+-- 고객은 앱 계정으로 완전 삭제할 수 없다(2026-10-13) — 지우면 이용권·예약까지 함께 사라지므로 "보관"만 쓴다.
+revoke delete on public.customers from anon, authenticated;
 grant select, insert, update, delete on public.catalog_items to authenticated;
 grant select, insert, update on public.products to authenticated;
 -- 이용권은 앱 계정으로 완전 삭제할 수 없다(2026-10-13) — 지울 땐 판매내역의 "삭제(복구 가능)" = delete_product 함수만 쓴다.
