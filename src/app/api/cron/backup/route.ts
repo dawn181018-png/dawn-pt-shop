@@ -17,6 +17,9 @@ const TABLES = [
   "renewal_forecasts",
   "contract_signatures",
   "pass_transfers",
+  "pending_sales",
+  "lesson_delegations",
+  "reservation_series",
 ] as const;
 
 // PostgREST는 요청 1건당 최대 1000행까지만 돌려준다. select("*") 한 번으로는 1000행을 넘는 테이블
