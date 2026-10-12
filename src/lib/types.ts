@@ -171,3 +171,16 @@ export interface ReservationSeries {
   skipHolidays: boolean;
   createdAt?: number;
 }
+
+// 회계관리 결제 건 수정 이력(payment_edit_logs) — 추가만 가능한 기록. 수정 1번 = 1줄.
+export type PaymentEditField = "paid_amount" | "paid_date" | "payment_method";
+export interface PaymentEditLog {
+  id: string;
+  productId: string | null;
+  customerName: string;
+  productName: string;
+  changes: { field: PaymentEditField; from: string | number; to: string | number }[];
+  reason?: string | null;
+  signedContract: boolean;
+  editedAt: string;
+}

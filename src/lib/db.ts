@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -295,6 +295,38 @@ export async function uploadContractSignature(customerId: string, blob: Blob): P
 export async function insertContractSignature(data: Partial<ContractSignature>): Promise<ContractSignature> {
   const { data: row, error } = await supabase.from("contract_signatures").insert(toSnake(data)).select().single();
   return mapContractSignature(must(row, error));
+}
+
+// 서명된 계약서가 있는 이용권 id 목록 — 회계관리에서 결제금액을 고칠 때 "계약서 금액과 달라집니다" 경고용.
+export async function listSignedProductIds(): Promise<string[]> {
+  const { data, error } = await supabase.from("contract_signatures").select("product_id");
+  if (error) throw new Error(error.message);
+  return (data || []).map((r) => r.product_id as string | null).filter((id): id is string => !!id);
+}
+
+// ---------- payment_edit_logs (회계관리 결제 건 수정 이력, 추가만 가능) ----------
+// 표가 아직 설치되지 않았으면(SQL 미실행) null — 화면은 수정 버튼을 숨기고 예전처럼 보기만 한다.
+export async function listPaymentEditLogs(): Promise<PaymentEditLog[] | null> {
+  const { data, error } = await supabase.from("payment_edit_logs").select("*").order("edited_at", { ascending: false });
+  if (error) {
+    if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+    throw new Error(error.message);
+  }
+  return (data || []).map((row) => toCamel<PaymentEditLog>(row));
+}
+// 결제금액·결제일·결제수단만 바꾸고 같은 트랜잭션에서 이력을 남기는 DB 함수(edit_product_payment).
+export async function editProductPayment(
+  productId: string, paidAmount: number, paidDate: string, paymentMethod: string, reason: string,
+): Promise<{ product: Product; log: PaymentEditLog }> {
+  const { data, error } = await supabase.rpc("edit_product_payment", {
+    p_product_id: productId, p_paid_amount: paidAmount, p_paid_date: paidDate, p_payment_method: paymentMethod, p_reason: reason,
+  });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("수정 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  const result = data as { product: Record<string, unknown>; log: Record<string, unknown> };
+  return { product: mapProduct(result.product), log: toCamel<PaymentEditLog>(result.log) };
 }
 
 // ---------- pass_transfers (이용권 양도) ----------
