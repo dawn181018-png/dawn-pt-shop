@@ -632,6 +632,13 @@
   .ptm-cust-modal .ptm-cust-main > .ptm-sheet-head .ptm-actions .ptm-icon-btn:not(:last-child) { display:inline-flex; }
 }
 
+/* 대리 트레이너 화면: 안내 띠와 다른 고객 "예약됨" 칸(시간만 보이고 열리지 않음) */
+.ptm-delegate-band { font-size:12.5px; color:var(--amber); background:rgba(59,111,224,0.08); border:1px solid rgba(59,111,224,0.2); border-radius:8px; padding:6px 12px; margin:-4px 0 10px; }
+.ptm-block.busy { background:#c9d0db; border-color:#c9d0db; cursor:default; }
+.ptm-block.busy .ptm-block-name, .ptm-block.busy .ptm-block-time { color:#5b6573; }
+.ptm-mtl-item.locked { background:#eceff3; border-left-color:#c9d0db; cursor:default; }
+.ptm-mtl-item.locked .ptm-mtl-item-title { color:var(--ink-dim); font-weight:600; }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }

@@ -23,6 +23,7 @@ export type MobileScheduleItem = {
   signed: boolean;
   hasNote: boolean;
   isNewCustomer: boolean; // 신규 고객 레슨(초록색 + NEW) — 판단은 productUtils.isNewCustomer
+  locked?: boolean; // 대리 화면의 다른 고객 예약: "예약됨" 시간만 보이고 눌러도 열리지 않는다
 };
 
 type MobileMonthScheduleProps = {
@@ -220,6 +221,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
               finished ? "finished" : "",
               inProgress ? "in-progress" : "",
               height < 50 ? "compact" : "",
+              r.locked ? "locked" : "",
             ].filter(Boolean).join(" ");
             return (
               <button
@@ -236,7 +238,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
                 <span className="ptm-mtl-item-head">
                   <span className="ptm-mtl-item-title">{r.title}</span>
                   {isNew && <span className="ptm-mtl-new">NEW</span>}
-                  {r.type === "misc" && <span className="ptm-mcal-kind">기타</span>}
+                  {r.type === "misc" && !r.locked && <span className="ptm-mcal-kind">기타</span>}
                   <span className="ptm-mtl-item-time">{r.time}–{fromMin(r.end)}</span>
                 </span>
                 <span className="ptm-mcal-item-sub">
