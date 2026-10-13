@@ -51,7 +51,10 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (user && isGuestOnly) {
+  // 대리 트레이너·회원 계정으로 로그인된 기기에서도 관리자 로그인 화면(/login)은 열려야 한다 — 같은 기기에서
+  // 관리자 계정으로 다시 로그인할 수 있게(로그인하면 그 기기의 세션이 관리자 계정으로 바뀐다).
+  const isOtherRole = user?.app_metadata?.role === "delegate" || user?.app_metadata?.role === "member";
+  if (user && isGuestOnly && !(isOtherRole && pathname.startsWith("/login"))) {
     const url = request.nextUrl.clone();
     url.pathname = "/";
     return NextResponse.redirect(url);
@@ -71,7 +74,8 @@ export async function updateSession(request: NextRequest) {
     if (isDelegate && !isProxyPath && !pathname.startsWith("/auth/") && !pathname.startsWith("/api/report-error")) {
       const url = request.nextUrl.clone();
       url.pathname = "/proxy";
-      url.search = "";
+      // 관리자 주소(즐겨찾기 등)로 들어온 경우엔 대리 화면 위에 "관리자 계정으로 돌아가기" 안내를 띄운다.
+      url.search = pathname === "/" ? "?from=admin" : "";
       return NextResponse.redirect(url);
     }
     if (!isDelegate && isProxyPath) {

@@ -1,4 +1,5 @@
 import { login } from "./actions";
+import { createClient } from "@/lib/supabase/server";
 
 export default async function LoginPage({
   searchParams,
@@ -6,6 +7,12 @@ export default async function LoginPage({
   searchParams: Promise<{ error?: string }>;
 }) {
   const { error } = await searchParams;
+  // 대리 트레이너·회원 계정으로 로그인된 기기에서 이 화면에 온 경우(관리자로 돌아가려는 경우) 안내를 보여준다.
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const otherRole = user?.app_metadata?.role === "delegate" ? "대리 트레이너" : user?.app_metadata?.role === "member" ? "회원" : null;
 
   return (
     <div
@@ -34,6 +41,11 @@ export default async function LoginPage({
           던휘트니스 삼성점
         </p>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: "0 0 20px" }}>회원 관리 로그인</h1>
+        {otherRole && (
+          <p style={{ fontSize: 12.5, lineHeight: 1.6, color: "#1f2937", background: "rgba(59,111,224,0.08)", borderRadius: 8, padding: "8px 10px", margin: "-8px 0 14px" }}>
+            지금 이 기기는 {otherRole} 계정으로 로그인돼 있어요. 아래에 관리자 이메일과 비밀번호로 로그인하면 관리자 계정으로 바뀌어요.
+          </p>
+        )}
 
         <label style={{ display: "block", fontSize: 12.5, color: "#6b7684", marginBottom: 5 }}>이메일</label>
         <input
