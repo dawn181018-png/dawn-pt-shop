@@ -1669,3 +1669,6 @@ begin
   );
 end;
 $$;
+
+-- ---------- 이용권 메모 칸 (2026-10-15) ----------
+alter table products add column if not exists memo text;
