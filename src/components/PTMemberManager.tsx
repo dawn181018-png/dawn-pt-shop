@@ -977,6 +977,16 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // ---- 대리 레슨 지정 (관리자) ----
   // 기존 데이터 불러오기와 분리 — 이 목록을 못 불러와도(예: DB 함수 설치 전) 다른 화면엔 영향이 없다.
   const [delegations, setDelegations] = useState<LessonDelegation[]>([]);
+  // 관리자 스케줄에서 대리 레슨을 노란색으로 구분한다: 대리 트레이너가 예약/처리한 레슨이거나, 아직 예정인 레슨인데
+  // 그 날짜에 그 고객이 대리 지정(해제 안 됨, 기간 안)돼 있으면 대리 레슨으로 본다. 대리 화면 자신에서는 쓰지 않는다.
+  const delegateNameFor = (r: { type: string; customerId: string | null; date: string; status: string; delegateName?: string | null }): string | null => {
+    if (isDelegate || r.type !== "pt" || !r.customerId) return null;
+    if (r.delegateName) return r.delegateName;
+    if (r.status !== "scheduled") return null;
+    const d = delegations.find((x) => !x.revokedAt && x.customerIds.includes(r.customerId as string)
+      && r.date >= x.startsOn && (!x.endsOn || r.date <= x.endsOn));
+    return d ? d.delegateName : null;
+  };
   const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
   useEffect(() => {
     if (!loaded || isDelegate) return;
@@ -1727,7 +1737,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     signed: !!r.signatureUrl, hasNote: !!(r.workoutNote || "").trim(),
     isNewCustomer: !!r.customerId && newCustomerIds.has(r.customerId),
     locked: isBusyId(r.id),
-  })), [allReservations, newCustomerIds]);
+    delegateName: delegateNameFor(r),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- delegateNameFor는 delegations/isDelegate만 읽는다
+  })), [allReservations, newCustomerIds, delegations, isDelegate]);
   // 모바일 목록에서 일정을 누르면 PC 그리드에서 블록을 누를 때와 똑같은 기존 예약 메뉴를 연다.
   const openReservationMenu = (id: string, x: number, y: number) => {
     const r = allReservations.find((x) => x.id === id);
@@ -2196,8 +2208,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         const leftPct = (r.col ?? 0) * widthPct;
                         // 신규 고객(아직 이용권을 산 적 없는 고객) 레슨 — 모바일 시간표와 같은 기준(productUtils.isNewCustomer)
                         const isNewLesson = r.type === "pt" && !!r.customerId && newCustomerIds.has(r.customerId);
+                        const lessonDelegate = delegateNameFor(r);
                         return (
-                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}`}
+                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}${lessonDelegate ? " delegated" : ""}`}
                             style={{
                               top: timeTopPx(r.time), height: durHeightPx(r.duration || 50),
                               left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
@@ -2216,7 +2229,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                             )}
                             <div className="ptm-block-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))}</div>
                             <div className="ptm-block-name">{isNewLesson && <span className="ptm-block-new">NEW</span>}{r.customerName}</div>
-                            <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}{r.delegateName ? ` · 대리 ${r.delegateName}` : ""}</div>
+                            <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}{lessonDelegate ? ` · 대리 ${lessonDelegate}` : ""}</div>
                           </div>
                         );
                       })}

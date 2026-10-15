@@ -639,6 +639,15 @@
 .ptm-mtl-item.locked { background:#eceff3; border-left-color:#c9d0db; cursor:default; }
 .ptm-mtl-item.locked .ptm-mtl-item-title { color:var(--ink-dim); font-weight:600; }
 
+/* 관리자 스케줄의 대리 레슨: 노란색 (예정은 노란 칸, 완료는 연한 노랑 — 노쇼/취소는 상태 색 그대로) */
+.ptm-block.delegated.scheduled { background:#f5c518; border-color:#e0b000; }
+.ptm-block.delegated.scheduled .ptm-block-time, .ptm-block.delegated.scheduled .ptm-block-name, .ptm-block.delegated.scheduled .ptm-block-sub { color:#4a3600; }
+.ptm-block.delegated.scheduled .ptm-block-badge { color:#4a3600; }
+.ptm-block.delegated.done { background:rgba(245,197,24,0.22); border-color:#e0b000; }
+.ptm-block.delegated.done .ptm-block-time, .ptm-block.delegated.done .ptm-block-sub, .ptm-block.delegated.done .ptm-block-name { color:#7a5a00; }
+.ptm-mtl-item.delegated { border-left-color:#e0b000; background:#fff4c7; }
+.ptm-mtl-delegate { font-size:9.5px; font-weight:800; color:#5c4300; background:#f5c518; border-radius:4px; padding:1px 4px; flex-shrink:0; white-space:nowrap; }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }

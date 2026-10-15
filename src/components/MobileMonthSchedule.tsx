@@ -24,6 +24,7 @@ export type MobileScheduleItem = {
   hasNote: boolean;
   isNewCustomer: boolean; // 신규 고객 레슨(초록색 + NEW) — 판단은 productUtils.isNewCustomer
   locked?: boolean; // 대리 화면의 다른 고객 예약: "예약됨" 시간만 보이고 눌러도 열리지 않는다
+  delegateName?: string | null; // 관리자 화면에서 대리 트레이너가 맡은 레슨(노란색 + "대리 이름")
 };
 
 type MobileMonthScheduleProps = {
@@ -222,6 +223,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
               inProgress ? "in-progress" : "",
               height < 50 ? "compact" : "",
               r.locked ? "locked" : "",
+              r.delegateName ? "delegated" : "",
             ].filter(Boolean).join(" ");
             return (
               <button
@@ -238,6 +240,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
                 <span className="ptm-mtl-item-head">
                   <span className="ptm-mtl-item-title">{r.title}</span>
                   {isNew && <span className="ptm-mtl-new">NEW</span>}
+                  {r.delegateName && <span className="ptm-mtl-delegate">대리 {r.delegateName}</span>}
                   {r.type === "misc" && !r.locked && <span className="ptm-mcal-kind">기타</span>}
                   <span className="ptm-mtl-item-time">{r.time}–{fromMin(r.end)}</span>
                 </span>
