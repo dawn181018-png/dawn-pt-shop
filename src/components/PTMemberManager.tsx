@@ -845,7 +845,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         if (Number(productForm.usedSessions) === editOriginalUsed) delete payload.usedSessions;
         const updated = await db.updateProduct(editingProductId, payload);
         setProducts(products.map((p) => (p.id === editingProductId ? updated : p)));
-        flash("상품 정보 수정됨");
+        const after = products.map((x) => (x.id === editingProductId ? updated : x));
+        const over = unbookedSessions(updated.customerId, after, reservations);
+        flash(over.scheduled > over.remaining
+          ? `상품 정보 수정됨 · 잡힌 예약이 남은 횟수보다 ${over.scheduled - over.remaining}건 많아요 — 이용권 탭 위에서 정리할 수 있어요`
+          : "상품 정보 수정됨", over.scheduled > over.remaining ? 5000 : 1800);
       } else {
         const created = await db.insertProduct(productFormCustomerId as string, payload);
         setProducts([...products, created]);
@@ -1111,6 +1115,40 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       } catch (e) { flash(`복구 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000); }
     }, "복구");
   };
+  // 이용권 횟수를 줄였거나 수동으로 사용 처리해서, 앞으로 잡힌 예약이 남은 횟수보다 많아진 경우를 찾는다.
+  const bookingExcess = (customerId: string) => {
+    const { remaining, scheduled } = unbookedSessions(customerId, products, reservations);
+    return { remaining, scheduled, excess: Math.max(0, scheduled - remaining) };
+  };
+  const requestTrimExcessBookings = (customerId: string) => {
+    const { remaining, scheduled, excess } = bookingExcess(customerId);
+    if (excess <= 0) return;
+    const victims = reservations
+      .filter((r) => r.customerId === customerId && r.type !== "misc" && r.status === "scheduled" && !!r.productId && r.date >= today())
+      .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
+      .slice(0, excess);
+    if (victims.length === 0) { flash("정리할 앞으로의 예약이 없어요. 지난 날짜의 '예약됨'을 완료/노쇼/취소로 처리해주세요", 4500); return; }
+    const first = victims[victims.length - 1], last = victims[0];
+    askConfirm(
+      `앞으로 잡힌 예약 ${scheduled}건이 남은 횟수(${remaining}회)보다 ${excess}건 많아요. 가장 나중 예약 ${victims.length}건(${koDateY(first.date)} ~ ${koDateY(last.date)})을 삭제할까요? 지난 레슨·완료 기록과 이용권 횟수는 그대로예요.`,
+      async () => {
+        let done = 0;
+        try {
+          for (const r of victims) {
+            const atomic = await db.deleteReservationAtomic(r.id);
+            if (!atomic) await db.deleteReservation(r.id);
+            done++;
+          }
+          flash(`남은 횟수에 맞춰 예약 ${done}건을 정리했어요`, 3000);
+        } catch {
+          flash(`정리 중 실패했어요 (${done}건 정리됨). 다시 눌러주세요`, 4000);
+        }
+        const removed = new Set(victims.slice(0, done).map((r) => r.id));
+        setReservations((prev) => prev.filter((r) => !removed.has(r.id)));
+      },
+      "정리",
+    );
+  };
   const bumpSession = async (id: string, delta: number) => {
     const p = products.find((x) => x.id === id);
     if (!p || p.type !== "session") return;
@@ -1149,6 +1187,17 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     const status = statusOverride || "scheduled";
     const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
     const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
+    // 횟수권 예약은 항상 "남은 횟수" 안에서만 잡는다 — 고객의 모든 횟수권 잔여 합계에서 이미 잡힌 예약(예약됨)을 뺀
+    // 만큼만 더 잡을 수 있다(완료할 때 다른 이용권으로 자동 전환되므로 고객 단위 합계로 본다). 대리 화면도 같다.
+    if (status === "scheduled" && customerId && productId && products.find((x) => x.id === productId)?.type === "session") {
+      const { remaining, scheduled, unbooked } = unbookedSessions(customerId, products, reservations);
+      if (count > unbooked) {
+        flash(unbooked <= 0
+          ? `남은 횟수 ${remaining}회만큼 이미 예약돼 있어서 더 잡을 수 없어요 (예약됨 ${scheduled}건)`
+          : `남은 횟수 ${remaining}회 중 ${scheduled}회가 이미 예약돼 있어요. 더 잡을 수 있는 예약은 ${unbooked}회예요`, 5000);
+        return 0;
+      }
+    }
     // 소진된 이용권으로 곧장 출석/결석 처리하며 예약을 만들면 세션이 초과 차감되므로 미리 막는다.
     // (정상 UI에서는 select 단계에서 이미 소진된 이용권을 고를 수 없어 도달하지 않는 2차 방어선)
     // 반복 설정을 켠 채 출석/결석으로 등록하면 여러 건을 한 번에 차감하는데, 남은 횟수보다 많으면
@@ -3277,6 +3326,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               {customerDetailTab === "products" && !isDelegate && (
                 <div className="ptm-prod-list" style={{ marginTop: 0 }}>
                   {custProducts.length === 0 && <div className="ptm-no-product-msg">등록된 상품이 없어요</div>}
+                  {(() => {
+                    const { remaining, scheduled, excess } = bookingExcess(cust.id);
+                    return excess > 0 ? (
+                      <div className="ptm-acct-warn danger ptm-excess-warn">
+                        <span>앞으로 잡힌 예약 {scheduled}건이 남은 횟수({remaining}회)보다 <b>{excess}건 많아요</b>. 이대로면 마지막 예약들은 차감할 이용권이 없어 완료할 수 없어요.</span>
+                        <button className="ptm-res-btn" onClick={() => requestTrimExcessBookings(cust.id)}>남은 횟수에 맞춰 정리</button>
+                      </div>
+                    ) : null;
+                  })()}
                   {(() => {
                     // 정렬: 지금 이용 중인 이용권을 맨 위에, 나머지는 결제(등록)일이 최근인 것부터.
                     // "이용 중" = 남은 횟수가 있고 앞으로의 예약이 이 이용권으로 잡혀 있는 것. 그런 게 없으면
