@@ -26,7 +26,7 @@ import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
-import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, sortProductsByUsage, isNewCustomer } from "@/lib/productUtils";
+import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog } from "@/lib/types";
 import {
   loadDelegateState, delegateAddReservations, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
@@ -3273,7 +3273,22 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               {customerDetailTab === "products" && !isDelegate && (
                 <div className="ptm-prod-list" style={{ marginTop: 0 }}>
                   {custProducts.length === 0 && <div className="ptm-no-product-msg">등록된 상품이 없어요</div>}
-                  {sortProductsByUsage(custProducts).map((p) => {
+                  {(() => {
+                    // 정렬: 지금 이용 중인 이용권을 맨 위에, 나머지는 결제(등록)일이 최근인 것부터.
+                    // "이용 중" = 남은 횟수가 있고 앞으로의 예약이 이 이용권으로 잡혀 있는 것. 그런 게 없으면
+                    // 다음 예약 때 자동으로 고를 이용권(잔여가 있는 것 중 가장 먼저 산 것)을 이용 중으로 본다.
+                    const futureCount = (pid: string) => reservations.filter((r) => r.productId === pid && r.status === "scheduled" && r.date >= today()).length;
+                    const usable = custProducts.filter((x) => !isDepleted(x));
+                    let current = usable.filter((x) => futureCount(x.id) > 0);
+                    if (current.length === 0) {
+                      const next = [...usable].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+                      current = next ? [next] : [];
+                    }
+                    const byNewest = (a: Product, b: Product) => (b.createdAt || 0) - (a.createdAt || 0);
+                    const currentIds = new Set(current.map((x) => x.id));
+                    return [...current.sort(byNewest), ...custProducts.filter((x) => !currentIds.has(x.id)).sort(byNewest)]
+                      .map((p) => ({ p, inUse: currentIds.has(p.id) }));
+                  })().map(({ p, inUse }) => {
                     const u = urgency(p);
                     const depleted = isDepleted(p);
                     const upcoming = reservations.filter((r) => r.productId === p.id && r.status === "scheduled").length;
@@ -3285,7 +3300,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         <div className="ptm-prod-top">
                           <div>
                             <span className="ptm-prod-name">{p.name}</span>{" "}
+                            {inUse && <><span className="ptm-badge ptm-badge-inuse">이용 중</span>{" "}</>}
                             <span className="ptm-badge">{p.type === "session" ? "횟수권" : "기간권"}</span>{" "}
+                            <span className="ptm-prod-date">{p.createdAt ? koDateY(toLocalDateStr(new Date(p.createdAt))) : ""}</span>{" "}
                             <span className={`ptm-badge ${isFullyPaid(p) ? "" : "unpaid"}`} onClick={() => togglePaid(p.id)} style={{ cursor: "pointer" }}>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</span>{" "}
                             {incomingTransfer && (
                               <span className="ptm-badge" title={`원본: ${customers.find((c) => c.id === incomingTransfer.sourceCustomerId)?.name || "알 수 없음"}`}>
