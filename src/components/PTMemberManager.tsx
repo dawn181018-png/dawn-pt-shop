@@ -1662,6 +1662,18 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   };
 
   // ---- Derived ----
+  // 자동 휴면: 이용권을 산 적은 있는데 쓸 수 있는 이용권(잔여 횟수가 남은 횟수권, 만료 안 된 기간권)이 하나도
+  // 없는 고객. DB의 휴면 표시는 바꾸지 않고 화면에서만 휴면으로 분류한다 — 새 이용권을 사면 바로 풀린다.
+  // (이용권을 한 번도 산 적 없는 신규·상담 고객은 휴면으로 보지 않는다.)
+  const autoDormantIds = useMemo(() => {
+    const ids = new Set<string>();
+    customers.forEach((c) => {
+      const own = products.filter((x) => x.customerId === c.id);
+      if (!c.isDormant && own.length > 0 && own.every((x) => isDepleted(x))) ids.add(c.id);
+    });
+    return ids;
+  }, [customers, products]);
+  const isDormantNow = (c: { id: string; isDormant?: boolean }) => !!c.isDormant || autoDormantIds.has(c.id);
   const customerSummary = useMemo(() => {
     return customers.map((c) => {
       const prods = products.filter((p) => p.customerId === c.id);
@@ -1691,7 +1703,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     else if (quickFilter === "remain10") list = list.filter((c) => c.minRemain !== null && c.minRemain < 10);
     else if (quickFilter === "inactive10") list = list.filter((c) => c.daysSinceVisit >= 10);
     else if (quickFilter === "inactive20") list = list.filter((c) => c.daysSinceVisit >= 20);
-    else if (quickFilter === "dormant") list = list.filter((c) => c.isDormant);
+    else if (quickFilter === "dormant") list = list.filter((c) => isDormantNow(c));
     else if (quickFilter === "urgent") list = list.filter((c) => c.worst !== "ok" && c.worst !== "none");
     else if (quickFilter === "unpaid") list = list.filter((c) => c.hasUnpaid);
     if (sortMode === "urgent") list = [...list].sort((a, b) => (urgencyRank[a.worst] ?? 3) - (urgencyRank[b.worst] ?? 3));
@@ -1705,7 +1717,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     }
     else list = [...list].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     return list;
-  }, [customerSummary, query, sortMode, quickFilter]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- isDormantNow는 autoDormantIds만 읽는다
+  }, [customerSummary, query, sortMode, quickFilter, autoDormantIds]);
 
   // 초성 그룹 헤더 렌더링용 — 검색 중이 아닐 때만 "가나다순"에서 사용
   const chosungGroups = useMemo(() => {
@@ -1721,12 +1734,13 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   }, [filteredCustomers, sortMode, query]);
 
   const renderCustomerCard = (c: (typeof filteredCustomers)[number]) => (
-    <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: c.isDormant ? 0.55 : 1 }}>
+    <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: isDormantNow(c) ? 0.55 : 1 }}>
       <div className="ptm-card-top">
         <div>
           <div className="ptm-name-row">
             <span className="ptm-name">{c.name}</span>
             {c.isDormant && <span className="ptm-badge dormant">휴면</span>}
+            {!c.isDormant && autoDormantIds.has(c.id) && <span className="ptm-badge dormant" title="쓸 수 있는 이용권이 없어 자동으로 휴면으로 분류돼요. 새 이용권을 사면 풀려요">휴면(이용권 소진)</span>}
             {c.hasUnpaid && <span className="ptm-badge unpaid">미수금</span>}
             {c.pendingForecast && <span className="ptm-badge forecast">재등록예정 {c.pendingForecast.targetMonth.slice(5, 7)}월 · {Number(c.pendingForecast.expectedAmount || 0).toLocaleString()}원</span>}
           </div>
@@ -1837,9 +1851,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     // 건수를 따로 세서 "총/예정"으로 함께 보여준다.
     const todayTotal = todaySchedule.filter((r) => r.status !== "cancelled").length;
     const todayCount = todaySchedule.filter((r) => r.status === "scheduled").length;
-    const dormant = customers.filter((c) => c.isDormant).length;
+    const dormant = customers.filter((c) => c.isDormant || autoDormantIds.has(c.id)).length;
     return { total, lowSessions, unpaid, todayTotal, todayCount, dormant };
-  }, [customers, customerSummary, todaySchedule]);
+  }, [customers, customerSummary, todaySchedule, autoDormantIds]);
 
   const resSheetProduct = products.find((p) => p.id === resSheetProductId);
   const resSheetCustomer = resSheetProduct ? customers.find((c) => c.id === resSheetProduct.customerId) : null;
@@ -1944,7 +1958,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
   const forecastRows = useMemo(() => {
     return customers
-      .filter((c) => !c.isDormant && products.some((p) => p.customerId === c.id))
+      // 휴면(직접 표시 + 이용권 소진 자동 휴면)은 빼되, 이번 달 재등록 예정을 적어둔 고객은 남긴다.
+      .filter((c) => products.some((p) => p.customerId === c.id)
+        && (!isDormantNow(c) || renewalForecasts.some((x) => x.customerId === c.id && x.targetMonth === forecastMonth)))
       .map((c) => {
         const f = renewalForecasts.find((x) => x.customerId === c.id && x.targetMonth === forecastMonth);
         const sessionProducts = products.filter((p) => p.customerId === c.id && p.type === "session");
@@ -1980,7 +1996,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         };
       })
       .sort((a, b) => (a.totalRemain ?? 9999) - (b.totalRemain ?? 9999));
-  }, [customers, products, renewalForecasts, forecastMonth, doneReservationsByCustomer]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- isDormantNow는 autoDormantIds만 읽는다
+  }, [customers, products, renewalForecasts, forecastMonth, doneReservationsByCustomer, autoDormantIds]);
 
   const filteredForecastRows = useMemo(() => {
     if (!forecastQuery.trim()) return forecastRows;
