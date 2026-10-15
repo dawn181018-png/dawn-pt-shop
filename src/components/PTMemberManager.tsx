@@ -59,6 +59,7 @@ type ProductFormData = {
   startDate: string; endDate?: string | null;
   sessionDuration: number; listPrice: number; price: number; paidAmount: number; paymentMethod: PaymentMethod;
   createdAt?: string;
+  memo?: string | null;
 };
 const emptyProduct: ProductFormData = {
   name: "", type: "session",
@@ -836,6 +837,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       endDate: emptyToNull(productForm.endDate),
       createdAt: productForm.createdAt ? new Date(`${productForm.createdAt}T00:00:00`).toISOString() : new Date().toISOString(),
     } as unknown as Partial<Product>;
+    // 메모가 비어 있고 원래도 없던 경우엔 보내지 않는다(메모 칸 추가 SQL 실행 전에도 저장이 깨지지 않게).
+    if (!(productForm.memo || "").trim() && !(editingProductId && products.find((x) => x.id === editingProductId)?.memo)) delete payload.memo;
+    else payload.memo = (productForm.memo || "").trim() || null;
     try {
       if (editingProductId) {
         if (Number(productForm.usedSessions) === editOriginalUsed) delete payload.usedSessions;
@@ -3334,6 +3338,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                             </div>
                           )}
                         </div>
+                        {p.memo && <div className="ptm-prod-memo" title="이용권 메모">메모 · {p.memo}</div>}
                         {outgoingTransfers.length > 0 && (
                           <div className="ptm-prod-count">
                             {outgoingTransfers.map((t) => (
@@ -3378,7 +3383,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                             {[...custProducts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((p) => (
                               <tr key={p.id} className="ptm-row-clickable" onClick={() => openEditProduct(p)}>
                                 <td>{koDateY(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
-                                <td>{p.name}</td>
+                                <td>{p.name}{p.memo && <div className="ptm-sale-memo" title={p.memo}>{p.memo}</div>}</td>
                                 <td>{Number(p.listPrice ?? p.price ?? 0).toLocaleString()}원</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{paymentMethodLabel[p.paymentMethod] || "-"}</td>
@@ -3658,6 +3663,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             {Number(productForm.price) - Number(productForm.paidAmount) > 0 && (
               <div className="ptm-unpaid-note">미수금 {(Number(productForm.price) - Number(productForm.paidAmount)).toLocaleString()}원 남음</div>
             )}
+            <div className="ptm-field"><label>메모 — 왜 이 횟수·금액인지 등 (회원에게는 보이지 않아요)</label>
+              <textarea rows={3} value={productForm.memo || ""} onChange={(e) => setProductForm({ ...productForm, memo: e.target.value })} placeholder="예: 20회 + 서비스 10회, 2회 분할 결제(나머지 8월 입금)" />
+            </div>
             <button className="ptm-save-btn" onClick={saveProduct}>{editingProductId ? "수정 완료" : "상품 등록"}</button>
           </div>
         </div>

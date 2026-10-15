@@ -33,6 +33,7 @@ export interface Product {
   archivedAt?: string | null; // 보관(삭제 대신)한 시각. 값이 있으면 잔여·매출 계산과 목록에서 뺀다
   deletedAt?: string | null; // 판매내역에서 "삭제"한 시각(복구 가능) — 삭제하면 archivedAt도 함께 켜진다
   deleteReason?: string | null;
+  memo?: string | null; // 트레이너용 메모(왜 이 횟수/금액인지 등) — 회원 마이페이지·대리 화면에는 보내지 않는다
   createdAt?: number;
 }
 
