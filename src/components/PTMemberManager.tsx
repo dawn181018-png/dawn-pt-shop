@@ -977,16 +977,10 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // ---- 대리 레슨 지정 (관리자) ----
   // 기존 데이터 불러오기와 분리 — 이 목록을 못 불러와도(예: DB 함수 설치 전) 다른 화면엔 영향이 없다.
   const [delegations, setDelegations] = useState<LessonDelegation[]>([]);
-  // 관리자 스케줄에서 대리 레슨을 노란색으로 구분한다: 대리 트레이너가 예약/처리한 레슨이거나, 아직 예정인 레슨인데
-  // 그 날짜에 그 고객이 대리 지정(해제 안 됨, 기간 안)돼 있으면 대리 레슨으로 본다. 대리 화면 자신에서는 쓰지 않는다.
-  const delegateNameFor = (r: { type: string; customerId: string | null; date: string; status: string; delegateName?: string | null }): string | null => {
-    if (isDelegate || r.type !== "pt" || !r.customerId) return null;
-    if (r.delegateName) return r.delegateName;
-    if (r.status !== "scheduled") return null;
-    const d = delegations.find((x) => !x.revokedAt && x.customerIds.includes(r.customerId as string)
-      && r.date >= x.startsOn && (!x.endsOn || r.date <= x.endsOn));
-    return d ? d.delegateName : null;
-  };
+  // 관리자 스케줄에서 대리 트레이너가 예약(또는 처리)한 레슨만 노란색으로 구분한다 — 대리 화면에서 예약·시간 변경·완료하면
+  // DB가 그 레슨에 대리 트레이너 이름을 남긴다. 사장님이 직접 잡은 예약은 대리 지정 고객이라도 원래 색 그대로다.
+  const delegateNameFor = (r: { type: string; delegateName?: string | null }): string | null =>
+    !isDelegate && r.type === "pt" && r.delegateName ? r.delegateName : null;
   const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
   useEffect(() => {
     if (!loaded || isDelegate) return;
