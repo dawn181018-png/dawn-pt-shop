@@ -658,6 +658,13 @@
 
 .ptm-excess-warn { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
 
+/* 주간 표의 짧은 레슨(하프 PT 등 40분 미만): 칸 높이가 낮아 이름이 잘리지 않도록 이름을 먼저 한 줄로 보여준다 */
+.ptm-block.short { display:flex; flex-direction:row-reverse; justify-content:flex-end; align-items:center; gap:4px; padding:1px 34px 1px 5px; }
+.ptm-block.short .ptm-block-name { font-size:11px; line-height:1.15; flex-shrink:0; }
+.ptm-block.short .ptm-block-time { font-size:8.5px; line-height:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+.ptm-block.short .ptm-block-sub { display:none; }
+.ptm-block.short .ptm-block-badge { top:50%; transform:translateY(-50%); font-size:8px; padding:1px 3px; }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }

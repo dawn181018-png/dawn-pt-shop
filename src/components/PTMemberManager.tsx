@@ -2274,7 +2274,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         const isNewLesson = r.type === "pt" && !!r.customerId && newCustomerIds.has(r.customerId);
                         const lessonDelegate = delegateNameFor(r);
                         return (
-                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}${lessonDelegate ? " delegated" : ""}`}
+                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}${lessonDelegate ? " delegated" : ""}${(r.duration || 50) < 40 ? " short" : ""}`}
                             style={{
                               top: timeTopPx(r.time), height: durHeightPx(r.duration || 50),
                               left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
