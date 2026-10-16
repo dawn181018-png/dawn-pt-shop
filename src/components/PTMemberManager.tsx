@@ -26,7 +26,7 @@ import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
-import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer } from "@/lib/productUtils";
+import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog } from "@/lib/types";
 import {
   loadDelegateState, delegateAddReservations, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
@@ -550,8 +550,13 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // ---- Catalog ----
   const openNewCatalog = () => { setCatalogForm(emptyCatalogItem); setEditingCatalogId(null); setShowCatalogForm(true); };
   const openEditCatalog = (item: CatalogItem) => { setCatalogForm(item); setEditingCatalogId(item.id); setShowCatalogForm(true); };
-  const saveCatalogItem = async () => {
+  const saveCatalogItem = async (confirmed = false) => {
     if (!catalogForm.name.trim()) { flash("이용권 이름을 입력해주세요"); return; }
+    const nameNum = isCountBased(catalogForm.category) ? nameSessionMismatch(catalogForm.name, catalogForm.sessions) : null;
+    if (nameNum !== null && !confirmed) {
+      askConfirm(`이름은 ${nameNum}회인데 횟수는 ${catalogForm.sessions}회로 되어 있어요. 이대로 저장하면 판매할 때마다 ${catalogForm.sessions}회로 등록돼요. 그래도 저장할까요?`, () => saveCatalogItem(true), "그래도 저장");
+      return;
+    }
     // 수정 시 catalogForm에는 openEditCatalog(item)에서 넘어온 id/createdAt(epoch ms 숫자)이
     // 그대로 남아있는데, DB의 created_at은 timestamptz라서 숫자를 그대로 보내면 저장이 거부된다.
     // 화면에서 실제로 입력받는 필드만 골라 보내서 이 문제를 피한다.
@@ -828,8 +833,13 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     });
     setProductFormCustomerId(p.customerId); setEditingProductId(p.id); setProductCatalogPick(""); setShowProductForm(true);
   };
-  const saveProduct = async () => {
+  const saveProduct = async (confirmed = false) => {
     if (!productForm.name.trim()) { flash("상품명을 입력해주세요"); return; }
+    const nameNum = productForm.type === "session" ? nameSessionMismatch(productForm.name, productForm.totalSessions) : null;
+    if (nameNum !== null && !confirmed) {
+      askConfirm(`이름은 ${nameNum}회인데 총 횟수는 ${productForm.totalSessions}회로 되어 있어요. 그래도 저장할까요?`, () => saveProduct(true), "그래도 저장");
+      return;
+    }
     // createdAt은 화면(폼)에선 날짜 문자열이지만 DB 쓰기 시점엔 timestamptz 문자열(ISO)로 보낸다 —
     // 읽어올 때(Product.createdAt: number, epoch ms)와는 다른 "쓰기 전용" 모양이라 여기서만 캐스팅한다.
     const payload = {
@@ -3675,6 +3685,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 <button className={`ptm-type-btn ${productForm.type === "period" ? "active" : ""}`} onClick={() => setProductForm({ ...productForm, type: "period" })}>기간권</button>
               </div>
             </div>
+            {productForm.type === "session" && (nameSessionMismatch(productForm.name, productForm.totalSessions) !== null && (
+              <div className="ptm-unpaid-note">이름에는 {nameSessionMismatch(productForm.name, productForm.totalSessions)}회로 적혀 있는데 총 횟수는 {productForm.totalSessions}회예요. 맞는지 꼭 확인해주세요</div>
+            ))}
             {productForm.type === "session" ? (
               <div className="ptm-row3">
                 <div className="ptm-field"><label>총 횟수</label>
@@ -3741,7 +3754,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             <div className="ptm-field"><label>메모 — 왜 이 횟수·금액인지 등 (회원에게는 보이지 않아요)</label>
               <textarea rows={3} value={productForm.memo || ""} onChange={(e) => setProductForm({ ...productForm, memo: e.target.value })} placeholder="예: 20회 + 서비스 10회, 2회 분할 결제(나머지 8월 입금)" />
             </div>
-            <button className="ptm-save-btn" onClick={saveProduct}>{editingProductId ? "수정 완료" : "상품 등록"}</button>
+            <button className="ptm-save-btn" onClick={() => saveProduct()}>{editingProductId ? "수정 완료" : "상품 등록"}</button>
           </div>
         </div>
       )}
@@ -3999,6 +4012,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             <div className="ptm-field"><label>이용권 이름</label>
               <input value={catalogForm.name} onChange={(e) => setCatalogForm({ ...catalogForm, name: e.target.value })} placeholder="예: PT 10회 1개월" />
             </div>
+            {isCountBased(catalogForm.category) && (nameSessionMismatch(catalogForm.name, catalogForm.sessions) !== null && (
+              <div className="ptm-unpaid-note">이름에는 {nameSessionMismatch(catalogForm.name, catalogForm.sessions)}회로 적혀 있는데 총 횟수는 {catalogForm.sessions}회예요. 맞는지 꼭 확인해주세요</div>
+            ))}
             {isCountBased(catalogForm.category) ? (
               <div className="ptm-row3">
                 <div className="ptm-field"><label>횟수</label>
@@ -4032,7 +4048,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 <input type="number" onFocus={(e) => e.target.select()} value={catalogForm.sessionDuration} onChange={(e) => setCatalogForm({ ...catalogForm, sessionDuration: Number(e.target.value) })} placeholder="예: 50, 90, 100" />
               </div>
             )}
-            <button className="ptm-save-btn" onClick={saveCatalogItem}>{editingCatalogId ? "수정 완료" : "이용권 등록"}</button>
+            <button className="ptm-save-btn" onClick={() => saveCatalogItem()}>{editingCatalogId ? "수정 완료" : "이용권 등록"}</button>
           </div>
         </div>
       )}

@@ -63,3 +63,12 @@ export function sortProductsByUsage(list: Product[]): Product[] {
 export function isNewCustomer(customerId: string, allProducts: Product[]): boolean {
   return !allProducts.some((p) => p.customerId === customerId);
 }
+
+// 이용권 이름에 적힌 횟수(예: "PT 20회", "half 20", "Premium Conditioning 20s")와 실제 총 횟수가 다르면 이름 속 숫자를
+// 돌려준다(같으면 null). "half 20"인데 횟수가 10으로 저장돼 판매된 일이 있어, 이용권 만들기·판매·수정 화면에서 경고한다.
+export function nameSessionMismatch(name: string, sessions: number): number | null {
+  const m = (name || "").match(/(d{1,3})/);
+  if (!m || !(Number(sessions) > 0)) return null;
+  const inName = Number(m[1]);
+  return inName > 0 && inName !== Number(sessions) ? inName : null;
+}

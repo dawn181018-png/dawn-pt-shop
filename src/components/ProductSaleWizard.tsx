@@ -11,6 +11,7 @@ import * as db from "@/lib/db";
 import { categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { today, addDays, addMonths, fmtNum, parseNum, formatPhone } from "@/lib/formatUtils";
 import { CONTRACT_VERSION, CONTRACT_SECTIONS } from "@/lib/contract";
+import { nameSessionMismatch } from "@/lib/productUtils";
 import { signPendingSale } from "@/app/sign/[token]/actions";
 import type { Customer, Product, CatalogItem, ProductType, PaymentMethod, PendingSale } from "@/lib/types";
 
@@ -325,6 +326,9 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
               <button className={`ptm-type-btn ${productForm.type === "period" ? "active" : ""}`} onClick={() => setProductForm({ ...productForm, type: "period" })}>기간권</button>
             </div>
           </div>
+          {productForm.type === "session" && nameSessionMismatch(productForm.name, productForm.totalSessions) !== null && (
+            <div className="ptm-unpaid-note">이름에는 {nameSessionMismatch(productForm.name, productForm.totalSessions)}회로 적혀 있는데 총 횟수는 {productForm.totalSessions}회예요. 맞는지 꼭 확인해주세요</div>
+          )}
           {productForm.type === "session" ? (
             <div className="ptm-row3">
               <div className="ptm-field"><label>총 횟수</label>
