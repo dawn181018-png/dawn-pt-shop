@@ -42,5 +42,9 @@ export const setProxyReservationStatus = (reservationId: string, status: Reserva
   call<{ switched: boolean; delta: number }>("proxy_set_reservation_status", { p_reservation_id: reservationId, p_status: status });
 export const moveProxyReservation = (reservationId: string, date: string, time: string, duration: number) =>
   call<void>("proxy_move_reservation", { p_reservation_id: reservationId, p_date: date, p_time: time, p_duration: duration });
+export const addProxyLessonReplacingLast = (customerId: string, productId: string, date: string, time: string, duration: number, replaceId: string) =>
+  call<{ createdId: string; cancelledId: string }>("proxy_add_lesson_replacing_last", {
+    p_customer_id: customerId, p_product_id: productId, p_date: date, p_time: time, p_duration: duration, p_replace_id: replaceId,
+  });
 export const saveProxyWorkoutNote = (reservationId: string, note: string) =>
   call<void>("proxy_save_workout_note", { p_reservation_id: reservationId, p_note: note });

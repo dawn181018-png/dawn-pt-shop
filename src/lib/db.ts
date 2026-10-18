@@ -180,6 +180,21 @@ export async function closeSeriesFrom(seriesId: string, fromDate: string, del: b
   return { products: (result.products || []).map(mapProduct) };
 }
 
+// 꽉 찬 반복예약에 추가 레슨: 반복 묶음의 마지막 앞으로의 회차를 취소하고 새 레슨을 등록 — DB 함수 하나(한 트랜잭션).
+export async function addLessonReplacingLast(
+  customerId: string, productId: string, date: string, time: string, duration: number, memo: string, replaceId: string,
+): Promise<{ created: Reservation; cancelled: Reservation }> {
+  const { data, error } = await supabase.rpc("add_lesson_replacing_last", {
+    p_customer_id: customerId, p_product_id: productId, p_date: date, p_time: time, p_duration: duration, p_memo: memo, p_replace_id: replaceId,
+  });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("이 기능은 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  const result = data as { created: Record<string, unknown>; cancelled: Record<string, unknown> };
+  return { created: mapReservation(result.created), cancelled: mapReservation(result.cancelled) };
+}
+
 // 출석(완료) 서명 이미지 업로드 → signature_url 컬럼에 저장할 스토리지 경로를 반환.
 // signatures 버킷은 private이라, 조회 시엔 getSignatureUrl로 그때그때 signed URL을 새로 발급받는다.
 export async function uploadSignature(reservationId: string, blob: Blob): Promise<string> {

@@ -5,7 +5,7 @@
 // 결제·매출·급여·연락처 전체·이메일은 애초에 받지 않는다.
 
 import {
-  loadProxyContext, addProxyReservations, setProxyReservationStatus, moveProxyReservation, saveProxyWorkoutNote,
+  loadProxyContext, addProxyReservations, addProxyLessonReplacingLast, setProxyReservationStatus, moveProxyReservation, saveProxyWorkoutNote,
   type ProxyContext,
 } from "@/lib/proxyDb";
 import type { Customer, Product, Reservation, ReservationStatus } from "@/lib/types";
@@ -64,6 +64,10 @@ export async function loadDelegateState(): Promise<DelegateState> {
 // 아래 동작은 모두 DB 함수가 지정 고객/기간/소진 이용권/규칙을 다시 확인한다. 끝나면 최신 상태를 다시 받아 돌려준다.
 export async function delegateAddReservations(customerId: string, productId: string, dates: string[], time: string, duration: number) {
   await addProxyReservations(customerId, productId, dates, time, duration);
+  return loadDelegateState();
+}
+export async function delegateAddLessonReplacingLast(customerId: string, productId: string, date: string, time: string, duration: number, replaceId: string) {
+  await addProxyLessonReplacingLast(customerId, productId, date, time, duration, replaceId);
   return loadDelegateState();
 }
 export async function delegateSetStatus(reservationId: string, status: ReservationStatus) {

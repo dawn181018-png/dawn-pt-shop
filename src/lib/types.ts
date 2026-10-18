@@ -56,6 +56,8 @@ export interface Reservation {
   delegationId?: string | null; // 대리 트레이너가 예약/처리한 경우 그 대리 지정 id
   delegateName?: string | null; // 대리로 진행한 트레이너 이름(기록용)
   createdAt?: string; // 예약을 잡은 시각(DB created_at, ISO 문자열) — 읽기 전용
+  cancelReason?: string | null; // 취소 사유(예: "추가 레슨 등록으로 취소됨")
+  replacedBy?: string | null; // 이 회차 대신 등록된 예약 id
 }
 
 export type CatalogCategory = "daily_pt" | "premium" | "membership" | "locker";

@@ -29,7 +29,7 @@ import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog } from "@/lib/types";
 import {
-  loadDelegateState, delegateAddReservations, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
+  loadDelegateState, delegateAddReservations, delegateAddLessonReplacingLast, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
   type DelegateState,
 } from "@/lib/delegateData";
 import { proxyCompleteWithSignature } from "@/app/proxy/actions";
@@ -1201,6 +1201,16 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     // 만큼만 더 잡을 수 있다(완료할 때 다른 이용권으로 자동 전환되므로 고객 단위 합계로 본다). 대리 화면도 같다.
     if (status === "scheduled" && customerId && productId && products.find((x) => x.id === productId)?.type === "session") {
       const { remaining, scheduled, unbooked } = unbookedSessions(customerId, products, reservations);
+      if (count === 1 && unbooked <= 0) {
+        // 반복예약으로 남은 횟수를 다 잡아둔 고객의 추가 레슨: 반복 묶음의 마지막 앞으로의 회차를 대신 취소할지 묻는다.
+        const candidates = replaceCandidates(customerId);
+        if (candidates.length === 0) { flash("잔여 횟수가 없습니다. 재등록이 필요합니다", 4500); return 0; }
+        setReplaceOffer({
+          customerId, productId, date: data.date, time: data.time, duration: Number(data.duration) || 50, memo: data.memo || "",
+          candidates, chosenId: candidates[0].id, saving: false,
+        });
+        return 0;
+      }
       if (count > unbooked) {
         flash(unbooked <= 0
           ? `남은 횟수 ${remaining}회만큼 이미 예약돼 있어서 더 잡을 수 없어요 (예약됨 ${scheduled}건)`
@@ -1261,6 +1271,48 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       if (p && p.type === "session" && !(await adjustSessionsOrWarn(productId, created.length))) return -1;
     }
     return created.length;
+  };
+  // ---- 꽉 찬 반복예약에 추가 레슨: 마지막 회차 밀어내기 ----
+  // 대상: 같은 고객의, 반복 묶음(seriesId) 안의, 앞으로 올(지금 이후) "예약됨" 회차 중 각 묶음의 가장 마지막 회차.
+  // 완료·노쇼·지난 회차·단발 예약은 절대 대상이 아니다. 묶음이 여러 개면 가장 늦은 회차가 기본값.
+  // 실제 처리(취소 + 등록)는 DB 함수 하나가 같은 조건을 다시 확인하며 한 번에 한다.
+  const [replaceOffer, setReplaceOffer] = useState<{
+    customerId: string; productId: string; date: string; time: string; duration: number; memo: string;
+    candidates: Reservation[]; chosenId: string; saving: boolean;
+  } | null>(null);
+  const replaceCandidates = (customerId: string): Reservation[] => {
+    const nowKey = `${today()} ${nowTime()}`;
+    const lastBySeries = new Map<string, Reservation>();
+    reservations.forEach((r) => {
+      if (r.customerId !== customerId || r.type !== "pt" || r.status !== "scheduled" || !r.seriesId || isBusyId(r.id)) return;
+      const cur = lastBySeries.get(r.seriesId);
+      if (!cur || (r.date + r.time) > (cur.date + cur.time)) lastBySeries.set(r.seriesId, r);
+    });
+    return [...lastBySeries.values()]
+      .filter((r) => `${r.date} ${r.time}` > nowKey)
+      .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+  };
+  const confirmReplaceOffer = async () => {
+    if (!replaceOffer || replaceOffer.saving) return;
+    const o = replaceOffer;
+    setReplaceOffer({ ...o, saving: true });
+    try {
+      if (isDelegate) {
+        applyDelegateState(await delegateAddLessonReplacingLast(o.customerId, o.productId, o.date, o.time, o.duration, o.chosenId));
+      } else {
+        const { created, cancelled } = await db.addLessonReplacingLast(o.customerId, o.productId, o.date, o.time, o.duration, o.memo, o.chosenId);
+        setReservations((prev) => [...prev.map((r) => (r.id === cancelled.id ? cancelled : r)), created]);
+      }
+      const c = o.candidates.find((x) => x.id === o.chosenId);
+      setReplaceOffer(null);
+      setShowQuickAdd(false);
+      resetQuickAddState();
+      setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
+      flash(c ? `예약 등록됨 · ${koDateY(c.date)} ${c.time} 반복 회차는 취소됐어요` : "예약 등록됨 · 반복 마지막 회차는 취소됐어요", 4000);
+    } catch (e) {
+      setReplaceOffer((cur) => (cur ? { ...cur, saving: false } : cur));
+      flash(`등록 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"} (취소된 회차 없음)`, 5000);
+    }
   };
   const addReservation = (customerId: string, productId: string, statusOverride?: ReservationStatus) => runExclusive("add-reservation", async () => {
     if (!resForm.date || !resForm.time) { flash("날짜/시간을 입력해주세요"); return; }
@@ -4364,6 +4416,36 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           </div>
         </div>
       )}
+
+      {replaceOffer && (() => {
+        const o = replaceOffer;
+        const chosen = o.candidates.find((x) => x.id === o.chosenId) || o.candidates[0];
+        const wd = ["일", "월", "화", "수", "목", "금", "토"][new Date(`${chosen.date}T00:00:00`).getDay()];
+        return (
+          <div className="ptm-overlay" onClick={() => !o.saving && setReplaceOffer(null)}>
+            <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">남은 횟수만큼 이미 예약돼 있어요</span>
+                <button className="ptm-icon-btn" onClick={() => !o.saving && setReplaceOffer(null)}><X size={16} /></button>
+              </div>
+              <div className="ptm-acct-reason">추가할 레슨: {koDateY(o.date)} {o.time}</div>
+              {o.candidates.length > 1 && (
+                <div className="ptm-field"><label>취소할 반복 회차 (반복 묶음마다 가장 마지막 회차)</label>
+                  <select value={o.chosenId} onChange={(e) => setReplaceOffer({ ...o, chosenId: e.target.value })}>
+                    {o.candidates.map((c) => <option key={c.id} value={c.id}>{c.date} {c.time} 회차</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="ptm-acct-warn danger"><b>{chosen.date}({wd}) {chosen.time}</b> 회차가 취소되고 이 레슨이 등록됩니다.</div>
+              <div className="ptm-acct-note">취소된 회차는 지우지 않고 &quot;추가 레슨 등록으로 취소됨&quot;으로 남아요. 남은 횟수는 바뀌지 않아요(차감은 완료할 때만).</div>
+              <div className="ptm-row2">
+                <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={o.saving} onClick={() => setReplaceOffer(null)}>등록하지 않기</button>
+                <button className="ptm-save-btn" style={{ marginTop: 0 }} disabled={o.saving} onClick={confirmReplaceOffer}>{o.saving ? "처리 중..." : "마지막 회차 취소하고 등록"}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {prodDelete && (() => {
         const d = prodDelete;
