@@ -11,5 +11,10 @@ union all select 'pass_transfers', count(*) from pass_transfers
 union all select 'pending_sales', count(*) from pending_sales
 union all select 'lesson_delegations', count(*) from lesson_delegations
 union all select 'reservation_series', count(*) from reservation_series
+union all select 'payment_edit_logs', count(*) from payment_edit_logs
+union all select 'product_delete_logs', count(*) from product_delete_logs
+union all select 'reservations: 취소', count(*) from reservations where status = 'cancelled'
+union all select 'reservations: 완료+노쇼', count(*) from reservations where status in ('done','noshow')
+union all select 'products: 사용 횟수 합계', coalesce(sum(used_sessions),0) from products
 union all select 'storage: signatures 파일', count(*) from storage.objects where bucket_id = 'signatures'
 order by 1;
