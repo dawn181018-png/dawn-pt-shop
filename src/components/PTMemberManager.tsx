@@ -1796,6 +1796,45 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     });
   }, [reservations, products, customers, archivedProducts, archivedCustomers]);
 
+  // 스케줄 카드의 "회차/총 횟수 · 잔여" — 잔여는 고객관리·매출 계획과 같은 공용 remainingSessions(총 − 사용) 그대로 쓴다.
+  // 기준 이용권: 완료·노쇼는 연결된 이용권, 예정은 연결된 이용권을 쓸 수 있으면 그것, 아니면 완료 때 실제로 넘어갈 이용권
+  // (findAlternativeProduct — 차감 규칙과 같음). 회차: 완료는 실제로 몇 번째였는지(최근 완료 = 사용 횟수), 예정은 순서대로
+  // 완료하면 몇 번째가 되는지(사용 횟수 + 앞선 예정 수 + 1). 이용권 없는 예약·기타 일정·대리 화면의 "예약됨" 칸은 표시 없음.
+  const sessionInfoByRes = useMemo(() => {
+    const map = new Map<string, { no: number; total: number; remain: number; productName: string }>();
+    const byId = new Map([...products, ...archivedProducts].map((x) => [x.id, x]));
+    const effective = (r: Reservation): Product | undefined => {
+      const linked = r.productId ? byId.get(r.productId) : undefined;
+      if (r.status !== "scheduled") return linked;
+      if (linked && !linked.archivedAt && (linked.type !== "session" || remainingSessions(linked) > 0)) return linked;
+      return findAlternativeProduct(r.customerId, products) || linked;
+    };
+    const used: Record<string, Reservation[]> = {};
+    const upcoming: Record<string, Reservation[]> = {};
+    reservations.forEach((r) => {
+      if (r.type === "misc" || !r.customerId || isBusyId(r.id) || r.status === "cancelled") return;
+      const p = effective(r);
+      if (!p || p.type !== "session") return;
+      (countsAsUsed(r.status) ? used : upcoming)[p.id] = [...((countsAsUsed(r.status) ? used : upcoming)[p.id] || []), r];
+    });
+    Object.entries(used).forEach(([pid, list]) => {
+      const p = byId.get(pid) as Product;
+      list.sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))
+        .forEach((r, i) => map.set(r.id, { no: Math.max(1, p.usedSessions - i), total: p.totalSessions, remain: remainingSessions(p), productName: p.name }));
+    });
+    Object.entries(upcoming).forEach(([pid, list]) => {
+      const p = byId.get(pid) as Product;
+      list.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+        .forEach((r, i) => map.set(r.id, { no: p.usedSessions + i + 1, total: p.totalSessions, remain: remainingSessions(p), productName: p.name }));
+    });
+    return map;
+  }, [reservations, products, archivedProducts]);
+  const sessionLabelOf = (id: string, short = false): string | null => {
+    const info = sessionInfoByRes.get(id);
+    if (!info) return null;
+    return short ? `잔여 ${info.remain}` : `${info.no}/${info.total} · 잔여 ${info.remain}`;
+  };
+
   // 모바일 시간표의 신규 고객 색 구분용 — 판단 기준은 productUtils.isNewCustomer 한 곳(보관된 이용권까지 포함해서 본다).
   const newCustomerIds = useMemo(() => {
     if (isDelegate) return delegateNewIds;
@@ -1809,8 +1848,10 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     isNewCustomer: !!r.customerId && newCustomerIds.has(r.customerId),
     locked: isBusyId(r.id),
     delegateName: delegateNameFor(r),
+    sessionLabel: sessionLabelOf(r.id),
+    remainLabel: sessionLabelOf(r.id, true),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- delegateNameFor는 delegations/isDelegate만 읽는다
-  })), [allReservations, newCustomerIds, delegations, isDelegate]);
+  })), [allReservations, newCustomerIds, delegations, isDelegate, sessionInfoByRes]);
   // 모바일 목록에서 일정을 누르면 PC 그리드에서 블록을 누를 때와 똑같은 기존 예약 메뉴를 연다.
   const openReservationMenu = (id: string, x: number, y: number) => {
     const r = allReservations.find((x) => x.id === id);
@@ -2298,12 +2339,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                               onMouseEnter: (e) => { setGridHover(null); showHoverInfo(r, e.clientX, e.clientY); },
                               onMouseLeave: scheduleHideHoverInfo,
                             } : {})}>
-                            {r.totalSessions !== null && (
-                              <span className="ptm-block-badge">{r.totalSessions}/{r.remainCount}</span>
+                            {sessionLabelOf(r.id) && (
+                              <span className="ptm-block-badge">{sessionLabelOf(r.id, (r.duration || 50) < 40 || (r.columnCount ?? 1) > 1)}</span>
                             )}
                             <div className="ptm-block-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))}</div>
                             <div className="ptm-block-name">{isNewLesson && <span className="ptm-block-new">NEW</span>}{r.customerName}</div>
-                            <div className="ptm-block-sub">{r.productName}{r.remainCount !== null ? ` · 잔여${r.remainCount}` : ""}{lessonDelegate ? ` · 대리 ${lessonDelegate}` : ""}</div>
+                            <div className="ptm-block-sub">{r.productName}{lessonDelegate ? ` · 대리 ${lessonDelegate}` : ""}</div>
                           </div>
                         );
                       })}
@@ -4138,6 +4179,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               <div className="ptm-ctx-header">
                 <div className="ptm-ctx-header-time">{r.time}-{minToTime(timeToMin(r.time) + (r.duration || 50))} · {statusLabel[r.status]}</div>
                 <div className="ptm-ctx-header-sub">{r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`}</div>
+                {(() => {
+                  const info = sessionInfoByRes.get(r.id);
+                  if (!info || !r.customerId) return null;
+                  const totalRemain = products.filter((x) => x.customerId === r.customerId && x.type === "session").reduce((s, x) => s + Math.max(0, remainingSessions(x)), 0);
+                  return <div className="ptm-ctx-header-sub">{info.productName} · {info.no}/{info.total}회차{r.status === "scheduled" ? "(예정)" : ""} · 잔여 {info.remain}회{totalRemain !== info.remain ? ` · 전체 잔여 ${totalRemain}회` : ""}</div>;
+                })()}
               </div>
               {r.type === "misc" ? (
                 <>

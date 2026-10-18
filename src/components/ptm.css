@@ -665,6 +665,10 @@
 .ptm-block.short .ptm-block-sub { display:none; }
 .ptm-block.short .ptm-block-badge { top:50%; transform:translateY(-50%); font-size:8px; padding:1px 3px; }
 
+/* 모바일 시간표 카드의 회차·잔여: 둘째 줄 오른쪽 끝에 작게(이름·시간이 우선, 줄바꿈·겹침 없음) */
+.ptm-mtl-remain { margin-left:auto; flex-shrink:0; padding-left:6px; font-size:11px; font-weight:700; color:var(--ink-dim); }
+.ptm-mtl-item .ptm-mcal-item-sub > span:not(.ptm-mtl-remain) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }

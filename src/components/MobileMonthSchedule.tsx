@@ -25,6 +25,8 @@ export type MobileScheduleItem = {
   isNewCustomer: boolean; // 신규 고객 레슨(초록색 + NEW) — 판단은 productUtils.isNewCustomer
   locked?: boolean; // 대리 화면의 다른 고객 예약: "예약됨" 시간만 보이고 눌러도 열리지 않는다
   delegateName?: string | null; // 관리자 화면에서 대리 트레이너가 맡은 레슨(노란색 + "대리 이름")
+  sessionLabel?: string | null; // "12/30 · 잔여 18" — 계산은 부모(공용 잔여 함수)가 하고 여기서는 보여주기만
+  remainLabel?: string | null; // 좁은 카드용 "잔여 18"
 };
 
 type MobileMonthScheduleProps = {
@@ -252,6 +254,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
                   {r.status === "cancelled" && <span>취소</span>}
                   {r.status === "scheduled" && r.subtitle && <span>{r.subtitle}</span>}
                   {r.hasNote && <span className="ptm-mcal-note"><NotebookPen size={12} /> 운동일지</span>}
+                  {r.sessionLabel && <span className="ptm-mtl-remain">{r.cols > 1 || height < 50 ? r.remainLabel : r.sessionLabel}</span>}
                 </span>
               </button>
             );
