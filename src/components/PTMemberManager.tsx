@@ -1464,6 +1464,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         if (!result.ok) { flash(result.error, 4000); return; }
         applyDelegateState(await loadDelegateState());
         flash(result.switched ? "완료 처리 · 다른 이용권으로 전환되어 차감됨" : "완료 처리 · 세션 1회 차감");
+        setSessionCardResId(signatureRes.id);
         setSignatureRes(null);
       } catch { flash("서명 저장 실패, 다시 시도해주세요"); }
       return;
@@ -4623,6 +4624,14 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               </div>
               {product.type === "session" && (
                 <>
+                  {/* 서명 직후 휴대폰으로 고객에게 바로 보여주는 큰 숫자: 남은 횟수 / 총 횟수 */}
+                  <div className="ptm-session-big">
+                    {res.status === "done" && sessionInfoByRes.get(res.id) && (
+                      <div className="ptm-session-big-label">오늘 {sessionInfoByRes.get(res.id)?.no}회차 완료</div>
+                    )}
+                    <div className="ptm-session-big-num"><b>{remaining}</b><span>회 남음</span></div>
+                    <div className="ptm-session-big-sub">총 {product.totalSessions}회 중 {product.usedSessions}회 사용</div>
+                  </div>
                   <div className="ptm-gauge-row">
                     <div className="ptm-gauge-track"><div className={`ptm-gauge-fill ${urgency(product)}`} style={{ width: `${progressPct(product)}%` }} /></div>
                     <div className="ptm-gauge-label">{product.usedSessions} / {product.totalSessions}회 사용</div>

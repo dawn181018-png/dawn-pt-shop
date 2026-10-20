@@ -669,6 +669,14 @@
 .ptm-mtl-remain { margin-left:auto; flex-shrink:0; padding-left:6px; font-size:11px; font-weight:700; color:var(--ink-dim); }
 .ptm-mtl-item .ptm-mcal-item-sub > span:not(.ptm-mtl-remain) { min-width:0; overflow:hidden; text-overflow:ellipsis; }
 
+/* 출석 카드 맨 위 큰 숫자(서명 직후 고객에게 보여주는 남은 횟수) */
+.ptm-session-big { text-align:center; background:var(--panel-2); border:1px solid var(--line); border-radius:14px; padding:16px 12px 14px; margin-bottom:14px; }
+.ptm-session-big-label { font-size:14px; font-weight:700; color:var(--teal); margin-bottom:4px; }
+.ptm-session-big-num { display:flex; align-items:baseline; justify-content:center; gap:6px; line-height:1; }
+.ptm-session-big-num b { font-family:'Oswald',sans-serif; font-size:64px; font-weight:700; color:var(--amber); }
+.ptm-session-big-num span { font-size:22px; font-weight:800; color:var(--ink); }
+.ptm-session-big-sub { margin-top:8px; font-size:16px; font-weight:600; color:var(--ink-dim); }
+
 @media print {
   .ptm-sign-no-print { display:none !important; }
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }
