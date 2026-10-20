@@ -8,6 +8,8 @@ import { createClient } from "@/lib/supabase/server";
 const TABLES = [
   "customers", "catalog_items", "products", "reservations", "payroll_settings", "renewal_forecasts",
   "contract_signatures", "pass_transfers", "pending_sales", "lesson_delegations", "reservation_series",
+  // 나중에 추가된 기록 표 — 아직 없으면(SQL 실행 전) 건너뛴다
+  "payment_edit_logs", "product_delete_logs", "payment_receipts",
 ] as const;
 const PAGE_SIZE = 1000;
 
@@ -30,7 +32,10 @@ export async function GET() {
       const rows: unknown[] = [];
       for (let from = 0; ; from += PAGE_SIZE) {
         const { data, error } = await supabase.from(table).select("*").order(orderColumn, { ascending: true }).range(from, from + PAGE_SIZE - 1);
-        if (error) throw new Error(`${table} 조회 실패: ${error.message}`);
+        if (error) {
+          if (["PGRST205", "42P01"].includes(error.code || "")) break; // 아직 없는 표
+          throw new Error(`${table} 조회 실패: ${error.message}`);
+        }
         rows.push(...(data ?? []));
         if (!data || data.length < PAGE_SIZE) break;
       }
