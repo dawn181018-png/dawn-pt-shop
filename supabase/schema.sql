@@ -1811,3 +1811,23 @@ end;
 $$;
 
 notify pgrst, 'reload schema';
+
+-- ---------- 결제 영수증 첨부 (2026-10-20) ----------
+-- 실행용 파일: supabase/apply-2026-10-20-payment-receipts.sql (아래와 동일)
+create table if not exists payment_receipts (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null references auth.users(id) default auth.uid(),
+  product_id uuid references products(id) on delete set null,
+  path text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists idx_payment_receipts_owner on payment_receipts(owner_id, product_id);
+alter table payment_receipts enable row level security;
+drop policy if exists "payment_receipts_owner_all" on payment_receipts;
+create policy "payment_receipts_owner_all" on payment_receipts for all
+  using (owner_id = auth.uid() and coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') not in ('member', 'delegate'))
+  with check (owner_id = auth.uid() and coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') not in ('member', 'delegate'));
+revoke all on payment_receipts from anon;
+grant select, insert, delete on payment_receipts to authenticated;
+grant select, insert, delete on payment_receipts to service_role;
+notify pgrst, 'reload schema';
