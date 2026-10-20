@@ -189,3 +189,11 @@ export interface PaymentEditLog {
   signedContract: boolean;
   editedAt: string;
 }
+
+// 판매(이용권)에 붙인 결제 영수증 사진(payment_receipts). path는 signatures 버킷 안의 경로.
+export interface PaymentReceipt {
+  id: string;
+  productId: string | null;
+  path: string;
+  createdAt: string;
+}

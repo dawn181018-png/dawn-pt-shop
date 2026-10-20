@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -336,6 +336,35 @@ export async function restoreProduct(id: string): Promise<Product> {
     throw new Error(error.message);
   }
   return mapProduct(data as Record<string, unknown>);
+}
+
+// ---------- payment_receipts (결제 영수증 사진) ----------
+// 표가 아직 없으면(SQL 실행 전) null — 화면은 영수증 버튼을 숨긴다.
+export async function listPaymentReceipts(): Promise<PaymentReceipt[] | null> {
+  const { data, error } = await supabase.from("payment_receipts").select("*").order("created_at", { ascending: true });
+  if (error) {
+    if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+    throw new Error(error.message);
+  }
+  return (data || []).map((row) => toCamel<PaymentReceipt>(row));
+}
+// 사진은 서명과 같은 저장소의 본인 폴더(트레이너 uid/receipts/)에 올리고, 어느 판매에 붙었는지 표에 남긴다.
+export async function addPaymentReceipt(productId: string, image: Blob): Promise<PaymentReceipt> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("로그인이 필요합니다");
+  const ext = image.type === "image/png" ? "png" : "jpg";
+  const path = `${user.id}/receipts/${productId}-${Date.now()}.${ext}`;
+  const { error: upErr } = await supabase.storage.from("signatures").upload(path, image, { contentType: image.type || "image/jpeg", upsert: false });
+  if (upErr) throw new Error(upErr.message);
+  const { data: row, error } = await supabase.from("payment_receipts").insert({ product_id: productId, path }).select().single();
+  return toCamel<PaymentReceipt>(must(row, error));
+}
+// 잘못 붙인 사진은 연결(표의 행)만 지운다 — 사진 파일 자체는 저장소에 남겨 둔다.
+export async function removePaymentReceipt(id: string): Promise<void> {
+  const { error } = await supabase.from("payment_receipts").delete().eq("id", id);
+  if (error) throw new Error(error.message);
 }
 
 // ---------- payment_edit_logs (회계관리 결제 건 수정 이력, 추가만 가능) ----------

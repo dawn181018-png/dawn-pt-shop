@@ -27,7 +27,8 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog, PaymentReceipt } from "@/lib/types";
+import { shrinkImage } from "@/lib/imageUtils";
 import {
   loadDelegateState, delegateAddReservations, delegateAddLessonReplacingLast, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
   type DelegateState,
@@ -45,6 +46,18 @@ function SignatureThumb({ path }: { path?: string | null }) {
   }, [path]);
   if (!url) return null;
   return <img src={url} alt="서명" className="ptm-signature-thumb" onClick={() => window.open(url, "_blank")} />;
+}
+
+// 결제 영수증 사진 — 저장소의 비공개 경로를 잠깐 쓸 수 있는 주소로 바꿔 크게 보여준다(눌러서 새 창으로 원본 보기).
+function ReceiptImage({ path }: { path: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    db.getSignatureUrl(path).then((u) => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [path]);
+  if (!url) return <div className="ptm-receipt-loading">사진 불러오는 중…</div>;
+  return <img src={url} alt="결제 영수증" className="ptm-receipt-img" onClick={() => window.open(url, "_blank")} />;
 }
 
 // 폼 상태는 실제 엔티티 타입(Customer/Product 등)과는 다르게, id/customerId 같은 필드가 없거나
@@ -1076,6 +1089,54 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     reasonKind: string; reasonText: string; nameInput: string; saving: boolean;
   } | null>(null);
   const [showDeletedSales, setShowDeletedSales] = useState(false);
+
+  // ---- 결제 영수증 사진 (카드 영수증 등) ----
+  // 판매(이용권)마다 사진을 여러 장 붙일 수 있다. null = 표가 아직 없음(SQL 실행 전) → 버튼을 숨긴다.
+  const [receipts, setReceipts] = useState<PaymentReceipt[] | null>(null);
+  const [receiptView, setReceiptView] = useState<{ productId: string; title: string } | null>(null);
+  const [receiptUploading, setReceiptUploading] = useState(false);
+  const [receiptTarget, setReceiptTarget] = useState<{ productId: string; title: string } | null>(null);
+  useEffect(() => {
+    if (!loaded || isDelegate) return;
+    db.listPaymentReceipts().then(setReceipts).catch(() => setReceipts(null));
+  }, [loaded, isDelegate]);
+  const receiptsByProduct = useMemo(() => {
+    const map: Record<string, PaymentReceipt[]> = {};
+    (receipts || []).forEach((r) => { if (r.productId) (map[r.productId] = map[r.productId] || []).push(r); });
+    return map;
+  }, [receipts]);
+  const pickReceiptPhoto = (productId: string, title: string) => {
+    setReceiptTarget({ productId, title });
+    document.getElementById("ptm-receipt-input")?.click();
+  };
+  const onReceiptFileChosen = async (input: HTMLInputElement) => {
+    const file = input.files?.[0];
+    const target = receiptTarget;
+    input.value = "";
+    if (!file || !target) return;
+    if (!file.type.startsWith("image/")) { flash("사진 파일만 올릴 수 있어요"); return; }
+    setReceiptUploading(true);
+    try {
+      const image = await shrinkImage(file);
+      const saved = await db.addPaymentReceipt(target.productId, image);
+      setReceipts((cur) => [...(cur || []), saved]);
+      setReceiptView(target);
+      flash("영수증 사진이 저장됐어요");
+    } catch (e) {
+      flash(`영수증 저장 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000);
+    } finally {
+      setReceiptUploading(false);
+    }
+  };
+  const requestRemoveReceipt = (r: PaymentReceipt) => {
+    askConfirm("이 영수증 사진 연결을 지울까요? (판매 기록과 결제 금액은 그대로예요)", async () => {
+      try {
+        await db.removePaymentReceipt(r.id);
+        setReceipts((cur) => (cur || []).filter((x) => x.id !== r.id));
+        flash("영수증 사진을 지웠어요");
+      } catch { flash("삭제 실패, 다시 시도해주세요"); }
+    }, "지우기");
+  };
   const requestDeleteProduct = async (p: Product) => {
     const cust = customers.find((c) => c.id === p.customerId);
     const doneCount = reservations.filter((r) => r.productId === p.id && countsAsUsed(r.status)).length;
@@ -2654,7 +2715,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         <td><b>{r.paid.toLocaleString()}원</b></td>
                         <td style={r.unpaid > 0 ? { color: "var(--coral)", fontWeight: 600 } : {}}>{r.unpaid > 0 ? `${r.unpaid.toLocaleString()}원` : "-"}</td>
                         <td>{r.kind === "new" ? "신규" : "재등록"}{r.isTransfer && <span className="ptm-acct-tag">양도</span>}</td>
-                        <td>{logs && <button className="ptm-acct-edited" onClick={(e) => { e.stopPropagation(); setPayHistoryRow(r); }}>수정됨{logs.length > 1 ? ` ${logs.length}` : ""}</button>}</td>
+                        <td>{(receiptsByProduct[r.id] || []).length > 0 && <button className="ptm-receipt-btn has" style={{ marginRight: 4 }} onClick={(e) => { e.stopPropagation(); setReceiptView({ productId: r.id, title: `${r.customerName} · ${r.name}` }); }}><Receipt size={12} /> {receiptsByProduct[r.id].length}</button>}{logs && <button className="ptm-acct-edited" onClick={(e) => { e.stopPropagation(); setPayHistoryRow(r); }}>수정됨{logs.length > 1 ? ` ${logs.length}` : ""}</button>}</td>
                       </tr>
                     );
                   })}
@@ -3557,7 +3618,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         <div className="ptm-table-empty">판매 내역이 없어요</div>
                       ) : (
                         <table className="ptm-table">
-                          <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th><th className="ptm-sale-del-col"></th></tr></thead>
+                          <thead><tr><th>등록일</th><th>상품명</th><th>정가</th><th>판매가</th><th>결제수단</th><th>결제상태</th>{receipts !== null && <th>영수증</th>}<th className="ptm-sale-del-col"></th></tr></thead>
                           <tbody>
                             {[...custProducts].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).map((p) => (
                               <tr key={p.id} className="ptm-row-clickable" onClick={() => openEditProduct(p)}>
@@ -3567,6 +3628,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{paymentMethodLabel[p.paymentMethod] || "-"}</td>
                                 <td>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</td>
+                                {receipts !== null && (
+                                  <td>
+                                    {(receiptsByProduct[p.id] || []).length > 0 ? (
+                                      <button className="ptm-receipt-btn has" onClick={(e) => { e.stopPropagation(); setReceiptView({ productId: p.id, title: `${cust.name} · ${p.name}` }); }}><Receipt size={13} /> 영수증 {receiptsByProduct[p.id].length}</button>
+                                    ) : (
+                                      <button className="ptm-receipt-btn" disabled={receiptUploading} onClick={(e) => { e.stopPropagation(); pickReceiptPhoto(p.id, `${cust.name} · ${p.name}`); }}><Plus size={12} /> 영수증</button>
+                                    )}
+                                  </td>
+                                )}
                                 <td className="ptm-sale-del-col">
                                   <button className="ptm-sale-del-btn" title="이 판매 건 삭제(복구 가능)" onClick={(e) => { e.stopPropagation(); requestDeleteProduct(p); }}><Trash2 size={14} /></button>
                                 </td>
@@ -4414,6 +4484,31 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             <button className="ptm-series-btn" onClick={() => applySeriesChoice("this")}>이 예약만 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn danger" onClick={() => applySeriesChoice("future")}>이후 모든 반복 예약 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn ghost" onClick={() => setSeriesPrompt(null)}>그만두기</button>
+          </div>
+        </div>
+      )}
+
+      <input id="ptm-receipt-input" type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => onReceiptFileChosen(e.currentTarget)} />
+      {receiptView && (
+        <div className="ptm-overlay" onClick={() => setReceiptView(null)}>
+          <div className="ptm-sheet ptm-receipt-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">결제 영수증 · {receiptView.title}</span>
+              <button className="ptm-icon-btn" onClick={() => setReceiptView(null)}><X size={16} /></button>
+            </div>
+            {(receiptsByProduct[receiptView.productId] || []).length === 0 && <div className="ptm-no-product-msg">붙인 영수증 사진이 없어요</div>}
+            {(receiptsByProduct[receiptView.productId] || []).map((r) => (
+              <div key={r.id} className="ptm-receipt-item">
+                <ReceiptImage path={r.path} />
+                <div className="ptm-receipt-meta">
+                  <span>{new Date(r.createdAt).toLocaleString("ko-KR")} 저장</span>
+                  <button className="ptm-res-btn danger" onClick={() => requestRemoveReceipt(r)}>지우기</button>
+                </div>
+              </div>
+            ))}
+            <button className="ptm-save-btn" disabled={receiptUploading} onClick={() => pickReceiptPhoto(receiptView.productId, receiptView.title)}>
+              {receiptUploading ? "저장 중..." : "영수증 사진 추가 (촬영 또는 앨범)"}
+            </button>
           </div>
         </div>
       )}
