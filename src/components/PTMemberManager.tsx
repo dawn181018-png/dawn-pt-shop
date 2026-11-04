@@ -147,8 +147,6 @@ const shiftMonthYM = (y: number, m: number, delta: number): { y: number; m: numb
 
 const countsAsUsed = (status: string): boolean => status === "done" || status === "noshow";
 const getPaidAmount = (p: Partial<Product> & { paid?: boolean }): number => (p.paidAmount !== undefined ? Number(p.paidAmount) || 0 : (p.paid ? Number(p.price || 0) : 0));
-const getUnpaidAmount = (p: Partial<Product> & { paid?: boolean }): number => Math.max(0, Number(p.price || 0) - getPaidAmount(p));
-const isFullyPaid = (p: Partial<Product> & { paid?: boolean }): boolean => getUnpaidAmount(p) <= 0;
 const statusLabel: Record<string, string> = { scheduled: "예약됨", done: "완료", noshow: "노쇼", cancelled: "취소" };
 
 // ---- 이름 초성(첫 자음) 그룹핑 — "가나다순" 정렬 시 전화번호부처럼 구간 헤더를 보여주기 위함 ----
@@ -306,6 +304,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   };
   // 미수금 결제(잔금) 기록 — 취소된 것도 포함(이력 표시용). null = 표가 아직 없음(SQL 실행 전) → 잔금 기능을 숨긴다.
   const [collections, setCollections] = useState<PaymentCollection[] | null>(null);
+  // 미수금·받은 금액은 잔금(취소 안 된 미수금 결제)까지 반영한 "지금" 기준 — 계산은 lib/accounting 공용 함수.
+  const collected = useMemo(() => collectedByProduct(collections), [collections]);
+  const paidNow = (p: Product) => paidTotalOf(p, collected);
+  const unpaidNow = (p: Product) => unpaidOf(p, collected);
+  const fullyPaidNow = (p: Product) => unpaidNow(p) <= 0;
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loaded, setLoaded] = useState(false);
   // 처음 데이터 불러오기가 실패하면 목록이 전부 비어 "등록된 고객이 없어요"처럼 보여 데이터가 사라진 것으로
@@ -851,6 +854,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     });
     setProductFormCustomerId(p.customerId); setEditingProductId(p.id); setProductCatalogPick(""); setShowProductForm(true);
   };
+  const formCollected = editingProductId ? collected[editingProductId] || 0 : 0; // 수정 중인 판매 건의 잔금 합계
   const saveProduct = async (confirmed = false) => {
     if (!productForm.name.trim()) { flash("상품명을 입력해주세요"); return; }
     const nameNum = productForm.type === "session" ? nameSessionMismatch(productForm.name, productForm.totalSessions) : null;
@@ -889,7 +893,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         flash("상품 등록됨");
       }
       setShowProductForm(false);
-    } catch { flash("저장 실패, 다시 시도해주세요"); }
+    } catch (e) {
+      // 잔금 기록이 있는 판매 건의 판매가·판매일을 맞지 않게 바꾸면 DB가 막는다 — 그 이유는 그대로 보여준다.
+      const msg = e instanceof Error ? e.message : "";
+      flash(msg.includes("미수금 결제") ? msg : "저장 실패, 다시 시도해주세요", msg.includes("미수금 결제") ? 5000 : 1800);
+    }
   };
   // 양도는 고객/이용권을 여러 개 한 번에 만들 수 있어 낙관적 상태 갱신 대신 통째로 다시 불러온다.
   // 양도 자체는 이미 DB에 저장된 뒤 호출되므로 여기서 에러를 던지면 안 된다 — 모달이 그 에러를
@@ -1233,13 +1241,51 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       setProducts(products.map((x) => (x.id === id ? updated : x)));
     } catch { flash("저장 실패, 다시 시도해주세요"); }
   };
-  const togglePaid = async (id: string) => {
+  // 이용권 탭의 "미수 ○원" 배지: 예전엔 누르면 기록 없이 결제금액을 판매가로 채워서(완납) 받은 돈이 판매한 달 매출에
+  // 들어갔다. 이제는 "미수금 결제" 창을 열어 받은 날짜로 기록한다. "완납" 배지는 눌러도 바뀌지 않는다.
+  const togglePaid = (id: string) => {
     const p = products.find((x) => x.id === id);
-    if (!p) return;
+    if (!p || unpaidNow(p) <= 0) return;
+    openCollect(p);
+  };
+
+  // ---- 미수금 결제(잔금) 받기 ----
+  // 받은 금액은 입력한 결제일 매출로 잡힌다(처음 결제분은 원래 판매일 그대로). 저장은 DB 함수 하나가 남은 미수금
+  // 검사와 기록을 한 번에 한다. requestId는 창을 열 때 한 번 만들어, 버튼을 여러 번 눌러도 기록은 하나만 생긴다.
+  const [collect, setCollect] = useState<{
+    product: Product; customerName: string; amount: number; date: string; method: PaymentMethod;
+    requestId: string; step: "input" | "date" | "confirm"; saving: boolean;
+  } | null>(null);
+  const openCollect = (p: Product) => {
+    if (collections === null) { flash("미수금 결제 기능이 아직 설치되지 않았어요(SQL 실행 필요)", 3500); return; }
+    setCollect({
+      product: p, customerName: customers.find((c) => c.id === p.customerId)?.name || "", amount: unpaidNow(p), date: today(),
+      method: p.paymentMethod || "card", requestId: crypto.randomUUID(), step: "input", saving: false,
+    });
+  };
+  const collectRemaining = collect ? unpaidNow(collect.product) : 0;
+  const collectSaleDate = collect?.product.createdAt ? toLocalDateStr(new Date(collect.product.createdAt)) : "";
+  const collectError = !collect ? null
+    : collect.amount <= 0 ? "결제금액은 0원보다 커야 해요"
+    : collect.amount > collectRemaining ? `남은 미수금(${collectRemaining.toLocaleString()}원)보다 많이 받을 수 없어요`
+    : collect.date < collectSaleDate ? `결제일은 판매일(${koDateY(collectSaleDate)})보다 앞설 수 없어요`
+    : null;
+  // 결제일이 오늘이 아니면 그날 매출로 잡힌다는 안내를 보여주고, 다른 달이나 미래 날짜면 한 번 더 확인받는다.
+  const collectDateNote = collect && collect.date !== today() ? `이 금액은 ${koDateY(collect.date)} 매출로 잡힙니다` : null;
+  const collectNeedsDateConfirm = !!collect && (collect.date > today() || collect.date.slice(0, 7) !== today().slice(0, 7));
+  const saveCollect = async () => {
+    if (!collect || collect.saving || collectError) return;
+    setCollect({ ...collect, saving: true });
     try {
-      const updated = await db.updateProduct(id, isFullyPaid(p) ? { paidAmount: 0 } : { paidAmount: Number(p.price || 0) });
-      setProducts(products.map((x) => (x.id === id ? updated : x)));
-    } catch { flash("저장 실패, 다시 시도해주세요"); }
+      const row = await db.collectUnpaidPayment(collect.product.id, collect.amount, collect.date, collect.method, collect.requestId);
+      setCollections((prev) => [...(prev || []).filter((c) => c.id !== row.id), row]);
+      setCollect(null);
+      flash(`미수금 ${row.amount.toLocaleString()}원 결제됨 · ${koDate(row.paidDate)} 매출로 잡혔어요`, 2500);
+    } catch (e) {
+      // requestId는 그대로 둔다 — 실제로는 저장됐는데 응답만 끊긴 경우 다시 눌러도 같은 기록이 돌아온다.
+      setCollect((cur) => (cur ? { ...cur, saving: false } : cur));
+      flash(`결제 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000);
+    }
   };
 
   // ---- Reservations ----
@@ -1803,11 +1849,6 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     return ids;
   }, [customers, products]);
   const isDormantNow = (c: { id: string; isDormant?: boolean }) => !!c.isDormant || autoDormantIds.has(c.id);
-  // 미수금·받은 금액은 잔금(취소 안 된 미수금 결제)까지 반영한 "지금" 기준 — 계산은 lib/accounting 공용 함수.
-  const collected = useMemo(() => collectedByProduct(collections), [collections]);
-  const paidNow = (p: Product) => paidTotalOf(p, collected);
-  const unpaidNow = (p: Product) => unpaidOf(p, collected);
-  const fullyPaidNow = (p: Product) => unpaidNow(p) <= 0;
   const customerSummary = useMemo(() => {
     return customers.map((c) => {
       const prods = products.filter((p) => p.customerId === c.id);
@@ -1869,7 +1910,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   }, [filteredCustomers, sortMode, query]);
 
   const renderCustomerCard = (c: (typeof filteredCustomers)[number]) => (
-    <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab("home"); }} style={{ cursor: "pointer", opacity: isDormantNow(c) ? 0.55 : 1 }}>
+    <div className="ptm-card" key={c.id} onClick={() => { setCustomerDetailId(c.id); setCustomerDetailTab(quickFilter === "unpaid" && c.hasUnpaid ? "sales" : "home"); }} style={{ cursor: "pointer", opacity: isDormantNow(c) ? 0.55 : 1 }}>
       <div className="ptm-card-top">
         <div>
           <div className="ptm-name-row">
@@ -2513,7 +2554,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             </div>
             <div
               className={`ptm-stat clickable ${stats.unpaid > 0 ? "bad" : ""} ${quickFilter === "unpaid" ? "active" : ""}`}
-              title="이용권 대금을 다 못 받은 고객"
+              title="이용권 대금을 다 못 받은 고객 — 고객을 누르면 판매내역이 열리고, 거기서 미수금 결제를 받을 수 있어요"
               onClick={() => setQuickFilter(quickFilter === "unpaid" ? null : "unpaid")}
             >
               <div className="ptm-stat-num">{stats.unpaid}</div><div className="ptm-stat-label">미수금</div>
@@ -3659,7 +3700,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                                 <td>{Number(p.listPrice ?? p.price ?? 0).toLocaleString()}원</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{paymentMethodLabel[p.paymentMethod] || "-"}</td>
-                                <td>{fullyPaidNow(p) ? "완납" : `미수 ${unpaidNow(p).toLocaleString()}원`}</td>
+                                <td>
+                                  {fullyPaidNow(p) ? "완납" : <span style={{ color: "var(--coral)", fontWeight: 600 }}>미수 {unpaidNow(p).toLocaleString()}원</span>}
+                                  {!fullyPaidNow(p) && collections !== null && (
+                                    <button className="ptm-res-btn ptm-collect-btn" onClick={(e) => { e.stopPropagation(); openCollect(p); }}><Wallet size={12} /> 미수금 결제</button>
+                                  )}
+                                </td>
                                 {receipts !== null && (
                                   <td>
                                     {(receiptsByProduct[p.id] || []).length > 0 ? (
@@ -3936,16 +3982,20 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               </div>
             </div>
             <div className="ptm-row2">
-              <div className="ptm-field"><label>결제(입금) 금액</label>
-                <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(productForm.paidAmount)} onChange={(e) => setProductForm({ ...productForm, paidAmount: parseNum(e.target.value) })} placeholder="0" />
+              <div className="ptm-field"><label>{formCollected > 0 ? "처음 결제(입금) 금액" : "결제(입금) 금액"}</label>
+                <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(productForm.paidAmount)} disabled={formCollected > 0} onChange={(e) => setProductForm({ ...productForm, paidAmount: parseNum(e.target.value) })} placeholder="0" />
               </div>
-              <button type="button" className="ptm-full-paid-btn" onClick={() => setProductForm({ ...productForm, paidAmount: Number(productForm.price) || 0 })}>전액 결제로 설정</button>
+              <button type="button" className="ptm-full-paid-btn" disabled={formCollected > 0} onClick={() => setProductForm({ ...productForm, paidAmount: Number(productForm.price) || 0 })}>전액 결제로 설정</button>
             </div>
+            {/* 나중에 받은 잔금(미수금 결제)이 있는 판매 건은 여기서 결제금액을 바꾸면 받은 날짜 기록과 어긋나므로 잠근다. */}
+            {formCollected > 0 && (
+              <div className="ptm-acct-note">미수금 결제 {formCollected.toLocaleString()}원이 따로 들어와 있어 결제금액은 여기서 바꿀 수 없어요. 판매내역의 결제 이력에서 고치거나 취소해주세요.</div>
+            )}
             <div className="ptm-field"><label>결제일 — 회계관리·판매내역 집계 기준일이에요</label>
               <input type="date" value={productForm.createdAt} onChange={(e) => setProductForm({ ...productForm, createdAt: e.target.value })} />
             </div>
-            {Number(productForm.price) - Number(productForm.paidAmount) > 0 && (
-              <div className="ptm-unpaid-note">미수금 {(Number(productForm.price) - Number(productForm.paidAmount)).toLocaleString()}원 남음</div>
+            {Number(productForm.price) - Number(productForm.paidAmount) - formCollected > 0 && (
+              <div className="ptm-unpaid-note">미수금 {(Number(productForm.price) - Number(productForm.paidAmount) - formCollected).toLocaleString()}원 남음</div>
             )}
             <div className="ptm-field"><label>메모 — 왜 이 횟수·금액인지 등 (회원에게는 보이지 않아요)</label>
               <textarea rows={3} value={productForm.memo || ""} onChange={(e) => setProductForm({ ...productForm, memo: e.target.value })} placeholder="예: 20회 + 서비스 10회, 2회 분할 결제(나머지 8월 입금)" />
@@ -4570,6 +4620,71 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={o.saving} onClick={() => setReplaceOffer(null)}>등록하지 않기</button>
                 <button className="ptm-save-btn" style={{ marginTop: 0 }} disabled={o.saving} onClick={confirmReplaceOffer}>{o.saving ? "처리 중..." : "마지막 회차 취소하고 등록"}</button>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {collect && (() => {
+        const c = collect;
+        const p = c.product;
+        const after = collectRemaining - c.amount;
+        const close = () => !c.saving && setCollect(null);
+        const summary = `${c.customerName} · ${p.name} · 미수금 ${collectRemaining.toLocaleString()}원 → ${Math.max(0, after).toLocaleString()}원, ${koDateY(c.date)} 매출 +${c.amount.toLocaleString()}원`;
+        return (
+          <div className="ptm-overlay" onClick={close}>
+            <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">{c.step === "input" ? "미수금 결제" : c.step === "date" ? "결제일 확인" : "결제 내용 확인"}</span>
+                <button className="ptm-icon-btn" onClick={close}><X size={16} /></button>
+              </div>
+              <div className="ptm-acct-edit-who">{c.customerName} · {p.name} · 판매 {collectSaleDate ? koDateY(collectSaleDate) : "-"}</div>
+              {c.step === "input" ? (
+                <>
+                  <div className="ptm-acct-unpaid has">남은 미수금 {collectRemaining.toLocaleString()}원 (판매가 {Number(p.price || 0).toLocaleString()}원 · 받은 금액 {paidNow(p).toLocaleString()}원)</div>
+                  <div className="ptm-row2">
+                    <div className="ptm-field"><label>결제금액 (원)</label>
+                      <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(c.amount)} onChange={(e) => setCollect({ ...c, amount: parseNum(e.target.value) })} placeholder="0" />
+                    </div>
+                    <button type="button" className="ptm-full-paid-btn" onClick={() => setCollect({ ...c, amount: collectRemaining })}>전액 결제</button>
+                  </div>
+                  <div className="ptm-field"><label>결제일 — 이 날짜 매출로 잡혀요</label>
+                    <input type="date" value={c.date} min={collectSaleDate || undefined} onChange={(e) => e.target.value && setCollect({ ...c, date: e.target.value })} />
+                  </div>
+                  <div className="ptm-field"><label>결제수단</label>
+                    <div className="ptm-type-toggle">
+                      {(["card", "cash", "transfer"] as PaymentMethod[]).map((m) => (
+                        <button key={m} className={`ptm-type-btn ${c.method === m ? "active" : ""}`} onClick={() => setCollect({ ...c, method: m })}>{paymentMethodLabel[m]}</button>
+                      ))}
+                    </div>
+                  </div>
+                  {collectError && <div className="ptm-acct-warn danger">{collectError}</div>}
+                  {!collectError && collectDateNote && <div className="ptm-acct-warn">{collectDateNote}</div>}
+                  <button className="ptm-save-btn" disabled={!!collectError} onClick={() => setCollect({ ...c, step: collectNeedsDateConfirm ? "date" : "confirm" })}>다음 — 결제 내용 확인</button>
+                </>
+              ) : c.step === "date" ? (
+                <>
+                  <div className="ptm-acct-warn danger">
+                    {c.date > today() ? "미래 날짜예요. " : "이번 달이 아닌 날짜예요. "}이 금액은 {koDateY(c.date)} 매출로 잡힙니다
+                    {c.date < today() && ` — 이미 지난 ${Number(c.date.slice(5, 7))}월 매출 숫자가 ${c.amount.toLocaleString()}원 늘어나요`}.
+                  </div>
+                  <div className="ptm-acct-note">날짜가 맞으면 계속, 아니면 이전으로 돌아가 결제일을 고쳐주세요.</div>
+                  <div className="ptm-row2">
+                    <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} onClick={() => setCollect({ ...c, step: "input" })}>이전</button>
+                    <button className="ptm-save-btn" style={{ marginTop: 0 }} onClick={() => setCollect({ ...c, step: "confirm" })}>날짜 맞아요, 계속</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <ul className="ptm-acct-diff"><li>{summary}</li><li>결제수단 {paymentMethodLabel[c.method]}</li></ul>
+                  {after <= 0 && <div className="ptm-acct-note">미수금이 0원이 되어 &ldquo;완납&rdquo;으로 바뀌어요.</div>}
+                  <div className="ptm-acct-note">처음 결제한 금액은 원래 판매일 매출 그대로예요. 이용권 횟수·잔여 세션·서명·예약은 바뀌지 않아요.</div>
+                  <div className="ptm-row2">
+                    <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={c.saving} onClick={() => setCollect({ ...c, step: "input" })}>이전</button>
+                    <button className="ptm-save-btn" style={{ marginTop: 0 }} disabled={c.saving || !!collectError} onClick={saveCollect}>{c.saving ? "저장 중..." : "결제 저장"}</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         );

@@ -193,6 +193,8 @@
 .ptm-res-btn { display:flex; align-items:center; gap:4px; background:var(--panel-2); border:1px solid var(--line); color:var(--ink-dim); border-radius:6px; padding:5px 9px; font-size:11.5px; cursor:pointer; }
 .ptm-res-btn:hover { color:var(--ink); }
 .ptm-res-btn.danger:hover { color:var(--coral); border-color:var(--coral); }
+.ptm-collect-btn { margin-top:4px; color:var(--coral); border-color:rgba(224,67,63,0.35); white-space:nowrap; }
+.ptm-collect-btn:hover { color:var(--coral); border-color:var(--coral); }
 .ptm-res-empty { color:var(--ink-dim); font-size:13px; text-align:center; padding:16px 0; }
 
 .ptm-cust-search-results { border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:12px; }
