@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
+import type { DelegateSettlementRecord, SettlementAction, SettlementSnapshot } from "@/lib/delegateSettlement";
 import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PaymentCollection, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
@@ -440,6 +441,41 @@ export async function editPaymentCollection(
   }
   const result = data as { collection: Record<string, unknown>; log: Record<string, unknown> };
   return { collection: mapCollection(result.collection), log: toCamel<PaymentEditLog>(result.log) };
+}
+
+// ---------- delegate_settlements (대리 레슨 월 정산 기록, 추가만 가능) ----------
+// 표가 아직 없으면(SQL 실행 전) null — 화면은 정산을 계산해 보여주기만 하고 "정산 확정" 버튼을 숨긴다.
+function mapSettlement(row: Record<string, unknown>): DelegateSettlementRecord {
+  const r = toCamel<DelegateSettlementRecord>(row);
+  return { ...r, lessonCount: Number(r.lessonCount) || 0, totalAmount: Number(r.totalAmount) || 0 };
+}
+export async function listDelegateSettlements(): Promise<DelegateSettlementRecord[] | null> {
+  const { data, error } = await supabase.from("delegate_settlements").select("*").order("created_at", { ascending: true });
+  if (error) {
+    if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+    throw new Error(error.message);
+  }
+  return (data || []).map(mapSettlement);
+}
+export async function insertDelegateSettlement(data: {
+  month: string; delegateEmail: string; delegateName: string; action: SettlementAction;
+  lessonCount?: number; totalAmount?: number; snapshot?: SettlementSnapshot | null; paidOn?: string | null; memo?: string | null;
+}): Promise<DelegateSettlementRecord> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("로그인이 필요합니다");
+  const { data: row, error } = await supabase.from("delegate_settlements").insert({
+    owner_id: user.id, created_by: user.id,
+    month: data.month, delegate_email: data.delegateEmail, delegate_name: data.delegateName, action: data.action,
+    lesson_count: data.lessonCount ?? 0, total_amount: data.totalAmount ?? 0, snapshot: data.snapshot ?? null,
+    paid_on: data.paidOn ?? null, memo: data.memo?.trim() || null,
+  }).select().single();
+  if (error) {
+    if (["PGRST205", "42P01"].includes(error.code || "")) throw new Error("정산 기록 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  return mapSettlement(row as Record<string, unknown>);
 }
 
 // ---------- pass_transfers (이용권 양도) ----------
