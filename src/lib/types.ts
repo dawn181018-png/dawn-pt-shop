@@ -182,6 +182,8 @@ export type PaymentEditField = "paid_amount" | "paid_date" | "payment_method";
 export interface PaymentEditLog {
   id: string;
   productId: string | null;
+  collectionId?: string | null; // 값이 있으면 판매 건이 아니라 그 미수금 결제(잔금) 기록을 고친 이력
+
   customerName: string;
   productName: string;
   changes: { field: PaymentEditField; from: string | number; to: string | number }[];
@@ -196,4 +198,19 @@ export interface PaymentReceipt {
   productId: string | null;
   path: string;
   createdAt: string;
+}
+
+// 미수금 결제(잔금) 기록(payment_collections) — 판매 뒤에 나중에 받은 돈. 받을 때마다 한 줄씩 쌓이고,
+// 매출은 paidDate(받은 날)에 잡힌다. 판매 건의 paidAmount는 "처음 받은 금액"으로 그대로 남는다.
+// 잘못 받은 건은 지우지 않고 취소(cancelledAt)로 매출에서만 뺀다.
+export interface PaymentCollection {
+  id: string;
+  productId: string;
+  amount: number;
+  paidDate: string; // YYYY-MM-DD (한국 날짜)
+  paymentMethod: PaymentMethod;
+  requestId: string;
+  createdAt: string;
+  cancelledAt: string | null;
+  cancelReason: string | null;
 }

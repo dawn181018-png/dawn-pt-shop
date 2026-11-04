@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
+import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PaymentCollection, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
 
@@ -390,6 +390,56 @@ export async function editProductPayment(
   }
   const result = data as { product: Record<string, unknown>; log: Record<string, unknown> };
   return { product: mapProduct(result.product), log: toCamel<PaymentEditLog>(result.log) };
+}
+
+// ---------- payment_collections (미수금 결제 = 잔금, 받은 날 매출) ----------
+// 표가 아직 없으면(SQL 실행 전) null — 화면은 "미수금 결제" 버튼을 숨기고 예전처럼 보기만 한다.
+function mapCollection(row: Record<string, unknown>): PaymentCollection {
+  const c = toCamel<PaymentCollection>(row);
+  return { ...c, amount: Number(c.amount) || 0 };
+}
+export async function listPaymentCollections(): Promise<PaymentCollection[] | null> {
+  const { data, error } = await supabase.from("payment_collections").select("*").order("paid_date", { ascending: true }).order("created_at", { ascending: true });
+  if (error) {
+    if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+    throw new Error(error.message);
+  }
+  return (data || []).map(mapCollection);
+}
+// 잔금 받기 — 남은 미수금 검사와 기록을 DB 함수 하나(collect_unpaid_payment)에서 한 번에 처리한다.
+// requestId는 결제창을 열 때 한 번 만든 값이라, 같은 결제를 두 번 보내도 기록은 하나만 생긴다.
+export async function collectUnpaidPayment(
+  productId: string, amount: number, paidDate: string, paymentMethod: string, requestId: string,
+): Promise<PaymentCollection> {
+  const { data, error } = await supabase.rpc("collect_unpaid_payment", {
+    p_product_id: productId, p_amount: amount, p_paid_date: paidDate, p_payment_method: paymentMethod, p_request_id: requestId,
+  });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("미수금 결제 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  return mapCollection(data as Record<string, unknown>);
+}
+export async function cancelPaymentCollection(collectionId: string, reason: string): Promise<PaymentCollection> {
+  const { data, error } = await supabase.rpc("cancel_payment_collection", { p_collection_id: collectionId, p_reason: reason });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("결제 취소 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  return mapCollection(data as Record<string, unknown>);
+}
+export async function editPaymentCollection(
+  collectionId: string, amount: number, paidDate: string, paymentMethod: string, reason: string,
+): Promise<{ collection: PaymentCollection; log: PaymentEditLog }> {
+  const { data, error } = await supabase.rpc("edit_payment_collection", {
+    p_collection_id: collectionId, p_amount: amount, p_paid_date: paidDate, p_payment_method: paymentMethod, p_reason: reason,
+  });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("수정 기능이 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw new Error(error.message);
+  }
+  const result = data as { collection: Record<string, unknown>; log: Record<string, unknown> };
+  return { collection: mapCollection(result.collection), log: toCamel<PaymentEditLog>(result.log) };
 }
 
 // ---------- pass_transfers (이용권 양도) ----------
