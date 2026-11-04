@@ -8,7 +8,8 @@
 4. **DB 변경은 "추가만"**: 표/칸 삭제·변경, DELETE·TRUNCATE·DROP·조건 없는 UPDATE는 절대 직접 실행하지 말고,
    필요하면 `supabase/schema.sql` 끝에 "추가만 하는" SQL로 남긴 뒤 나한테 실행을 부탁해줘.
 5. **돈·횟수 계산**: 잔여 횟수는 `src/lib/productUtils.ts`의 `remainingSessions`, 아직 예약 안 된 횟수는
-   `src/lib/recurring.ts`의 `unbookedSessions`만 써. 매출 합계는 "실제 결제(입금)금액" 기준(미수금 별도).
+   `src/lib/recurring.ts`의 `unbookedSessions`만 써. 매출 합계는 "실제 결제(입금)금액" 기준(미수금 별도)이고
+   `src/lib/accounting.ts`의 공용 함수로만 계산해(나중에 받은 잔금은 받은 날 매출).
    계산 방식이 바뀌는 변경은 먼저 나한테 물어봐줘.
 6. **세션 차감**: 완료/노쇼/취소/삭제는 DB 함수(set_reservation_status, delete_reservation 등)로 한 번에 처리해.
    예약 저장과 차감을 따로 두 번 요청하는 코드를 새로 만들지 마.
