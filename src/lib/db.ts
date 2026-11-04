@@ -216,6 +216,17 @@ export async function getSignatureUrl(path: string): Promise<string | null> {
   if (error) return null;
   return data.signedUrl;
 }
+// 여러 서명을 한 번에(서명 모음 화면) — 공개 링크가 아니라 1시간 동안만 열리는 비공개 주소를 받는다.
+export async function getSignatureUrls(paths: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const unique = [...new Set(paths.filter(Boolean))];
+  for (let i = 0; i < unique.length; i += 100) {
+    const { data, error } = await supabase.storage.from("signatures").createSignedUrls(unique.slice(i, i + 100), 3600);
+    if (error) continue;
+    (data || []).forEach((d) => { if (d.path && d.signedUrl) out[d.path] = d.signedUrl; });
+  }
+  return out;
+}
 export async function cancelReservationSeriesFrom(seriesId: string, fromDate: string): Promise<void> {
   const { error } = await supabase
     .from("reservations")

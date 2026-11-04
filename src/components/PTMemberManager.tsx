@@ -17,6 +17,8 @@ import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
 import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
 import DelegateSettlement from "./DelegateSettlement";
+import SignatureGallery from "./SignatureGallery";
+import { firstDelegationDay } from "@/lib/delegateSettlement";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
@@ -3599,6 +3601,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 {!isDelegate && <button className={`ptm-detail-tab ${customerDetailTab === "products" ? "active" : ""}`} onClick={() => setCustomerDetailTab("products")}>이용권</button>}
                 {!isDelegate && <button className={`ptm-detail-tab ${customerDetailTab === "sales" ? "active" : ""}`} onClick={() => setCustomerDetailTab("sales")}>판매내역</button>}
                 <button className={`ptm-detail-tab ${customerDetailTab === "workoutLog" ? "active" : ""}`} onClick={() => setCustomerDetailTab("workoutLog")}>운동일지</button>
+                {!isDelegate && <button className={`ptm-detail-tab ${customerDetailTab === "signatures" ? "active" : ""}`} onClick={() => setCustomerDetailTab("signatures")}>서명</button>}
               </div>
 
               {customerDetailTab === "home" && (
@@ -3900,6 +3903,18 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   </>
                 );
               })()}
+
+              {/* 서명 모음(관리자 전용) — 대리 진행은 연보라 + "대리: 이름", 기록으로 구분이 안 되면 색 없이 "담당 구분 없음" */}
+              {customerDetailTab === "signatures" && !isDelegate && (
+                <SignatureGallery
+                  customerName={cust.name}
+                  reservations={reservations.filter((r) => r.customerId === cust.id)}
+                  products={[...products, ...archivedProducts]}
+                  sessionInfo={sessionInfoByRes}
+                  firstDay={firstDelegationDay(delegations)}
+                  flash={flash}
+                />
+              )}
 
               {customerDetailTab === "workoutLog" && (() => {
                 const logs = getCustomerWorkoutLogs(allReservations, cust.id);
