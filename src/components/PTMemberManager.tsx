@@ -3191,7 +3191,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 이번달 등록 {statsCurrent.regCount}건 (신규 {statsCurrent.newCount} · 재등록 {statsCurrent.renewCount})
                 {statsCurrent.regUnpaid > 0 && <span style={{ color: "var(--coral)" }}> · 미수금 {statsCurrent.regUnpaid.toLocaleString()}원 (매출에서 제외)</span>}
               </div>
-              <div className="ptm-pay-hero-sub">신규 매출 {statsCurrent.newRevenue.toLocaleString()}원 · 재등록 매출 {statsCurrent.renewRevenue.toLocaleString()}원</div>
+              <div className="ptm-pay-hero-sub">신규 매출 {statsCurrent.newRevenue.toLocaleString()}원 · 재등록 매출 {statsCurrent.renewRevenue.toLocaleString()}원{statsCurrent.collectionCount > 0 && ` · 미수금 결제(잔금) ${statsCurrent.collectionRevenue.toLocaleString()}원`}</div>
             </div>
             <div className="ptm-pay-hero" style={{ margin: 0 }}>
               <div className="ptm-pay-hero-label">{statsCurrent.y}년 {statsCurrent.m}월 세션 매출 <span style={{ fontWeight: 400 }}>(레슨 완료 기준)</span></div>
@@ -4925,6 +4925,13 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                     <li>등록일 {p.createdAt ? koDateY(toLocalDateStr(new Date(p.createdAt))) : "-"}</li>
                   </ul>
                   <div className="ptm-acct-warn">삭제하면 이 고객의 잔여 횟수와 {p.createdAt ? `${new Date(p.createdAt).getMonth() + 1}월` : "이번 달"} 매출에서 빠집니다. 삭제된 내역에서 언제든 복구할 수 있어요.</div>
+                  {(collectionsByProduct[p.id] || []).some((c) => !c.cancelledAt) && (
+                    <div className="ptm-acct-warn">
+                      이 건의 미수금 결제(잔금)도 함께 매출에서 빠져요:{" "}
+                      {(collectionsByProduct[p.id] || []).filter((c) => !c.cancelledAt).map((c) => `${koDateY(c.paidDate)} ${c.amount.toLocaleString()}원`).join(", ")}
+                      . 복구하면 함께 돌아와요.
+                    </div>
+                  )}
                   {d.signed && <div className="ptm-acct-warn danger">서명된 계약서가 있는 건입니다.</div>}
                   {d.linkedRes.length > 0 && (
                     <div className="ptm-acct-warn danger">
