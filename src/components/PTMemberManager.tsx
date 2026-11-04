@@ -27,14 +27,14 @@ import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductTyp
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
 import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch } from "@/lib/productUtils";
-import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog, PaymentReceipt } from "@/lib/types";
+import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog, PaymentReceipt, PaymentCollection } from "@/lib/types";
 import { shrinkImage } from "@/lib/imageUtils";
 import {
   loadDelegateState, delegateAddReservations, delegateAddLessonReplacingLast, delegateSetStatus, delegateMove, delegateSaveNote, isBusyId,
   type DelegateState,
 } from "@/lib/delegateData";
 import { proxyCompleteWithSignature } from "@/app/proxy/actions";
-import { buildPaymentRows, summarizePayments, dailyTotals, firstPurchaseMap, type PaymentRow } from "@/lib/accounting";
+import { buildPaymentRows, summarizePayments, dailyTotals, firstPurchaseMap, collectedByProduct, paidTotalOf, unpaidOf, monthRange, type PaymentRow } from "@/lib/accounting";
 import "./ptm.css";
 
 function SignatureThumb({ path }: { path?: string | null }) {
@@ -304,6 +304,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     setProducts(list.filter((p) => !p.archivedAt));
     setArchivedProducts(list.filter((p) => !!p.archivedAt));
   };
+  // 미수금 결제(잔금) 기록 — 취소된 것도 포함(이력 표시용). null = 표가 아직 없음(SQL 실행 전) → 잔금 기능을 숨긴다.
+  const [collections, setCollections] = useState<PaymentCollection[] | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loaded, setLoaded] = useState(false);
   // 처음 데이터 불러오기가 실패하면 목록이 전부 비어 "등록된 고객이 없어요"처럼 보여 데이터가 사라진 것으로
@@ -396,7 +398,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const [acctDate, setAcctDate] = useState(today());
   const [acctMethodFilter, setAcctMethodFilter] = useState("all");
   const [acctQuery, setAcctQuery] = useState("");
-  const [acctKindFilter, setAcctKindFilter] = useState("all"); // all | new | renew | transfer
+  const [acctKindFilter, setAcctKindFilter] = useState("all"); // all | new | renew | transfer | collection
   const [acctUnpaidOnly, setAcctUnpaidOnly] = useState(false);
   const [acctPageSize, setAcctPageSize] = useState(20);
   const [acctPage, setAcctPage] = useState(0);
@@ -533,7 +535,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         return;
       }
       try {
-        const [customersData, productsData, reservationsData, catalogData, settingsData, forecastsData, passTransfersData] = await Promise.all([
+        // 잔금 기록도 처음에 함께 불러온다 — 못 불러온 채로 화면을 열면 미수금·매출이 틀린 숫자로 보이기 때문이다.
+        const [customersData, productsData, reservationsData, catalogData, settingsData, forecastsData, passTransfersData, collectionsData] = await Promise.all([
           db.listCustomers(),
           db.listProducts(),
           db.listReservations(),
@@ -541,9 +544,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           db.getSettings(),
           db.listRenewalForecasts(),
           db.listPassTransfers(),
+          db.listPaymentCollections(),
         ]);
         applyCustomers(customersData);
         applyProducts(productsData);
+        setCollections(collectionsData);
         setReservations(reservationsData);
         setCatalog(catalogData);
         setRenewalForecasts(forecastsData);
@@ -1798,10 +1803,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     return ids;
   }, [customers, products]);
   const isDormantNow = (c: { id: string; isDormant?: boolean }) => !!c.isDormant || autoDormantIds.has(c.id);
+  // 미수금·받은 금액은 잔금(취소 안 된 미수금 결제)까지 반영한 "지금" 기준 — 계산은 lib/accounting 공용 함수.
+  const collected = useMemo(() => collectedByProduct(collections), [collections]);
+  const paidNow = (p: Product) => paidTotalOf(p, collected);
+  const unpaidNow = (p: Product) => unpaidOf(p, collected);
+  const fullyPaidNow = (p: Product) => unpaidNow(p) <= 0;
   const customerSummary = useMemo(() => {
     return customers.map((c) => {
       const prods = products.filter((p) => p.customerId === c.id);
-      const hasUnpaid = prods.some((p) => !isFullyPaid(p));
+      const hasUnpaid = prods.some((p) => !fullyPaidNow(p));
       const sessionProds = prods.filter((p) => p.type === "session");
       const periodProds = prods.filter((p) => p.type === "period");
       // "임박 상품" 판정은 이용권 하나하나가 아니라 고객 단위로 봐야 한다 — 재등록으로 이용권이
@@ -1819,7 +1829,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       const pendingForecast = renewalForecasts.find((f) => f.customerId === c.id && f.status === "pending");
       return { ...c, products: prods, hasUnpaid, worst, minRemain, lastVisit, daysSinceVisit, pendingForecast };
     });
-  }, [customers, products, reservations, renewalForecasts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fullyPaidNow는 collected만 읽는다
+  }, [customers, products, reservations, renewalForecasts, collected]);
 
   const filteredCustomers = useMemo(() => {
     let list = customerSummary.filter((c) => c.name.includes(query) || (c.phone || "").includes(query));
@@ -2068,21 +2079,22 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
   // "세션 매출"(완료 처리된 레슨 기준, 페이롤과 동일한 산정 방식)과
   // "등록 매출"(회계관리와 동일한, 상품을 등록/결제한 금액 기준)은 서로 다른 지표라 둘 다 보여준다.
+  // 등록 매출은 판매가가 아니라 실제로 받은(결제된) 금액 기준 — 미수금은 아직 들어온 돈이 아니므로
+  // 매출에서 빼고 regUnpaid로 따로 보여준다. 계산은 회계관리와 같은 공용 함수(buildPaymentRows/summarizePayments)라
+  // 같은 달이면 회계관리 월간·매출 계획과 같은 숫자다. 나중에 받은 잔금은 받은 달 매출(regRevenue)에만 더해지고
+  // 신규/재등록 건수에는 들어가지 않는다.
   const registrationRevenueForMonth = (y: number, m: number) => {
-    const key = monthKey(y, m);
-    const monthProducts = products.filter((p) => p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(key));
-    const newProducts = monthProducts.filter((p) => firstPurchaseAt[p.customerId] === p.createdAt);
-    const renewProducts = monthProducts.filter((p) => firstPurchaseAt[p.customerId] !== p.createdAt);
-    // 등록 매출은 판매가가 아니라 실제로 받은(결제된) 금액 기준 — 미수금은 아직 들어온 돈이 아니므로
-    // 매출에서 빼고 regUnpaid로 따로 보여준다(매출 계획 "이번달 등록금액"과 같은 기준).
+    const sum = summarizePayments(buildPaymentRows(products, [], monthRange(monthKey(y, m)), new Set(), firstPurchaseAt, collections));
     return {
-      regRevenue: monthProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
-      regCount: monthProducts.length,
-      regUnpaid: monthProducts.reduce((sum, p) => sum + getUnpaidAmount(p), 0),
-      newRevenue: newProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
-      newCount: newProducts.length,
-      renewRevenue: renewProducts.reduce((sum, p) => sum + getPaidAmount(p), 0),
-      renewCount: renewProducts.length,
+      regRevenue: sum.totalAmount,
+      regCount: sum.totalCount,
+      regUnpaid: sum.unpaidAmount,
+      newRevenue: sum.newAmount,
+      newCount: sum.newCount,
+      renewRevenue: sum.renewAmount,
+      renewCount: sum.renewCount,
+      collectionRevenue: sum.collectionAmount,
+      collectionCount: sum.collectionCount,
     };
   };
   const statsTrend = useMemo(() => {
@@ -2095,7 +2107,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       arr.push({ label: `${m}월`, revenue: r.revenue, sessionCount: r.sessionCount, noshowCount: r.noshowCount, ...reg, y, m });
     }
     return arr;
-  }, [allReservations, products]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- revenueForMonth/registrationRevenueForMonth가 읽는 값만 나열
+  }, [allReservations, products, collections, firstPurchaseAt]);
   const statsCurrent = statsTrend[11];
   const statsPrevious = statsTrend[10];
   const statsAvg6 = useMemo(() => {
@@ -2121,6 +2134,18 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     return map;
   }, [reservations]);
 
+  // 이번달 실제 등록금액·미수금은 회계관리·통계분석과 같은 공용 함수로 그 달 결제 줄을 만든 뒤 고객별로 더한다
+  // (판매 줄 = 처음 받은 금액, 잔금 줄 = 그 달에 받은 잔금). 계산 방식(고객 단위 합산, 달성 판정)은 그대로다.
+  const forecastMonthByCustomer = useMemo(() => {
+    const map: Record<string, { actual: number; unpaid: number }> = {};
+    buildPaymentRows(products, [], monthRange(forecastMonth), new Set(), firstPurchaseAt, collections).forEach((r) => {
+      const cur = map[r.customerId] || (map[r.customerId] = { actual: 0, unpaid: 0 });
+      cur.actual += r.paid;
+      cur.unpaid += r.unpaid;
+    });
+    return map;
+  }, [products, forecastMonth, firstPurchaseAt, collections]);
+
   const forecastRows = useMemo(() => {
     return customers
       // 휴면(직접 표시 + 이용권 소진 자동 휴면)은 빼되, 이번 달 재등록 예정을 적어둔 고객은 남긴다.
@@ -2141,11 +2166,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         const remainDetail = activeTicketCount ? activeSessionProducts.map((p) => `${remainingSessions(p)}회`).join(" / ") : "-";
         const remainSessionsShort = activeTicketCount ? activeSessionProducts.map((p) => `${remainingSessions(p)}s`).join("/") : "";
         const remainSummary = totalRemain !== null ? `${totalRemain}회${activeTicketCount > 1 ? ` (${remainSessionsShort})` : ""}` : "-";
-        const monthProducts = products.filter((p) => p.customerId === c.id && p.createdAt && toLocalDateStr(new Date(p.createdAt)).startsWith(forecastMonth));
         // 이번달 등록금액은 판매가가 아니라 실제로 받은(결제된) 금액으로 계산한다 — 미수금이 있으면 그만큼은
         // 아직 들어온 돈이 아니므로 달성/부족액 계산에서 빠지고, 화면에는 미수금으로 따로 표시한다.
-        const actual = monthProducts.reduce((s, p) => s + getPaidAmount(p), 0);
-        const unpaid = monthProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
+        // 지난 달 판매 건의 잔금을 이번 달에 받았으면 그 금액도 이번 달 등록금액에 들어간다(받은 날 기준).
+        const actual = forecastMonthByCustomer[c.id]?.actual || 0;
+        const unpaid = forecastMonthByCustomer[c.id]?.unpaid || 0;
         const expectedSessions = f ? f.expectedSessions : null;
         const expectedAmount = f ? Number(f.expectedAmount || 0) : 0;
         const gap = Math.max(0, expectedAmount - actual);
@@ -2162,7 +2187,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       })
       .sort((a, b) => (a.totalRemain ?? 9999) - (b.totalRemain ?? 9999));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- isDormantNow는 autoDormantIds만 읽는다
-  }, [customers, products, renewalForecasts, forecastMonth, doneReservationsByCustomer, autoDormantIds]);
+  }, [customers, products, renewalForecasts, forecastMonth, doneReservationsByCustomer, autoDormantIds, forecastMonthByCustomer]);
 
   const filteredForecastRows = useMemo(() => {
     if (!forecastQuery.trim()) return forecastRows;
@@ -2224,8 +2249,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // 요약 카드는 기간 전체 기준이고, 아래 필터(구분/결제수단/검색/미수금만)는 리스트에만 적용된다.
   const transferProductIds = useMemo(() => new Set(passTransfers.map((t) => t.recipientProductId)), [passTransfers]);
   const acctPeriodRows = useMemo(
-    () => buildPaymentRows(products, [...customers, ...archivedCustomers], acctRange, transferProductIds, firstPurchaseAt),
-    [products, customers, archivedCustomers, acctRange, transferProductIds, firstPurchaseAt],
+    () => buildPaymentRows(products, [...customers, ...archivedCustomers], acctRange, transferProductIds, firstPurchaseAt, collections),
+    [products, customers, archivedCustomers, acctRange, transferProductIds, firstPurchaseAt, collections],
   );
   const acctStats = useMemo(() => summarizePayments(acctPeriodRows), [acctPeriodRows]);
   const acctDaily = useMemo(() => (acctPeriod === "week" ? dailyTotals(acctPeriodRows, acctRange.start, 7) : []), [acctPeriod, acctPeriodRows, acctRange]);
@@ -2233,6 +2258,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     let rows = acctPeriodRows;
     if (acctKindFilter === "new" || acctKindFilter === "renew") rows = rows.filter((r) => r.kind === acctKindFilter);
     if (acctKindFilter === "transfer") rows = rows.filter((r) => r.isTransfer);
+    if (acctKindFilter === "collection") rows = rows.filter((r) => r.kind === "collection");
     if (acctMethodFilter !== "all") rows = rows.filter((r) => r.paymentMethod === acctMethodFilter);
     if (acctUnpaidOnly) rows = rows.filter((r) => r.unpaid > 0);
     if (acctQuery.trim()) rows = rows.filter((r) => r.customerName.includes(acctQuery) || r.phone.includes(acctQuery));
@@ -2243,7 +2269,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const acctPageRows = acctRows.slice(acctPageSafe * acctPageSize, (acctPageSafe + 1) * acctPageSize);
   const paymentLogsByProduct = useMemo(() => {
     const map: Record<string, PaymentEditLog[]> = {};
-    (paymentLogs || []).forEach((l) => { if (l.productId) (map[l.productId] = map[l.productId] || []).push(l); });
+    // 잔금(미수금 결제) 수정 이력은 그 잔금 줄에, 나머지는 판매 줄에 붙인다(PaymentRow.rowKey와 같은 키).
+    (paymentLogs || []).forEach((l) => { const key = l.collectionId || l.productId; if (key) (map[key] = map[key] || []).push(l); });
     return map;
   }, [paymentLogs]);
 
@@ -2282,6 +2309,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     });
     return { lines, monthMove, signedWarn, orderWarn };
   }, [payEdit, signedProductIds, products]);
+  const payEditCollected = payEdit ? collected[payEdit.row.id] || 0 : 0;
+  const payEditMax = payEdit ? Math.max(0, Number(payEdit.row.price || 0) - payEditCollected) : 0;
   const savePayEdit = async () => {
     if (!payEdit || payEditSaving) return;
     setPayEditSaving(true);
@@ -2651,7 +2680,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           </div>
 
           <div className="ptm-pay-grid ptm-acct-cards">
-            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 (실제 입금 기준)</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건 / {acctStats.totalPeople}명</div></div>
+            <div className="ptm-pay-card"><div className="ptm-pay-card-label">결제금액 (실제 입금 기준)</div><div className="ptm-pay-card-num">{acctStats.totalAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.totalCount}건 / {acctStats.totalPeople}명{acctStats.collectionCount > 0 && <> · 잔금 {acctStats.collectionCount}건 {acctStats.collectionAmount.toLocaleString()}원 포함</>}</div></div>
             <div className="ptm-pay-card"><div className="ptm-pay-card-label">신규등록</div><div className="ptm-pay-card-num">{acctStats.newAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.newCount}건 / {acctStats.newPeople}명</div></div>
             <div className="ptm-pay-card"><div className="ptm-pay-card-label">재등록</div><div className="ptm-pay-card-num">{acctStats.renewAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.renewCount}건 / {acctStats.renewPeople}명</div></div>
             <div className="ptm-pay-card"><div className="ptm-pay-card-label">양도 (결제금액 중)</div><div className="ptm-pay-card-num">{acctStats.transferAmount.toLocaleString()}원</div><div className="ptm-prod-count">{acctStats.transferCount}건 / {acctStats.transferPeople}명</div></div>
@@ -2680,6 +2709,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               <option value="new">신규</option>
               <option value="renew">재등록</option>
               <option value="transfer">양도</option>
+              {collections !== null && <option value="collection">잔금(미수금 결제)</option>}
             </select>
             <select className="ptm-sort" value={acctMethodFilter} onChange={(e) => { setAcctMethodFilter(e.target.value); setAcctPage(0); }}>
               <option value="all">결제수단 전체</option>
@@ -2704,9 +2734,10 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 <thead><tr><th>결제일</th><th>회원명</th><th>상품명</th><th>판매가</th><th>결제수단</th><th>결제금액</th><th>미수금</th><th>구분</th><th></th></tr></thead>
                 <tbody>
                   {acctPageRows.map((r) => {
-                    const logs = paymentLogsByProduct[r.id];
+                    const logs = paymentLogsByProduct[r.rowKey];
+                    const isCollection = r.kind === "collection";
                     return (
-                      <tr key={r.id} className={paymentLogs !== null ? "ptm-acct-row-editable" : ""} onClick={() => openPayEdit(r)}>
+                      <tr key={r.rowKey} className={paymentLogs !== null ? "ptm-acct-row-editable" : ""} onClick={() => !isCollection && openPayEdit(r)}>
                         <td>{koDate(r.paidDate)}</td>
                         <td>{r.customerName}</td>
                         <td>{r.name}</td>
@@ -2714,8 +2745,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         <td>{paymentMethodLabel[r.paymentMethod] || "-"}</td>
                         <td><b>{r.paid.toLocaleString()}원</b></td>
                         <td style={r.unpaid > 0 ? { color: "var(--coral)", fontWeight: 600 } : {}}>{r.unpaid > 0 ? `${r.unpaid.toLocaleString()}원` : "-"}</td>
-                        <td>{r.kind === "new" ? "신규" : "재등록"}{r.isTransfer && <span className="ptm-acct-tag">양도</span>}</td>
-                        <td>{(receiptsByProduct[r.id] || []).length > 0 && <button className="ptm-receipt-btn has" style={{ marginRight: 4 }} onClick={(e) => { e.stopPropagation(); setReceiptView({ productId: r.id, title: `${r.customerName} · ${r.name}` }); }}><Receipt size={12} /> {receiptsByProduct[r.id].length}</button>}{logs && <button className="ptm-acct-edited" onClick={(e) => { e.stopPropagation(); setPayHistoryRow(r); }}>수정됨{logs.length > 1 ? ` ${logs.length}` : ""}</button>}</td>
+                        <td>{isCollection ? <>잔금<span className="ptm-acct-tag">판매 {koDate(r.saleDate)}</span></> : r.kind === "new" ? "신규" : "재등록"}{r.isTransfer && <span className="ptm-acct-tag">양도</span>}</td>
+                        <td>{!isCollection && (receiptsByProduct[r.id] || []).length > 0 && <button className="ptm-receipt-btn has" style={{ marginRight: 4 }} onClick={(e) => { e.stopPropagation(); setReceiptView({ productId: r.id, title: `${r.customerName} · ${r.name}` }); }}><Receipt size={12} /> {receiptsByProduct[r.id].length}</button>}{logs && <button className="ptm-acct-edited" onClick={(e) => { e.stopPropagation(); setPayHistoryRow(r); }}>수정됨{logs.length > 1 ? ` ${logs.length}` : ""}</button>}</td>
                       </tr>
                     );
                   })}
@@ -2747,10 +2778,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                     <div className="ptm-field"><label>결제(입금) 금액</label>
                       <input type="text" inputMode="numeric" onFocus={(e) => e.target.select()} value={fmtNum(payEdit.paid)} onChange={(e) => setPayEdit({ ...payEdit, paid: parseNum(e.target.value) })} />
                     </div>
-                    <div className={`ptm-acct-unpaid${Number(payEdit.row.price || 0) - payEdit.paid !== 0 ? " has" : ""}`}>
-                      {payEdit.paid > Number(payEdit.row.price || 0)
-                        ? "결제금액은 판매가보다 클 수 없어요"
-                        : `미수금 ${(Number(payEdit.row.price || 0) - payEdit.paid).toLocaleString()}원`}
+                    {/* 나중에 받은 잔금이 있으면 처음 결제금액은 "판매가 − 잔금"까지만 된다(같은 검사를 DB도 한다). */}
+                    <div className={`ptm-acct-unpaid${payEditMax - payEdit.paid !== 0 ? " has" : ""}`}>
+                      {payEdit.paid > payEditMax
+                        ? (payEditCollected > 0 ? `잔금 ${payEditCollected.toLocaleString()}원이 따로 들어와 있어서, 처음 결제금액은 ${payEditMax.toLocaleString()}원을 넘을 수 없어요` : "결제금액은 판매가보다 클 수 없어요")
+                        : `미수금 ${(payEditMax - payEdit.paid).toLocaleString()}원${payEditCollected > 0 ? ` (잔금 ${payEditCollected.toLocaleString()}원 받음)` : ""}`}
                     </div>
                     <div className="ptm-field"><label>결제일 — 회계관리·통계·매출 계획 집계 기준일</label>
                       <input type="date" value={payEdit.date} onChange={(e) => e.target.value && setPayEdit({ ...payEdit, date: e.target.value })} />
@@ -2766,7 +2798,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                       <input value={payEdit.reason} onChange={(e) => setPayEdit({ ...payEdit, reason: e.target.value })} placeholder="예: 카드 부분취소 반영, 입금일 착오" />
                     </div>
                     <button className="ptm-save-btn"
-                      disabled={payEditDiff.lines.length === 0 || (payEdit.paid > Number(payEdit.row.price || 0) && payEdit.paid !== payEdit.row.paid)}
+                      disabled={payEditDiff.lines.length === 0 || (payEdit.paid > payEditMax && payEdit.paid !== payEdit.row.paid)}
                       onClick={() => setPayEdit({ ...payEdit, confirming: true })}>
                       {payEditDiff.lines.length === 0 ? "바뀐 내용이 없어요" : "다음 — 바뀌는 내용 확인"}
                     </button>
@@ -2797,7 +2829,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   <button className="ptm-icon-btn" onClick={() => setPayHistoryRow(null)}><X size={16} /></button>
                 </div>
                 <div className="ptm-acct-edit-who">{payHistoryRow.customerName} · {payHistoryRow.name}</div>
-                {(paymentLogsByProduct[payHistoryRow.id] || []).map((l) => (
+                {(paymentLogsByProduct[payHistoryRow.rowKey] || []).map((l) => (
                   <div key={l.id} className="ptm-acct-log">
                     <div className="ptm-acct-log-when">{new Date(l.editedAt).toLocaleString("ko-KR")}{l.signedContract && <span className="ptm-acct-tag danger">서명된 계약 건</span>}</div>
                     <ul className="ptm-acct-diff">
@@ -3383,8 +3415,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         if (!cust) return null;
         const custProducts = products.filter((p) => p.customerId === cust.id);
         const custReservations = allReservations.filter((r) => r.customerId === cust.id).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
-        const totalPaid = custProducts.reduce((s, p) => s + getPaidAmount(p), 0);
-        const totalUnpaid = custProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
+        const totalPaid = custProducts.reduce((s, p) => s + paidNow(p), 0);
+        const totalUnpaid = custProducts.reduce((s, p) => s + unpaidNow(p), 0);
         const custForecasts = [...renewalForecasts].filter((f) => f.customerId === cust.id).sort((a, b) => b.targetMonth.localeCompare(a.targetMonth));
         return (
           <div className="ptm-overlay" onClick={() => setCustomerDetailId(null)}>
@@ -3547,7 +3579,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                             {inUse && <><span className="ptm-badge ptm-badge-inuse">이용 중</span>{" "}</>}
                             <span className="ptm-badge">{p.type === "session" ? "횟수권" : "기간권"}</span>{" "}
                             <span className="ptm-prod-date">{p.createdAt ? koDateY(toLocalDateStr(new Date(p.createdAt))) : ""}</span>{" "}
-                            <span className={`ptm-badge ${isFullyPaid(p) ? "" : "unpaid"}`} onClick={() => togglePaid(p.id)} style={{ cursor: "pointer" }}>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</span>{" "}
+                            <span className={`ptm-badge ${fullyPaidNow(p) ? "" : "unpaid"}`} onClick={() => togglePaid(p.id)} style={{ cursor: "pointer" }}>{fullyPaidNow(p) ? "완납" : `미수 ${unpaidNow(p).toLocaleString()}원`}</span>{" "}
                             {incomingTransfer && (
                               <span className="ptm-badge" title={`원본: ${customers.find((c) => c.id === incomingTransfer.sourceCustomerId)?.name || "알 수 없음"}`}>
                                 양도받음 · {customers.find((c) => c.id === incomingTransfer.sourceCustomerId)?.name || "알 수 없음"}
@@ -3598,8 +3630,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
               {customerDetailTab === "sales" && !isDelegate && (() => {
                 const salesTotal = custProducts.reduce((s, p) => s + Number(p.price || 0), 0);
-                const paidTotal = custProducts.reduce((s, p) => s + getPaidAmount(p), 0);
-                const unpaidTotal = custProducts.reduce((s, p) => s + getUnpaidAmount(p), 0);
+                const paidTotal = custProducts.reduce((s, p) => s + paidNow(p), 0);
+                const unpaidTotal = custProducts.reduce((s, p) => s + unpaidNow(p), 0);
                 const createdDates = custProducts.map((p) => p.createdAt || 0).filter(Boolean).sort((a, b) => a - b);
                 const firstPayDate = createdDates.length ? koDateY(toLocalDateStr(new Date(createdDates[0]))) : "-";
                 const lastPayDate = createdDates.length ? koDateY(toLocalDateStr(new Date(createdDates[createdDates.length - 1]))) : "-";
@@ -3627,7 +3659,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                                 <td>{Number(p.listPrice ?? p.price ?? 0).toLocaleString()}원</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
                                 <td>{paymentMethodLabel[p.paymentMethod] || "-"}</td>
-                                <td>{isFullyPaid(p) ? "완납" : `미수 ${getUnpaidAmount(p).toLocaleString()}원`}</td>
+                                <td>{fullyPaidNow(p) ? "완납" : `미수 ${unpaidNow(p).toLocaleString()}원`}</td>
                                 {receipts !== null && (
                                   <td>
                                     {(receiptsByProduct[p.id] || []).length > 0 ? (
@@ -3664,7 +3696,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                                 <td>{koDateY(toLocalDateStr(new Date(p.createdAt || Date.now())))}</td>
                                 <td>{p.name}</td>
                                 <td>{Number(p.price || 0).toLocaleString()}원</td>
-                                <td>{getPaidAmount(p).toLocaleString()}원</td>
+                                <td>{paidNow(p).toLocaleString()}원</td>
                                 <td>{koDate(toLocalDateStr(new Date(p.deletedAt || p.archivedAt || Date.now())))}</td>
                                 <td>{p.deleteReason || (p.deletedAt ? "-" : "예전 보관")}</td>
                                 <td><button className="ptm-res-btn" onClick={() => restoreDeletedProduct(p)}><ArchiveRestore size={13} /> 복구</button></td>
@@ -4546,7 +4578,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       {prodDelete && (() => {
         const d = prodDelete;
         const p = d.product;
-        const paid = getPaidAmount(p);
+        const paid = paidNow(p); // 처음 결제 + 잔금(잔금도 판매 건과 함께 매출에서 빠졌다가 복구하면 돌아온다)
         const reason = deleteReasonOf(d);
         const close = () => !d.saving && setProdDelete(null);
         return (
