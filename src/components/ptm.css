@@ -694,3 +694,15 @@
   .ptm-root.ptm-sign-root { background:#fff; padding:0; }
   .ptm-sign-card { border:none; padding:0; }
 }
+
+/* 판매내역 > 결제 이력(처음 결제 + 미수금 결제) */
+.ptm-pay-history-toggle { display:flex; align-items:center; gap:3px; margin-top:4px; background:none; border:none; padding:0; color:var(--ink-dim); font-size:11.5px; cursor:pointer; white-space:nowrap; }
+.ptm-pay-history-toggle:hover { color:var(--amber); }
+.ptm-pay-history-row > td { background:var(--panel-2); padding:8px 10px; }
+.ptm-pay-history { width:100%; border-collapse:collapse; font-size:12.5px; }
+.ptm-pay-history th { text-align:left; font-weight:600; color:var(--ink-dim); padding:4px 6px; border-bottom:1px solid var(--line); }
+.ptm-pay-history td { padding:5px 6px; border-bottom:1px solid var(--line); vertical-align:middle; }
+.ptm-pay-history tr.cancelled td { color:var(--ink-dim); text-decoration:line-through; }
+.ptm-pay-history tr.cancelled td:nth-child(5) { text-decoration:none; }
+.ptm-pay-history-total td { font-weight:600; border-bottom:none; }
+.ptm-pay-history-actions { display:flex; gap:4px; flex-wrap:wrap; }
