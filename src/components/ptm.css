@@ -742,7 +742,7 @@
 .ptm-ds-total > div { display:flex; justify-content:space-between; padding:3px 0; }
 .ptm-ds-total .sum { border-top:1px solid var(--line); margin-top:6px; padding-top:8px; font-size:17px; }
 .ptm-ds-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
-.ptm-ds-actions .ptm-save-btn, .ptm-ds-actions .ptm-series-btn { width:auto; margin-top:0; padding:0 16px; display:flex; align-items:center; gap:6px; }
+.ptm-ds-actions .ptm-save-btn, .ptm-ds-actions .ptm-series-btn { width:auto; height:40px; margin-top:0; padding:0 16px; display:flex; align-items:center; gap:6px; }
 .ptm-ds-history { margin-top:12px; font-size:12.5px; color:var(--ink-dim); }
 .ptm-ds-history ul { margin:6px 0 0 16px; padding:0; }
 .ptm-sheet.ptm-ds-sheet-wrap { max-width:760px; }
@@ -765,6 +765,7 @@
   .ptm-ds-row { grid-template-columns:48px 1fr auto; }
   .ptm-ds-prod { grid-column:1 / 3; font-size:12px; }
   .ptm-ds-amount { grid-column:3; }
+  .ptm-ds-row .ptm-badge { justify-self:end; }
   .ptm-ds-adjust-row { grid-template-columns:110px 1fr auto; }
   .ptm-ds-settings .ptm-field { min-width:0; width:100%; }
   .ptm-ds-sheet { padding:10px; font-size:11px; }

@@ -234,6 +234,7 @@ export default function DelegateSettlement({
                 <span className="ptm-ds-name">{l.customerName}</span>
                 <span className={`ptm-badge ptm-ds-st-${l.status}`}>{statusText[l.status]}</span>
                 <span className="ptm-ds-prod">{l.productName} · {l.duration}분</span>
+                <span className="ptm-ds-amount">{l.eligible ? <><b>{won(l.amount)}</b><small>{l.basis}</small></> : <small>지급 대상 아님</small>}</span>
                 {l.handler === "check" && (
                   <label className="ptm-ds-check" title={l.handlerNote || ""}>
                     <input type="checkbox" disabled={!editable} checked={l.eligible}
@@ -253,7 +254,6 @@ export default function DelegateSettlement({
                     )}
                   </span>
                 )}
-                <span className="ptm-ds-amount">{l.eligible ? <><b>{won(l.amount)}</b><small>{l.basis}</small></> : <small>지급 대상 아님</small>}</span>
               </div>
             ))}
           </div>
