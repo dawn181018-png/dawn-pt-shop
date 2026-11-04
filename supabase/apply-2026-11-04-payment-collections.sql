@@ -184,7 +184,7 @@ begin
   v_collected := product_collected_amount(new.id);
   if v_collected = 0 then return new; end if;
   if new.paid_amount + v_collected > new.price then
-    raise exception '이 판매 건은 미수금 결제 %원이 이미 들어와 있어서, 처음 결제금액은 %원을 넘을 수 없어요', v_collected, greatest(new.price - v_collected, 0);
+    raise exception '이 판매 건은 미수금 결제 %원이 이미 들어와 있어서, 처음 결제금액 + 미수금 결제가 판매가(%원)를 넘을 수 없어요', v_collected, new.price;
   end if;
   if exists (select 1 from payment_collections where product_id = new.id and cancelled_at is null
              and paid_date < (new.created_at at time zone 'Asia/Seoul')::date) then
