@@ -118,8 +118,11 @@ export default function DelegateSettlement({
   const [showHistory, setShowHistory] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
 
+  // 화면이 "저장 중"으로 바뀌기 전의 연속 클릭까지 막도록 ref로도 잠근다(기록이 두 번 쌓이지 않게).
+  const savingRef = useRef(false);
   const addRecord = async (data: Parameters<typeof db.insertDelegateSettlement>[0], done: string) => {
-    if (saving) return;
+    if (savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const row = await db.insertDelegateSettlement(data);
@@ -129,6 +132,7 @@ export default function DelegateSettlement({
     } catch (e) {
       flash(`저장 실패: ${e instanceof Error ? e.message : "다시 시도해주세요"}`, 4000);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };
