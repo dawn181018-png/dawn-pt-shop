@@ -16,6 +16,7 @@ import SignatureModal from "./SignatureModal";
 import ProductSaleWizard, { type SalePrefill } from "./ProductSaleWizard";
 import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
+import DelegateSettlement from "./DelegateSettlement";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
@@ -1027,6 +1028,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const delegateNameFor = (r: { type: string; delegateName?: string | null }): string | null =>
     !isDelegate && r.type === "pt" && r.delegateName ? r.delegateName : null;
   const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
+  const [delegationSubTab, setDelegationSubTab] = useState<"manage" | "settle">("manage"); // 대리 레슨 탭 안: 지정 관리 / 월 정산
   useEffect(() => {
     if (!loaded || isDelegate) return;
     db.listDelegations().then(setDelegations).catch(() => {});
@@ -1074,6 +1076,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     // key가 바뀌어야 지정 폼이 그 고객이 선택된 채로 새로 열린다.
     setDelegationPreset((prev) => ({ key: (prev?.key ?? 0) + 1, customerId }));
     setCustomerDetailId(null);
+    setDelegationSubTab("manage");
     setView("delegation");
   };
 
@@ -3441,6 +3444,22 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       )}
 
       {view === "delegation" && (
+        <div className="ptm-subtabs ptm-detail-tabs">
+          <button className={`ptm-detail-tab ${delegationSubTab === "manage" ? "active" : ""}`} onClick={() => setDelegationSubTab("manage")}>지정 관리</button>
+          <button className={`ptm-detail-tab ${delegationSubTab === "settle" ? "active" : ""}`} onClick={() => setDelegationSubTab("settle")}>월 정산</button>
+        </div>
+      )}
+      {view === "delegation" && delegationSubTab === "settle" && !isDelegate && (
+        <DelegateSettlement
+          delegations={delegations}
+          reservations={reservations}
+          products={[...products, ...archivedProducts]}
+          customers={[...customers, ...archivedCustomers]}
+          transferRecipientIds={transferProductIds}
+          flash={flash}
+        />
+      )}
+      {view === "delegation" && delegationSubTab === "manage" && (
         <DelegationManager
           key={delegationPreset?.key ?? "list"}
           delegations={delegations}

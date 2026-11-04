@@ -706,3 +706,67 @@
 .ptm-pay-history tr.cancelled td:nth-child(5) { text-decoration:none; }
 .ptm-pay-history-total td { font-weight:600; border-bottom:none; }
 .ptm-pay-history-actions { display:flex; gap:4px; flex-wrap:wrap; }
+
+/* 대리 레슨 > 월 정산 */
+.ptm-subtabs { display:flex; gap:6px; margin:0 0 14px; }
+.ptm-ds-toolbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+.ptm-ds-status { display:flex; align-items:center; gap:6px; flex-wrap:wrap; background:rgba(26,163,90,0.10); }
+.ptm-ds-changes { margin:6px 0 0 18px; padding:0; font-weight:500; }
+.ptm-pay-grid.ptm-ds-cards { grid-template-columns:repeat(5,1fr); margin:10px 0 14px; }
+.ptm-ds-card-main { border-color:var(--amber); background:rgba(59,111,224,0.06); }
+.ptm-ds-settings { display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+.ptm-ds-settings .ptm-field { margin-bottom:0; min-width:200px; }
+.ptm-ds-switch { padding-bottom:10px; }
+.ptm-ds-days { display:flex; flex-direction:column; gap:10px; margin-bottom:12px; }
+.ptm-ds-day { background:var(--panel); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.ptm-ds-day-head { display:flex; justify-content:space-between; gap:8px; padding:8px 12px; background:var(--panel-2); border-bottom:1px solid var(--line); font-size:13px; }
+.ptm-ds-day-head span { color:var(--ink-dim); font-weight:600; }
+.ptm-ds-row { display:grid; grid-template-columns:56px minmax(70px,1fr) auto minmax(120px,1.4fr) minmax(140px,1.2fr); gap:6px 10px; align-items:center; padding:8px 12px; border-bottom:1px solid var(--line); font-size:13px; }
+.ptm-ds-row:last-child { border-bottom:none; }
+.ptm-ds-row.cancelled { color:var(--ink-dim); }
+.ptm-ds-row.cancelled .ptm-ds-name { text-decoration:line-through; }
+.ptm-ds-row.check { background:rgba(224,67,63,0.05); }
+.ptm-ds-time { font-weight:700; }
+.ptm-ds-prod { color:var(--ink-dim); }
+.ptm-ds-st-done { color:var(--teal); border-color:var(--teal); }
+.ptm-ds-st-noshow { color:var(--coral); border-color:var(--coral); }
+.ptm-ds-check, .ptm-ds-issue { grid-column:1 / -1; display:flex; align-items:center; gap:6px; flex-wrap:wrap; font-size:12px; color:var(--coral); }
+.ptm-ds-issue input { width:140px; height:30px; border:1px solid var(--line); border-radius:6px; padding:0 8px; font-size:12.5px; }
+.ptm-ds-amount { display:flex; flex-direction:column; align-items:flex-end; text-align:right; }
+.ptm-ds-amount small { color:var(--ink-dim); font-size:11px; }
+.ptm-ds-adjust { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; }
+.ptm-ds-adjust-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+.ptm-ds-adjust-row { display:grid; grid-template-columns:160px 1fr auto; gap:8px; margin-bottom:6px; }
+.ptm-ds-adjust-row input { height:36px; border:1px solid var(--line); border-radius:8px; padding:0 10px; font-size:13px; background:var(--panel); color:var(--ink); }
+.ptm-ds-total { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:12px; font-size:14px; }
+.ptm-ds-total > div { display:flex; justify-content:space-between; padding:3px 0; }
+.ptm-ds-total .sum { border-top:1px solid var(--line); margin-top:6px; padding-top:8px; font-size:17px; }
+.ptm-ds-actions { display:flex; flex-wrap:wrap; gap:8px; justify-content:flex-end; }
+.ptm-ds-actions .ptm-save-btn, .ptm-ds-actions .ptm-series-btn { width:auto; margin-top:0; padding:0 16px; display:flex; align-items:center; gap:6px; }
+.ptm-ds-history { margin-top:12px; font-size:12.5px; color:var(--ink-dim); }
+.ptm-ds-history ul { margin:6px 0 0 16px; padding:0; }
+.ptm-sheet.ptm-ds-sheet-wrap { max-width:760px; }
+.ptm-ds-export-bar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+/* 정산서(내보내기 영역) — 인쇄·이미지에서도 같게 보이도록 색을 직접 지정 */
+.ptm-ds-sheet { background:#ffffff; color:#1f2937; padding:18px; border:1px solid #dde3ee; border-radius:8px; font-size:12.5px; }
+.ptm-ds-sheet-title { font-size:20px; font-weight:700; margin-bottom:6px; }
+.ptm-ds-sheet-meta { display:flex; flex-wrap:wrap; gap:6px 14px; color:#4b5563; margin-bottom:12px; }
+.ptm-ds-sheet-table { width:100%; border-collapse:collapse; }
+.ptm-ds-sheet-table th, .ptm-ds-sheet-table td { border-bottom:1px solid #e5e7eb; padding:6px 6px; text-align:left; white-space:nowrap; }
+.ptm-ds-sheet-table th { background:#f3f5fa; font-weight:600; }
+.ptm-ds-sheet-table tr.off td { color:#9ca3af; }
+.ptm-ds-sheet-table td:last-child, .ptm-ds-sheet-table th:last-child { text-align:right; }
+.ptm-ds-sheet-sum { margin-top:12px; display:flex; flex-direction:column; align-items:flex-end; gap:3px; }
+.ptm-ds-sheet-sum .sum { font-size:16px; font-weight:700; border-top:2px solid #1f2937; padding-top:6px; margin-top:4px; }
+.ptm-export-print { padding:0 !important; background:#fff !important; }
+@media (max-width:640px) {
+  .ptm-pay-grid.ptm-ds-cards { grid-template-columns:repeat(2,1fr); }
+  .ptm-ds-card-main { grid-column:1 / -1; }
+  .ptm-ds-row { grid-template-columns:48px 1fr auto; }
+  .ptm-ds-prod { grid-column:1 / 3; font-size:12px; }
+  .ptm-ds-amount { grid-column:3; }
+  .ptm-ds-adjust-row { grid-template-columns:110px 1fr auto; }
+  .ptm-ds-settings .ptm-field { min-width:0; width:100%; }
+  .ptm-ds-sheet { padding:10px; font-size:11px; }
+  .ptm-ds-sheet-table th, .ptm-ds-sheet-table td { padding:4px 3px; white-space:normal; }
+}
