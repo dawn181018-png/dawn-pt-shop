@@ -20,11 +20,12 @@ const TABLES = [
   "pending_sales",
   "lesson_delegations",
   "reservation_series",
-  // 아래 넷은 나중에 추가된 기록 표 — 아직 만들어지지 않았으면(SQL 실행 전) 건너뛴다(백업 전체가 실패하지 않게).
+  // 아래 다섯은 나중에 추가된 기록 표 — 아직 만들어지지 않았으면(SQL 실행 전) 건너뛴다(백업 전체가 실패하지 않게).
   "payment_edit_logs",
   "product_delete_logs",
   "payment_receipts",
   "payment_collections",
+  "delegate_settlements",
 ] as const;
 
 // PostgREST는 요청 1건당 최대 1000행까지만 돌려준다. select("*") 한 번으로는 1000행을 넘는 테이블
