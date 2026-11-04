@@ -13,6 +13,8 @@ union all select 'lesson_delegations', count(*) from lesson_delegations
 union all select 'reservation_series', count(*) from reservation_series
 union all select 'payment_edit_logs', count(*) from payment_edit_logs
 union all select 'product_delete_logs', count(*) from product_delete_logs
+-- 아래 줄은 apply-2026-11-04-payment-collections.sql 실행 뒤에만 동작한다(그 전에는 이 줄을 지우고 실행).
+union all select 'payment_collections', count(*) from payment_collections
 union all select 'reservations: 취소', count(*) from reservations where status = 'cancelled'
 union all select 'reservations: 완료+노쇼', count(*) from reservations where status in ('done','noshow')
 union all select 'products: 사용 횟수 합계', coalesce(sum(used_sessions),0) from products
