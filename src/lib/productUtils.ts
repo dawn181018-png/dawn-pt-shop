@@ -66,9 +66,22 @@ export function isNewCustomer(customerId: string, allProducts: Product[]): boole
 
 // 이용권 이름에 적힌 횟수(예: "PT 20회", "half 20", "Premium Conditioning 20s")와 실제 총 횟수가 다르면 이름 속 숫자를
 // 돌려준다(같으면 null). "half 20"인데 횟수가 10으로 저장돼 판매된 일이 있어, 이용권 만들기·판매·수정 화면에서 경고한다.
+// 이름 속 횟수 찾기: "20회"·"20s"처럼 횟수 표시가 붙은 숫자를 먼저 보고, 없으면 시간·기간·금액이 아닌 첫 숫자를 쓴다
+// (예: "50분 PT 10회" → 10, "3개월 PT 24" → 24). 예전엔 숫자 대신 글자 d를 찾는 실수로 경고가 한 번도 뜨지 않았다.
+export function sessionCountInName(name: string): number | null {
+  const text = name || "";
+  const marked = text.match(/(\d{1,3})\s*(?:회|s\b)/i);
+  if (marked) return Number(marked[1]);
+  const re = /(\d{1,3})(?!\d)(?!\s*(?:분|min|개월|달|일|주|시간|%|원|만|천|kg|cm))/gi;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const before = text.slice(0, m.index);
+    if (/\d$/.test(before)) continue; // 4자리 이상 숫자의 일부는 건너뛴다
+    return Number(m[1]);
+  }
+  return null;
+}
 export function nameSessionMismatch(name: string, sessions: number): number | null {
-  const m = (name || "").match(/(d{1,3})/);
-  if (!m || !(Number(sessions) > 0)) return null;
-  const inName = Number(m[1]);
+  const inName = sessionCountInName(name);
+  if (inName === null || !(Number(sessions) > 0)) return null;
   return inName > 0 && inName !== Number(sessions) ? inName : null;
 }
