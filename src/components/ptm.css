@@ -840,7 +840,7 @@ button.ptm-ss-cell { cursor:zoom-in; }
 .ptm-ss-date small { font-size:9.5px; color:#6b7684; }
 .ptm-ss-cell.scheduled .ptm-ss-date { color:#b0b7c3; }
 .ptm-ss-sign { position:relative; height:100%; display:flex; align-items:center; padding:1px 4px; min-width:0; overflow:hidden; }
-.ptm-ss-sign img { max-height:100%; max-width:100%; height:100%; object-fit:contain; object-position:left center; display:block; }
+.ptm-ss-sign img { max-height:100%; max-width:100%; height:100%; object-fit:contain; object-position:left center; display:block; mix-blend-mode:multiply; } /* 서명의 흰 바탕이 연보라 칸을 가리지 않게 */
 .ptm-ss-noshow { color:#e0433f; font-weight:800; font-size:13px; letter-spacing:.3px; }
 .ptm-ss-noshow.big { font-size:28px; }
 .ptm-ss-nosign { font-size:10.5px; color:#6b7684; }
