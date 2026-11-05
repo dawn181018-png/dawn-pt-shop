@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
-import type { DelegateSettlementRecord, SettlementAction, SettlementSnapshot } from "@/lib/delegateSettlement";
+import type { DelegateSettlementRecord, ReservationStatusLog, SettlementAction, SettlementSnapshot } from "@/lib/delegateSettlement";
 import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PaymentCollection, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
@@ -487,6 +487,28 @@ export async function insertDelegateSettlement(data: {
     throw new Error(error.message);
   }
   return mapSettlement(row as Record<string, unknown>);
+}
+
+// ---------- reservation_status_logs (레슨 처리자 기록, 트리거가 자동으로 남김) ----------
+// 표가 아직 없으면(SQL 실행 전) null — 화면은 예전 기준(대리 이름·서명 위치)으로만 판단한다. 1000줄씩 끝까지 읽는다.
+export async function listReservationStatusLogs(): Promise<ReservationStatusLog[] | null> {
+  const pageSize = 1000;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("reservation_status_logs")
+      .select("id, reservation_id, old_status, new_status, actor_role, actor_name, delegation_id, changed_at")
+      .order("changed_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+      throw new Error(error.message);
+    }
+    rows.push(...(data || []));
+    if ((data || []).length < pageSize) break;
+  }
+  return rows.map((row) => toCamel<ReservationStatusLog>(row));
 }
 
 // ---------- pass_transfers (이용권 양도) ----------

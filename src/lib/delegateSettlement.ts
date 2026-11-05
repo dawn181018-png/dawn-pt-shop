@@ -16,6 +16,22 @@ export type LessonHandler = { kind: LessonHandlerKind; delegateName: string | nu
 
 type HandlerInput = Pick<Reservation, "delegationId" | "delegateName" | "signatureUrl" | "status" | "date">;
 
+// 레슨 처리자 기록(reservation_status_logs, 2026-11-05~): 상태가 바뀐 순간 로그인해 있던 계정이 관리자인지 대리인지.
+// 지금 상태로 바꾼 마지막 기록이 있으면 그걸 가장 먼저 믿는다(서명 위치·대리 이름보다 정확). 없으면 예전 기준으로 판단한다.
+export type StatusLogActor = { newStatus: string; actorRole: "owner" | "delegate" | "member" | "system"; actorName: string | null };
+export type ReservationStatusLog = StatusLogActor & {
+  id: string; reservationId: string; oldStatus: string | null; delegationId: string | null; changedAt: string;
+};
+// 예약별 "가장 최근" 기록만 모은다.
+export function latestStatusLogs(logs: ReservationStatusLog[] | null | undefined): Map<string, StatusLogActor> {
+  const map = new Map<string, ReservationStatusLog>();
+  (logs || []).forEach((l) => {
+    const cur = map.get(l.reservationId);
+    if (!cur || l.changedAt >= cur.changedAt) map.set(l.reservationId, l);
+  });
+  return map;
+}
+
 export const isDelegatedSignature = (path?: string | null): boolean => !!path && path.includes("/delegated/");
 
 // 대리 지정이 처음 시작된 날(이 날 전에는 대리 기록 자체가 없었다). 지정이 없으면 null.
@@ -23,8 +39,12 @@ export function firstDelegationDay(delegations: Pick<LessonDelegation, "startsOn
   return delegations.reduce<string | null>((min, d) => (!min || d.startsOn < min ? d.startsOn : min), null);
 }
 
-export function classifyLesson(r: HandlerInput, firstDay: string | null): LessonHandler {
+export function classifyLesson(r: HandlerInput, firstDay: string | null, log?: StatusLogActor | null): LessonHandler {
   const name = (r.delegateName || "").trim() || null;
+  if (log && log.newStatus === r.status && (r.status === "done" || r.status === "noshow" || r.status === "cancelled")) {
+    if (log.actorRole === "delegate") return { kind: "delegate", delegateName: log.actorName || name, note: null };
+    if (log.actorRole === "owner") return { kind: "owner", delegateName: null, note: name ? `대리(${name})가 예약 · 관리자가 처리` : null };
+  }
   if (r.delegationId || name) {
     if (r.status !== "done") return { kind: "delegate", delegateName: name, note: null };
     if (isDelegatedSignature(r.signatureUrl)) return { kind: "delegate", delegateName: name, note: null };
@@ -73,7 +93,7 @@ export type SettlementLesson = {
   customerName: string;
   status: ReservationStatus;
   productName: string;
-  handler: LessonHandlerKind; // delegate | check
+  handler: LessonHandlerKind; // delegate | check | owner(대리가 예약만 잡고 관리자가 처리 — 처리자 기록으로 확인된 경우)
   handlerNote: string | null;
   unitPrice: number | null; // 회당 기준 단가(판매가 ÷ 총 횟수, 원 단위 반올림). 불명확하면 null
   unitIssue: string | null; // 단가가 불명확하거나 확인이 필요한 이유
@@ -120,6 +140,7 @@ export function buildSettlement(input: {
   transferRecipientIds: Set<string>;
   firstDay: string | null;
   settings: SettlementSettings;
+  statusLogs?: Map<string, StatusLogActor>; // 처리자 기록(있으면 가장 먼저 믿는다)
 }): SettlementResult {
   const { start, end } = monthBounds(input.month);
   const s = input.settings;
@@ -130,10 +151,12 @@ export function buildSettlement(input: {
       && r.date >= start && r.date <= end && (r.status === "done" || r.status === "noshow" || r.status === "cancelled"))
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
     .map((r): SettlementLesson => {
-      const h = classifyLesson(r, input.firstDay);
+      const h = classifyLesson(r, input.firstDay, input.statusLogs?.get(r.id));
       const p = r.productId ? byId.get(r.productId) : undefined;
       const { unit, issue } = unitPriceOf(p, input.transferRecipientIds);
-      const eligible = r.status === "done" ? (h.kind === "delegate" || included.has(r.id)) : r.status === "noshow" ? s.includeNoshow : false;
+      // 관리자가 처리한 것으로 기록된 레슨은 대리 트레이너 지급 대상이 아니다.
+      const eligible = h.kind === "owner" ? false
+        : r.status === "done" ? (h.kind === "delegate" || included.has(r.id)) : r.status === "noshow" ? s.includeNoshow : false;
       let amount = 0;
       let basis = "-";
       if (eligible) {
@@ -153,14 +176,14 @@ export function buildSettlement(input: {
       return {
         id: r.id, date: r.date, time: r.time, duration: Number(r.duration) || 0,
         customerName: input.customerNameOf(r.customerId), status: r.status, productName: p?.name || "-",
-        handler: h.kind === "check" ? "check" : "delegate", handlerNote: h.note,
+        handler: h.kind === "check" ? "check" : h.kind === "owner" ? "owner" : "delegate", handlerNote: h.note,
         unitPrice: unit, unitIssue: issue, eligible, amount, basis,
       };
     });
   const counts: SettlementCounts = {
     done: lessons.filter((l) => l.status === "done" && l.handler === "delegate").length,
-    noshow: lessons.filter((l) => l.status === "noshow").length,
-    cancelled: lessons.filter((l) => l.status === "cancelled").length,
+    noshow: lessons.filter((l) => l.status === "noshow" && l.handler !== "owner").length,
+    cancelled: lessons.filter((l) => l.status === "cancelled" && l.handler !== "owner").length,
     check: lessons.filter((l) => l.handler === "check").length,
     eligible: lessons.filter((l) => l.eligible).length,
   };
