@@ -18,6 +18,7 @@ import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
 import DelegateSettlement from "./DelegateSettlement";
 import SignatureGallery from "./SignatureGallery";
+import SignatureSheet from "./SignatureSheet";
 import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
@@ -1034,6 +1035,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // 레슨 처리자 기록(관리자/대리 중 누가 상태를 바꿨는지). 월 정산·서명 탭을 열 때마다 새로 읽어 방금 처리한 레슨도 반영한다.
   // null = 표가 아직 없음(SQL 실행 전) → 두 화면은 예전 기준(대리 이름·서명 위치)으로만 판단한다.
   const [statusLogs, setStatusLogs] = useState<ReservationStatusLog[] | null>(null);
+  const [sigView, setSigView] = useState<"sheet" | "list">("sheet"); // 고객 상세 > 서명 탭: 서명 시트(기본) / 예전 목록
   const statusLogMap = useMemo(() => latestStatusLogs(statusLogs), [statusLogs]);
   const needStatusLogs = !isDelegate && ((view === "delegation" && delegationSubTab === "settle") || (!!customerDetailId && customerDetailTab === "signatures"));
   useEffect(() => {
@@ -3916,6 +3918,23 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
               {/* 서명 모음(관리자 전용) — 대리 진행은 연보라 + "대리: 이름", 기록으로 구분이 안 되면 색 없이 "담당 구분 없음" */}
               {customerDetailTab === "signatures" && !isDelegate && (
+                <div className="ptm-sig-viewtoggle ptm-type-toggle">
+                  <button className={`ptm-type-btn ${sigView === "sheet" ? "active" : ""}`} onClick={() => setSigView("sheet")}>서명 시트</button>
+                  <button className={`ptm-type-btn ${sigView === "list" ? "active" : ""}`} onClick={() => setSigView("list")}>목록으로 보기</button>
+                </div>
+              )}
+              {customerDetailTab === "signatures" && !isDelegate && sigView === "sheet" && (
+                <SignatureSheet
+                  customerName={cust.name}
+                  products={[...products, ...archivedProducts].filter((p) => p.customerId === cust.id)}
+                  reservations={reservations.filter((r) => r.customerId === cust.id)}
+                  transfers={passTransfers}
+                  firstDay={firstDelegationDay(delegations)}
+                  statusLogs={statusLogMap}
+                  flash={flash}
+                />
+              )}
+              {customerDetailTab === "signatures" && !isDelegate && sigView === "list" && (
                 <SignatureGallery
                   customerName={cust.name}
                   reservations={reservations.filter((r) => r.customerId === cust.id)}
