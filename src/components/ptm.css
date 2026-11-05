@@ -806,3 +806,5 @@
   .ptm-sg-sign { grid-area:sign; } .ptm-sg-who { grid-area:who; text-align:right; align-self:end; }
   .ptm-sg-img { max-width:130px; max-height:48px; }
 }
+.ptm-ds-ownernote { grid-column:1 / -1; font-size:12px; color:var(--ink-dim); }
+.ptm-ds-row.owner { color:var(--ink-dim); }

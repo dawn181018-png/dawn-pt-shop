@@ -10,7 +10,7 @@ import { today } from "@/lib/formatUtils";
 import { printElement, saveElementPng } from "@/lib/exportUtils";
 import {
   buildSettlement, defaultSettlementSettings, delegateTrainers, firstDelegationDay, maskName, settlementChanges, settlementState, toWon,
-  type DelegateSettlementRecord, type SettlementLesson, type SettlementSettings, type SettlementSnapshot,
+  type DelegateSettlementRecord, type SettlementLesson, type SettlementSettings, type SettlementSnapshot, type StatusLogActor,
 } from "@/lib/delegateSettlement";
 import type { Customer, LessonDelegation, Product, Reservation } from "@/lib/types";
 
@@ -46,13 +46,14 @@ const dayCountText = (ls: SettlementLesson[]) => {
 };
 
 export default function DelegateSettlement({
-  delegations, reservations, products, customers, transferRecipientIds, flash,
+  delegations, reservations, products, customers, transferRecipientIds, statusLogs, flash,
 }: {
   delegations: LessonDelegation[];
   reservations: Reservation[];
   products: Product[]; // 보관된 이용권 포함
   customers: Customer[]; // 보관된 고객 포함
   transferRecipientIds: Set<string>;
+  statusLogs?: Map<string, StatusLogActor>; // 레슨 처리자 기록(있으면 관리자/대리 구분에 가장 먼저 쓴다)
   flash: (msg: string, ms?: number) => void;
 }) {
   const trainers = useMemo(() => delegateTrainers(delegations), [delegations]);
@@ -100,9 +101,9 @@ export default function DelegateSettlement({
     if (!trainer) return null;
     return buildSettlement({
       reservations, delegationIds: trainer.delegationIds, month, products, customerNameOf: customerName,
-      transferRecipientIds, firstDay, settings: confirmedSnap ? confirmedSnap.settings : draft,
+      transferRecipientIds, firstDay, settings: confirmedSnap ? confirmedSnap.settings : draft, statusLogs,
     });
-  }, [trainer, reservations, month, products, customerName, transferRecipientIds, firstDay, confirmedSnap, draft]);
+  }, [trainer, reservations, month, products, customerName, transferRecipientIds, firstDay, confirmedSnap, draft, statusLogs]);
   const changes = useMemo(() => (confirmedSnap && live ? settlementChanges(confirmedSnap.lessons, live.lessons) : []), [confirmedSnap, live]);
 
   // 화면에 보여줄 숫자: 확정됐으면 확정 기록(고정), 아니면 지금 계산
@@ -233,12 +234,13 @@ export default function DelegateSettlement({
           <div key={g.date} className="ptm-ds-day">
             <div className="ptm-ds-day-head"><b>{dayLabel(g.date)}</b><span>{dayCountText(g.lessons)}</span></div>
             {g.lessons.map((l) => (
-              <div key={l.id} className={`ptm-ds-row${l.status !== "done" ? ` ${l.status}` : ""}${l.handler === "check" ? " check" : ""}${l.eligible ? " eligible" : ""}`}>
+              <div key={l.id} className={`ptm-ds-row${l.status !== "done" ? ` ${l.status}` : ""}${l.handler === "check" ? " check" : l.handler === "owner" ? " owner" : ""}${l.eligible ? " eligible" : ""}`}>
                 <span className="ptm-ds-time">{l.time}</span>
                 <span className="ptm-ds-name">{l.customerName}</span>
                 <span className={`ptm-badge ptm-ds-st-${l.status}`}>{statusText[l.status]}</span>
                 <span className="ptm-ds-prod">{l.productName} · {l.duration}분</span>
-                <span className="ptm-ds-amount">{l.eligible ? <><b>{won(l.amount)}</b><small>{l.basis}</small></> : <small>지급 대상 아님</small>}</span>
+                <span className="ptm-ds-amount">{l.eligible ? <><b>{won(l.amount)}</b><small>{l.basis}</small></> : <small>{l.handler === "owner" ? "관리자 처리 · 지급 대상 아님" : "지급 대상 아님"}</small>}</span>
+                {l.handler === "owner" && <span className="ptm-ds-ownernote">처리자 기록: 관리자가 처리했어요 (대리 트레이너는 예약만)</span>}
                 {l.handler === "check" && (
                   <label className="ptm-ds-check" title={l.handlerNote || ""}>
                     <input type="checkbox" disabled={!editable} checked={l.eligible}
@@ -394,7 +396,7 @@ export default function DelegateSettlement({
                       <td>{i === 0 ? `${dayLabel(g.date)} · ${g.lessons.filter((x) => x.eligible).length}회` : ""}</td>
                       <td>{l.time}</td>
                       <td>{maskNames ? maskName(l.customerName) : l.customerName}</td>
-                      <td>{statusText[l.status]}{l.handler === "check" ? (l.eligible ? " (확인 후 포함)" : " (확인 필요·제외)") : ""}</td>
+                      <td>{statusText[l.status]}{l.handler === "check" ? (l.eligible ? " (확인 후 포함)" : " (확인 필요·제외)") : l.handler === "owner" ? " (관리자 처리·제외)" : ""}</td>
                       <td>{l.productName}</td>
                       <td>{l.duration}</td>
                       <td>{l.eligible ? won(l.amount) : "-"}</td>

@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Printer, ImageDown } from "lucide-react";
 import * as db from "@/lib/db";
 import { printElement, saveElementPng } from "@/lib/exportUtils";
-import { classifyLesson, type LessonHandler } from "@/lib/delegateSettlement";
+import { classifyLesson, type LessonHandler, type StatusLogActor } from "@/lib/delegateSettlement";
 import type { Product, Reservation } from "@/lib/types";
 
 const weekdayShort = ["일", "월", "화", "수", "목", "금", "토"];
@@ -27,18 +27,19 @@ const signedAtOf = (path?: string | null): string | null => {
 const handlerText = (h: LessonHandler): string =>
   h.kind === "delegate" ? `대리: ${h.delegateName || "이름 없음"}`
   : h.kind === "check" ? `대리 예약 · 확인 필요: ${h.delegateName || "이름 없음"}`
-  : h.kind === "owner" ? "본인" : "담당 구분 없음";
+  : h.kind === "owner" ? (h.note ? `본인 (${h.note})` : "본인") : "담당 구분 없음";
 
 type Row = { r: Reservation; h: LessonHandler; no: number | null; total: number | null; productName: string; productId: string };
 
 export default function SignatureGallery({
-  customerName, reservations, products, sessionInfo, firstDay, flash,
+  customerName, reservations, products, sessionInfo, firstDay, statusLogs, flash,
 }: {
   customerName: string;
   reservations: Reservation[]; // 이 고객의 예약(전체)
   products: Product[]; // 보관된 이용권 포함
   sessionInfo: Map<string, { no: number; total: number; productName: string }>; // 스케줄 카드와 같은 회차 계산
   firstDay: string | null;
+  statusLogs?: Map<string, StatusLogActor>; // 레슨 처리자 기록(있으면 가장 먼저 믿는다)
   flash: (msg: string, ms?: number) => void;
 }) {
   const [order, setOrder] = useState<"desc" | "asc">("desc");
@@ -54,8 +55,8 @@ export default function SignatureGallery({
     .map((r) => {
       const info = sessionInfo.get(r.id);
       const p = r.productId ? productById.get(r.productId) : undefined;
-      return { r, h: classifyLesson(r, firstDay), no: info?.no ?? null, total: info?.total ?? (p?.type === "session" ? p.totalSessions : null), productName: info?.productName || p?.name || "이용권 없음", productId: r.productId || "" };
-    }), [reservations, sessionInfo, productById, firstDay]);
+      return { r, h: classifyLesson(r, firstDay, statusLogs?.get(r.id)), no: info?.no ?? null, total: info?.total ?? (p?.type === "session" ? p.totalSessions : null), productName: info?.productName || p?.name || "이용권 없음", productId: r.productId || "" };
+    }), [reservations, sessionInfo, productById, firstDay, statusLogs]);
 
   const rows = useMemo(() => {
     const list = allRows

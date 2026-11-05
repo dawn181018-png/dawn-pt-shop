@@ -18,7 +18,7 @@ import PendingSalesPanel from "./PendingSalesPanel";
 import DelegationManager, { type DelegationFormData } from "./DelegationManager";
 import DelegateSettlement from "./DelegateSettlement";
 import SignatureGallery from "./SignatureGallery";
-import { firstDelegationDay } from "@/lib/delegateSettlement";
+import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
@@ -1031,6 +1031,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     !isDelegate && r.type === "pt" && r.delegateName ? r.delegateName : null;
   const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
   const [delegationSubTab, setDelegationSubTab] = useState<"manage" | "settle">("manage"); // 대리 레슨 탭 안: 지정 관리 / 월 정산
+  // 레슨 처리자 기록(관리자/대리 중 누가 상태를 바꿨는지). 월 정산·서명 탭을 열 때마다 새로 읽어 방금 처리한 레슨도 반영한다.
+  // null = 표가 아직 없음(SQL 실행 전) → 두 화면은 예전 기준(대리 이름·서명 위치)으로만 판단한다.
+  const [statusLogs, setStatusLogs] = useState<ReservationStatusLog[] | null>(null);
+  const statusLogMap = useMemo(() => latestStatusLogs(statusLogs), [statusLogs]);
+  const needStatusLogs = !isDelegate && ((view === "delegation" && delegationSubTab === "settle") || (!!customerDetailId && customerDetailTab === "signatures"));
+  useEffect(() => {
+    if (!needStatusLogs) return;
+    db.listReservationStatusLogs().then(setStatusLogs).catch(() => {});
+  }, [needStatusLogs, customerDetailId]);
   useEffect(() => {
     if (!loaded || isDelegate) return;
     db.listDelegations().then(setDelegations).catch(() => {});
@@ -3458,6 +3467,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           products={[...products, ...archivedProducts]}
           customers={[...customers, ...archivedCustomers]}
           transferRecipientIds={transferProductIds}
+          statusLogs={statusLogMap}
           flash={flash}
         />
       )}
@@ -3912,6 +3922,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   products={[...products, ...archivedProducts]}
                   sessionInfo={sessionInfoByRes}
                   firstDay={firstDelegationDay(delegations)}
+                  statusLogs={statusLogMap}
                   flash={flash}
                 />
               )}
