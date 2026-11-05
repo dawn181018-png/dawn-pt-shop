@@ -17,6 +17,8 @@ union all select 'product_delete_logs', count(*) from product_delete_logs
 union all select 'payment_collections', count(*) from payment_collections
 -- 아래 줄은 apply-2026-11-05-delegate-settlements.sql 실행 뒤에만 동작한다(그 전에는 이 줄을 지우고 실행).
 union all select 'delegate_settlements', count(*) from delegate_settlements
+-- 아래 줄은 apply-2026-11-05-reservation-status-logs.sql 실행 뒤에만 동작한다(그 전에는 이 줄을 지우고 실행).
+union all select 'reservation_status_logs', count(*) from reservation_status_logs
 union all select 'reservations: 취소', count(*) from reservations where status = 'cancelled'
 union all select 'reservations: 완료+노쇼', count(*) from reservations where status in ('done','noshow')
 union all select 'products: 사용 횟수 합계', coalesce(sum(used_sessions),0) from products
