@@ -808,3 +808,55 @@
 }
 .ptm-ds-ownernote { grid-column:1 / -1; font-size:12px; color:var(--ink-dim); }
 .ptm-ds-row.owner { color:var(--ink-dim); }
+
+/* 고객 상세 > 서명 탭 "서명 시트" — 한 장(A4 비율 794×1120)을 화면 크기에 맞춰 줄여 보여주고 그대로 저장·인쇄.
+   이미지·인쇄에서도 같게 보이도록 색을 직접 지정한다. */
+.ptm-sig-viewtoggle { display:flex; gap:6px; margin-bottom:10px; }
+.ptm-ss-bar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; margin-bottom:10px; }
+.ptm-ss-bar .ptm-sort { max-width:100%; }
+.ptm-ss-pager { display:flex; align-items:center; gap:6px; font-size:13px; }
+.ptm-ss-actions { display:flex; flex-wrap:wrap; gap:6px; margin-left:auto; }
+.ptm-ss-box { width:100%; overflow:hidden; }
+.ptm-ss-page { background:#ffffff; color:#1f2937; box-sizing:border-box; padding:26px 28px 18px; display:flex; flex-direction:column; box-shadow:0 1px 4px rgba(15,23,42,0.12); font-family:'Inter',sans-serif; }
+.ptm-ss-head { border-bottom:2px solid #1f2937; padding-bottom:10px; margin-bottom:10px; }
+.ptm-ss-brand { font-family:'Oswald',sans-serif; font-size:13px; letter-spacing:.16em; color:#3b6fe0; }
+.ptm-ss-brand span { font-family:'Inter',sans-serif; letter-spacing:0; color:#6b7684; margin-left:8px; }
+.ptm-ss-title { display:flex; justify-content:space-between; align-items:baseline; font-size:18px; margin-top:4px; }
+.ptm-ss-title b { font-size:22px; }
+.ptm-ss-pageno { font-size:14px; font-weight:700; color:#4b5563; }
+.ptm-ss-summary { display:flex; gap:22px; font-size:17px; margin-top:6px; }
+.ptm-ss-summary b { font-size:30px; font-weight:800; margin:0 2px; }
+.ptm-ss-summary span:first-child b { color:#3b6fe0; }
+.ptm-ss-range { font-size:12.5px; color:#4b5563; margin-top:2px; }
+.ptm-ss-cols { flex:1; display:grid; grid-template-columns:1fr 1fr; gap:14px; min-height:0; }
+.ptm-ss-col { display:grid; grid-template-rows:repeat(25, 1fr); border:1px solid #cbd2de; border-radius:6px; overflow:hidden; align-content:start; }
+.ptm-ss-cell { display:grid; grid-template-columns:32px 74px 1fr; align-items:center; border:none; border-bottom:1px solid #e3e7ef; background:#ffffff; padding:0; margin:0; font:inherit; color:inherit; text-align:left; min-height:0; height:100%; }
+.ptm-ss-col .ptm-ss-cell:last-child { border-bottom:none; }
+button.ptm-ss-cell { cursor:zoom-in; }
+.ptm-ss-cell.delegate { background:#e9e2fb; }
+.ptm-ss-no { font-weight:800; font-size:13px; text-align:center; color:#1f2937; border-right:1px solid #e3e7ef; height:100%; display:flex; align-items:center; justify-content:center; }
+.ptm-ss-cell.empty .ptm-ss-no, .ptm-ss-cell.scheduled .ptm-ss-no { color:#9aa3b2; }
+.ptm-ss-date { font-size:11px; padding:0 4px; line-height:1.15; display:flex; flex-direction:column; color:#374151; }
+.ptm-ss-date small { font-size:9.5px; color:#6b7684; }
+.ptm-ss-cell.scheduled .ptm-ss-date { color:#b0b7c3; }
+.ptm-ss-sign { position:relative; height:100%; display:flex; align-items:center; padding:1px 4px; min-width:0; overflow:hidden; }
+.ptm-ss-sign img { max-height:100%; max-width:100%; height:100%; object-fit:contain; object-position:left center; display:block; }
+.ptm-ss-noshow { color:#e0433f; font-weight:800; font-size:13px; letter-spacing:.3px; }
+.ptm-ss-noshow.big { font-size:28px; }
+.ptm-ss-nosign { font-size:10.5px; color:#6b7684; }
+.ptm-ss-note { font-size:10.5px; color:#6b7684; background:repeating-linear-gradient(135deg,#f3f5fa,#f3f5fa 4px,#ffffff 4px,#ffffff 8px); padding:2px 6px; border-radius:4px; }
+.ptm-ss-planned { font-size:10.5px; color:#b0b7c3; }
+.ptm-ss-dlg { position:absolute; right:3px; bottom:1px; font-size:9px; font-weight:700; color:#5b4bc4; background:rgba(255,255,255,0.75); padding:0 3px; border-radius:3px; }
+.ptm-ss-foot { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:10.5px; color:#6b7684; margin-top:8px; }
+.ptm-ss-foot span { display:flex; align-items:center; gap:4px; }
+.ptm-ss-swatch { display:inline-block; width:11px; height:11px; border-radius:2px; background:#e9e2fb; border:1px solid #7c6fd6; }
+.ptm-ss-basis { font-size:11.5px; color:var(--ink-dim); margin-top:8px; line-height:1.5; }
+.ptm-ss-offscreen { position:fixed; left:-20000px; top:0; width:794px; pointer-events:none; }
+.ptm-ss-offscreen .ptm-ss-page { box-shadow:none; margin-bottom:20px; }
+.ptm-sheet.ptm-ss-zoom { max-width:520px; }
+.ptm-ss-zoom-sign { display:flex; justify-content:center; align-items:center; min-height:160px; border:1px solid var(--line); border-radius:10px; background:#ffffff; margin-bottom:12px; padding:8px; }
+.ptm-ss-zoom-sign img { max-width:100%; max-height:240px; }
+.ptm-export-print .ptm-ss-page { box-shadow:none; }
+@media (max-width:640px) {
+  .ptm-ss-actions { margin-left:0; }
+}
