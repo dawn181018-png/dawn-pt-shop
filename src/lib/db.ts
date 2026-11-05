@@ -216,6 +216,17 @@ export async function getSignatureUrl(path: string): Promise<string | null> {
   if (error) return null;
   return data.signedUrl;
 }
+// 서명 파일을 로그인한 관리자 권한으로 직접 받아 브라우저 안에서만 쓰는 임시 주소(blob:)로 바꾼다(서명 시트).
+// 공개 주소를 만들지 않고, 이미지로 저장할 때 다른 주소를 다시 읽지 않아도 돼서 그림 합치기가 막히지 않는다.
+export async function getSignatureBlobUrls(paths: string[]): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const unique = [...new Set(paths.filter(Boolean))];
+  await Promise.all(unique.map(async (path) => {
+    const { data, error } = await supabase.storage.from("signatures").download(path);
+    if (!error && data) out[path] = URL.createObjectURL(data);
+  }));
+  return out;
+}
 // 여러 서명을 한 번에(서명 모음 화면) — 공개 링크가 아니라 1시간 동안만 열리는 비공개 주소를 받는다.
 export async function getSignatureUrls(paths: string[]): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
