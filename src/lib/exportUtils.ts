@@ -4,7 +4,7 @@
 // - PNG: html-to-image로 그 영역을 그대로 그림 파일로 만든다(색 그대로).
 // 서명 이미지는 기존처럼 잠깐만 열리는 비공개 주소(signed URL)를 그대로 쓴다 — 새 공개 링크를 만들지 않는다.
 
-import { toBlob, toPng } from "html-to-image";
+import { toBlob } from "html-to-image";
 
 function waitForImages(doc: Document): Promise<void> {
   const imgs = Array.from(doc.images);
@@ -42,17 +42,21 @@ export async function printElement(el: HTMLElement, title: string, pageCss = "@p
 }
 
 export async function saveElementPng(el: HTMLElement, fileName: string): Promise<void> {
-  const dataUrl = await toPng(el, {
+  // data: 주소 대신 임시 파일 주소(blob:)로 내려받는다 — 파일 이름이 그대로 지켜지고, 큰 그림도 폰에서 저장된다.
+  const blob = await toBlob(el, {
     pixelRatio: 2,
     backgroundColor: "#ffffff",
     filter: (node) => !(node instanceof HTMLElement && node.classList.contains("ptm-export-hide")),
   });
+  if (!blob) throw new Error("이미지를 만들지 못했어요");
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = dataUrl;
+  a.href = url;
   a.download = fileName.endsWith(".png") ? fileName : `${fileName}.png`;
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
 // 폰의 "공유"(카카오톡 등으로 바로 보내기). 파일 공유를 지원하지 않는 브라우저면 PNG로 내려받고 "saved"를 돌려준다.
