@@ -47,10 +47,10 @@ export default function PtUnitPrice({ products, customers, collections, transfer
   const empty = data.sales.length === 0;
 
   const row = (label: string, t: UnitTotals) => (
-    <tr key={label}><td>{label}</td><td>{t.count}건</td><td>{wonRound(t.amount)}</td><td>{t.sessions}회{t.service > 0 ? ` (서비스 ${t.service})` : ""}</td><td><b>{wonRound(t.avgUnit)}</b></td><td>{wonRound(t.avgUnitNoService)}</td><td>{wonRound(t.avgContract)}</td></tr>
+    <tr key={label}><td>{label}</td><td>{t.count}건</td><td><b>{wonRound(t.avgUnit)}</b></td><td>{wonRound(t.avgUnitNoService)}</td><td>{wonRound(t.avgContract)}</td><td>{wonRound(t.amount)}</td><td>{t.sessions}회{t.service > 0 ? ` (서비스 ${t.service})` : ""}</td></tr>
   );
   const saleRow = (s: UnitSale) => (
-    <tr key={s.id}><td>{s.customerName}</td><td>{s.productName}</td><td>{s.paidDate.slice(2).replace(/-/g, ".")}</td><td>{wonRound(s.amount)}{basis === "received" && s.unpaid > 0 ? <small className="ptm-up-unpaid"> 미수 {s.unpaid.toLocaleString()}</small> : null}</td><td>{s.sessions}회</td><td><b>{wonRound(s.unit)}</b></td></tr>
+    <tr key={s.id}><td>{s.customerName}</td><td><b>{wonRound(s.unit)}</b></td><td>{s.productName}</td><td>{wonRound(s.amount)}{basis === "received" && s.unpaid > 0 ? <small className="ptm-up-unpaid"> 미수 {s.unpaid.toLocaleString()}</small> : null}</td><td>{s.sessions}회</td><td>{s.paidDate.slice(2).replace(/-/g, ".")}</td></tr>
   );
 
   return (
@@ -101,24 +101,24 @@ export default function PtUnitPrice({ products, customers, collections, transfer
         <>
           <div className="ptm-up-title">신규 / 재등록</div>
           <div className="ptm-table-wrap"><table className="ptm-table ptm-up-table">
-            <thead><tr><th>구분</th><th>건수</th><th>{amountWord}</th><th>총 횟수</th><th>1회 단가</th><th>서비스 제외</th><th>1건 평균</th></tr></thead>
+            <thead><tr><th>구분</th><th>건수</th><th>1회 단가</th><th>서비스 제외</th><th>1건 평균</th><th>{amountWord}</th><th>총 횟수</th></tr></thead>
             <tbody>{kinds.map(({ k, t }) => row(kindLabel[k], t))}{row("전체", totals)}</tbody>
           </table></div>
 
           <div className="ptm-up-title">상품(횟수)별</div>
           <div className="ptm-table-wrap"><table className="ptm-table ptm-up-table">
-            <thead><tr><th>횟수</th><th>건수</th><th>{amountWord}</th><th>총 횟수</th><th>1회 단가</th><th>서비스 제외</th><th>1건 평균</th></tr></thead>
+            <thead><tr><th>횟수</th><th>건수</th><th>1회 단가</th><th>서비스 제외</th><th>1건 평균</th><th>{amountWord}</th><th>총 횟수</th></tr></thead>
             <tbody>{groups.map((g) => row(`${g.sessions}회`, g.totals))}</tbody>
           </table></div>
 
           <div className="ptm-up-title">단가가 가장 높은 5건</div>
           <div className="ptm-table-wrap"><table className="ptm-table ptm-up-table">
-            <thead><tr><th>회원</th><th>상품</th><th>결제일</th><th>{amountWord}</th><th>횟수</th><th>1회 단가</th></tr></thead>
+            <thead><tr><th>회원</th><th>1회 단가</th><th>상품</th><th>{amountWord}</th><th>횟수</th><th>결제일</th></tr></thead>
             <tbody>{ext.high.map(saleRow)}</tbody>
           </table></div>
           <div className="ptm-up-title">단가가 가장 낮은 5건</div>
           <div className="ptm-table-wrap"><table className="ptm-table ptm-up-table">
-            <thead><tr><th>회원</th><th>상품</th><th>결제일</th><th>{amountWord}</th><th>횟수</th><th>1회 단가</th></tr></thead>
+            <thead><tr><th>회원</th><th>1회 단가</th><th>상품</th><th>{amountWord}</th><th>횟수</th><th>결제일</th></tr></thead>
             <tbody>{ext.low.map(saleRow)}</tbody>
           </table></div>
         </>
@@ -137,9 +137,9 @@ export default function PtUnitPrice({ products, customers, collections, transfer
         </ResponsiveContainer>
       </div>
       <div className="ptm-table-wrap"><table className="ptm-table ptm-up-table">
-        <thead><tr><th>월</th><th>건수</th><th>{amountWord}</th><th>총 횟수</th><th>1회 단가</th><th>1건 평균</th></tr></thead>
+        <thead><tr><th>월</th><th>1회 단가</th><th>건수</th><th>1건 평균</th><th>{amountWord}</th><th>총 횟수</th></tr></thead>
         <tbody>{[...trend].reverse().map((t) => (
-          <tr key={t.month}><td>{monthLabel(t.month)}</td><td>{t.totals.count}건</td><td>{wonRound(t.totals.amount)}</td><td>{t.totals.sessions}회</td><td><b>{t.totals.count ? wonRound(t.totals.avgUnit) : "판매 없음"}</b></td><td>{wonRound(t.totals.avgContract)}</td></tr>
+          <tr key={t.month}><td>{monthLabel(t.month)}</td><td><b>{t.totals.count ? wonRound(t.totals.avgUnit) : "판매 없음"}</b></td><td>{t.totals.count}건</td><td>{wonRound(t.totals.avgContract)}</td><td>{wonRound(t.totals.amount)}</td><td>{t.totals.sessions}회</td></tr>
         ))}</tbody>
       </table></div>
     </div>
