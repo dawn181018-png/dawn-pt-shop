@@ -19,6 +19,7 @@ import DelegationManager, { type DelegationFormData } from "./DelegationManager"
 import DelegateSettlement from "./DelegateSettlement";
 import SignatureGallery from "./SignatureGallery";
 import SignatureSheet from "./SignatureSheet";
+import PtUnitPrice from "./PtUnitPrice";
 import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
@@ -1035,7 +1036,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // 레슨 처리자 기록(관리자/대리 중 누가 상태를 바꿨는지). 월 정산·서명 탭을 열 때마다 새로 읽어 방금 처리한 레슨도 반영한다.
   // null = 표가 아직 없음(SQL 실행 전) → 두 화면은 예전 기준(대리 이름·서명 위치)으로만 판단한다.
   const [statusLogs, setStatusLogs] = useState<ReservationStatusLog[] | null>(null);
-  const [sigView, setSigView] = useState<"sheet" | "list">("sheet"); // 고객 상세 > 서명 탭: 서명 시트(기본) / 예전 목록
+  const [sigView, setSigView] = useState<"sheet" | "list">("sheet");
+  const [statsSubTab, setStatsSubTab] = useState<"sales" | "unit">("sales"); // 통계분석 안: 매출 통계 / PT 단가 분석(조회 전용) // 고객 상세 > 서명 탭: 서명 시트(기본) / 예전 목록
   const statusLogMap = useMemo(() => latestStatusLogs(statusLogs), [statusLogs]);
   const needStatusLogs = !isDelegate && ((view === "delegation" && delegationSubTab === "settle") || (!!customerDetailId && customerDetailTab === "signatures"));
   useEffect(() => {
@@ -3198,6 +3200,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       )}
 
       {view === "stats" && (
+        <div className="ptm-subtabs ptm-detail-tabs">
+          <button className={`ptm-detail-tab ${statsSubTab === "sales" ? "active" : ""}`} onClick={() => setStatsSubTab("sales")}>매출 통계</button>
+          <button className={`ptm-detail-tab ${statsSubTab === "unit" ? "active" : ""}`} onClick={() => setStatsSubTab("unit")}>PT 단가 분석</button>
+        </div>
+      )}
+      {view === "stats" && statsSubTab === "unit" && !isDelegate && (
+        <PtUnitPrice products={products} customers={[...customers, ...archivedCustomers]} collections={collections} transferRecipientIds={transferProductIds} />
+      )}
+      {view === "stats" && statsSubTab === "sales" && (
         <>
           <div className="ptm-pay-grid" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
             <div className="ptm-pay-hero" style={{ margin: 0 }}>
