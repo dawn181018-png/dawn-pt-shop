@@ -14,7 +14,7 @@ import type { LessonDelegation, Product, Reservation, ReservationStatus } from "
 export type LessonHandlerKind = "delegate" | "check" | "owner" | "unknown";
 export type LessonHandler = { kind: LessonHandlerKind; delegateName: string | null; note: string | null };
 
-type HandlerInput = Pick<Reservation, "delegationId" | "delegateName" | "signatureUrl" | "status" | "date">;
+type HandlerInput = Pick<Reservation, "delegationId" | "delegateName" | "signatureUrl" | "status" | "date"> & Partial<Pick<Reservation, "trainerEmail">>;
 
 // 레슨 처리자 기록(reservation_status_logs, 2026-11-05~): 상태가 바뀐 순간 로그인해 있던 계정이 관리자인지 대리인지.
 // 지금 상태로 바꾼 마지막 기록이 있으면 그걸 가장 먼저 믿는다(서명 위치·대리 이름보다 정확). 없으면 예전 기준으로 판단한다.
@@ -41,6 +41,9 @@ export function firstDelegationDay(delegations: Pick<LessonDelegation, "startsOn
 
 export function classifyLesson(r: HandlerInput, firstDay: string | null, log?: StatusLogActor | null): LessonHandler {
   const name = (r.delegateName || "").trim() || null;
+  // 예약창에서 담당자를 명확히 정한 레슨(2026-11-09~)은 그 담당자가 가장 확실한 기준이다(누가 완료 버튼을 눌렀는지와 무관).
+  if (r.trainerEmail === "owner") return { kind: "owner", delegateName: null, note: null };
+  if (r.trainerEmail) return { kind: "delegate", delegateName: name || r.trainerEmail, note: null };
   if (log && log.newStatus === r.status && (r.status === "done" || r.status === "noshow" || r.status === "cancelled")) {
     if (log.actorRole === "delegate") return { kind: "delegate", delegateName: log.actorName || name, note: null };
     if (log.actorRole === "owner") return { kind: "owner", delegateName: null, note: name ? `대리(${name})가 예약 · 관리자가 처리` : null };
@@ -141,13 +144,18 @@ export function buildSettlement(input: {
   firstDay: string | null;
   settings: SettlementSettings;
   statusLogs?: Map<string, StatusLogActor>; // 처리자 기록(있으면 가장 먼저 믿는다)
+  trainerEmail?: string; // 이 트레이너의 이메일 — 담당자로 지정된 레슨도 함께 잡는다
 }): SettlementResult {
   const { start, end } = monthBounds(input.month);
   const s = input.settings;
   const included = new Set(s.includedCheckIds);
   const byId = new Map(input.products.map((p) => [p.id, p]));
   const lessons = input.reservations
-    .filter((r) => r.type === "pt" && !!r.delegationId && input.delegationIds.has(r.delegationId)
+    // 담당자가 정해진 레슨은 담당자로, 미지정인 예전 레슨은 대리 지정 기록으로 이 트레이너의 레슨인지 본다.
+    .filter((r) => r.type === "pt"
+      && (r.trainerEmail
+        ? !!input.trainerEmail && r.trainerEmail.trim().toLowerCase() === input.trainerEmail.trim().toLowerCase()
+        : !!r.delegationId && input.delegationIds.has(r.delegationId))
       && r.date >= start && r.date <= end && (r.status === "done" || r.status === "noshow" || r.status === "cancelled"))
     .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
     .map((r): SettlementLesson => {

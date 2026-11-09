@@ -101,7 +101,7 @@ export default function DelegateSettlement({
     if (!trainer) return null;
     return buildSettlement({
       reservations, delegationIds: trainer.delegationIds, month, products, customerNameOf: customerName,
-      transferRecipientIds, firstDay, settings: confirmedSnap ? confirmedSnap.settings : draft, statusLogs,
+      transferRecipientIds, firstDay, settings: confirmedSnap ? confirmedSnap.settings : draft, statusLogs, trainerEmail: trainer.email,
     });
   }, [trainer, reservations, month, products, customerName, transferRecipientIds, firstDay, confirmedSnap, draft, statusLogs]);
   const changes = useMemo(() => (confirmedSnap && live ? settlementChanges(confirmedSnap.lessons, live.lessons) : []), [confirmedSnap, live]);
