@@ -4,7 +4,7 @@
 // 이용권 만료일은 전혀 보지 않는다 — 만료 여부는 사장님이 직접 판단해 필요한 회차를 취소한다.
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { loadHolidays, type HolidayMap } from "@/lib/holidays";
 import { generateSlotDates, monthBreakdown, weekdaysLabel, WEEKDAY_LABELS, WEEKDAY_ORDER } from "@/lib/recurring";
@@ -22,6 +22,7 @@ type RecurringBookingSheetProps = {
   intro?: string;
   onConfirm: (rule: RecurringRule, dates: string[]) => Promise<boolean>;
   onClose: () => void;
+  extra?: ReactNode; // 확정 버튼 위에 넣을 추가 입력(예: 담당자 선택 — 모든 회차에 같은 담당자)
 };
 
 const hourOptions = Array.from({ length: 18 }, (_, i) => String(5 + i).padStart(2, "0"));
@@ -30,7 +31,7 @@ const fmtDate = (d: string) => { const x = new Date(`${d}T00:00:00`); return `${
 const fmtYm = (ym: string) => `${Number(ym.slice(5, 7))}월`;
 
 export default function RecurringBookingSheet({
-  mode, customerName, remaining, scheduled, unbooked, initialStartDate, initialRule, intro, onConfirm, onClose,
+  mode, customerName, remaining, scheduled, unbooked, initialStartDate, initialRule, intro, onConfirm, onClose, extra,
 }: RecurringBookingSheetProps) {
   const [startDate, setStartDate] = useState(initialStartDate);
   const [weekdays, setWeekdays] = useState<number[]>(initialRule.weekdays);
@@ -146,6 +147,7 @@ export default function RecurringBookingSheet({
           )}
         </div>
 
+        {extra}
         <button className="ptm-save-btn" disabled={saving || preview.dates.length === 0} onClick={confirm}>
           {saving ? "저장 중..." : `${preview.dates.length}회 예약 확정`}
         </button>
