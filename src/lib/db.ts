@@ -115,12 +115,20 @@ export async function listReservations(): Promise<Reservation[]> {
   }
   return rows.map(mapReservation);
 }
+// 담당자 칸(trainer_email)을 추가하는 SQL을 적용하기 전이면 그 칸만 빼고 예전처럼 저장한다(예약 저장이 막히지 않게).
+const isMissingTrainerColumn = (error: { code?: string; message?: string } | null) =>
+  !!error && (error.code === "PGRST204" || error.code === "42703") && (error.message || "").includes("trainer_email");
+const withoutTrainer = <T extends Record<string, unknown>>(row: T): T => { const { trainer_email: _t, ...rest } = row; return rest as unknown as T; }; // eslint-disable-line @typescript-eslint/no-unused-vars
 export async function insertReservations(rows: Partial<Reservation>[]): Promise<Reservation[]> {
-  const { data, error } = await supabase.from("reservations").insert(rows.map(toSnake)).select();
+  const payload = rows.map(toSnake);
+  let { data, error } = await supabase.from("reservations").insert(payload).select();
+  if (isMissingTrainerColumn(error)) ({ data, error } = await supabase.from("reservations").insert(payload.map(withoutTrainer)).select());
   return must(data, error).map(mapReservation);
 }
 export async function updateReservation(id: string, data: Partial<Reservation>): Promise<Reservation> {
-  const { data: row, error } = await supabase.from("reservations").update(toSnake(data)).eq("id", id).select().single();
+  const payload = toSnake(data);
+  let { data: row, error } = await supabase.from("reservations").update(payload).eq("id", id).select().single();
+  if (isMissingTrainerColumn(error)) ({ data: row, error } = await supabase.from("reservations").update(withoutTrainer(payload)).eq("id", id).select().single());
   return mapReservation(must(row, error));
 }
 export async function deleteReservation(id: string): Promise<void> {
