@@ -24,7 +24,8 @@ export type MobileScheduleItem = {
   hasNote: boolean;
   isNewCustomer: boolean; // 신규 고객 레슨(초록색 + NEW) — 판단은 productUtils.isNewCustomer
   locked?: boolean; // 대리 화면의 다른 고객 예약: "예약됨" 시간만 보이고 눌러도 열리지 않는다
-  delegateName?: string | null; // 관리자 화면에서 대리 트레이너가 맡은 레슨(노란색 + "대리 이름")
+  delegateName?: string | null; // 관리자 화면에서 대리 트레이너가 맡은 레슨(강사 색 + "대리 이름")
+  trainerColor?: number | null; // 담당 강사 색 번호(0=노랑 1=하늘 2=보라 3=연두, 없으면 대표)
   sessionLabel?: string | null; // "12/30 · 잔여 18" — 계산은 부모(공용 잔여 함수)가 하고 여기서는 보여주기만
   remainLabel?: string | null; // 좁은 카드용 "잔여 18"
 };
@@ -226,6 +227,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
               height < 50 ? "compact" : "",
               r.locked ? "locked" : "",
               r.delegateName ? "delegated" : "",
+              r.delegateName && r.trainerColor ? `t${r.trainerColor}` : "",
             ].filter(Boolean).join(" ");
             return (
               <button

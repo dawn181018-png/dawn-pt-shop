@@ -878,3 +878,32 @@ button.ptm-ss-cell { cursor:zoom-in; }
   .ptm-up-cards .ptm-pay-card-label { font-size:11.5px; }
   .ptm-up-formula, .ptm-up-sub { font-size:10.5px; }
 }
+
+/* 예약 담당자(강사) — 강사별 색. 1번째 강사는 예전 대리 레슨 노란색 그대로, 그다음 하늘·보라·연두 */
+.ptm-trainer-select { display:flex; align-items:center; gap:8px; }
+.ptm-trainer-select select { flex:1; }
+.ptm-tdot { display:inline-block; width:11px; height:11px; border-radius:50%; flex-shrink:0; border:1px solid rgba(0,0,0,0.15); }
+.ptm-tdot.owner { background:#ffffff; border-color:#9aa3b2; }
+.ptm-tdot.t0 { background:#f5c518; } .ptm-tdot.t1 { background:#5aa9e6; } .ptm-tdot.t2 { background:#a77bd8; } .ptm-tdot.t3 { background:#6cc36a; }
+.ptm-trainer-filter { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 10px; }
+.ptm-tf-chip { display:flex; align-items:center; gap:5px; padding:6px 11px; border-radius:999px; border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); font-size:12.5px; font-weight:600; cursor:pointer; }
+.ptm-tf-chip.active { border-color:var(--amber); color:var(--amber); background:rgba(59,111,224,0.08); }
+.ptm-series-btn.primary { background:var(--amber); color:#ffffff; border-color:var(--amber); }
+.ptm-block.delegated.t1.scheduled { background:#5aa9e6; border-color:#3c8fd0; }
+.ptm-block.delegated.t1.scheduled .ptm-block-time, .ptm-block.delegated.t1.scheduled .ptm-block-name, .ptm-block.delegated.t1.scheduled .ptm-block-sub, .ptm-block.delegated.t1.scheduled .ptm-block-badge { color:#0d2f4d; }
+.ptm-block.delegated.t1.done { background:rgba(90,169,230,0.22); border-color:#3c8fd0; }
+.ptm-block.delegated.t1.done .ptm-block-time, .ptm-block.delegated.t1.done .ptm-block-sub, .ptm-block.delegated.t1.done .ptm-block-name { color:#1f5a8a; }
+.ptm-block.delegated.t2.scheduled { background:#a77bd8; border-color:#8a5cc4; }
+.ptm-block.delegated.t2.scheduled .ptm-block-time, .ptm-block.delegated.t2.scheduled .ptm-block-name, .ptm-block.delegated.t2.scheduled .ptm-block-sub, .ptm-block.delegated.t2.scheduled .ptm-block-badge { color:#ffffff; }
+.ptm-block.delegated.t2.done { background:rgba(167,123,216,0.22); border-color:#8a5cc4; }
+.ptm-block.delegated.t2.done .ptm-block-time, .ptm-block.delegated.t2.done .ptm-block-sub, .ptm-block.delegated.t2.done .ptm-block-name { color:#5b3a8a; }
+.ptm-block.delegated.t3.scheduled { background:#6cc36a; border-color:#4ea94c; }
+.ptm-block.delegated.t3.scheduled .ptm-block-time, .ptm-block.delegated.t3.scheduled .ptm-block-name, .ptm-block.delegated.t3.scheduled .ptm-block-sub, .ptm-block.delegated.t3.scheduled .ptm-block-badge { color:#123d12; }
+.ptm-block.delegated.t3.done { background:rgba(108,195,106,0.22); border-color:#4ea94c; }
+.ptm-block.delegated.t3.done .ptm-block-time, .ptm-block.delegated.t3.done .ptm-block-sub, .ptm-block.delegated.t3.done .ptm-block-name { color:#2f6b2e; }
+.ptm-mtl-item.delegated.t1 { border-left-color:#3c8fd0; background:#e3f1fc; }
+.ptm-mtl-item.delegated.t2 { border-left-color:#8a5cc4; background:#f1e9fb; }
+.ptm-mtl-item.delegated.t3 { border-left-color:#4ea94c; background:#e6f6e5; }
+.ptm-mtl-item.delegated.t1 .ptm-mtl-delegate { background:#5aa9e6; color:#0d2f4d; }
+.ptm-mtl-item.delegated.t2 .ptm-mtl-delegate { background:#a77bd8; color:#ffffff; }
+.ptm-mtl-item.delegated.t3 .ptm-mtl-delegate { background:#6cc36a; color:#123d12; }
