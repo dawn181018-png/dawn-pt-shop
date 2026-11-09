@@ -21,6 +21,7 @@ import SignatureGallery from "./SignatureGallery";
 import SignatureSheet from "./SignatureSheet";
 import PtUnitPrice from "./PtUnitPrice";
 import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
+import { OWNER_KEY, trainerOptions, delegationEmailMap, trainerKeyOf, trainerAssignment, trainerConflicts, type TrainerOption } from "@/lib/trainers";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
 import MobileMonthSchedule, { type MobileScheduleItem } from "./MobileMonthSchedule";
 import { unbookedSessions, generateSlotDates, weekdaysLabel } from "@/lib/recurring";
@@ -1029,9 +1030,77 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const [delegations, setDelegations] = useState<LessonDelegation[]>([]);
   // 관리자 스케줄에서 대리 트레이너가 예약(또는 처리)한 레슨만 노란색으로 구분한다 — 대리 화면에서 예약·시간 변경·완료하면
   // DB가 그 레슨에 대리 트레이너 이름을 남긴다. 사장님이 직접 잡은 예약은 대리 지정 고객이라도 원래 색 그대로다.
-  const delegateNameFor = (r: { type: string; delegateName?: string | null }): string | null =>
-    !isDelegate && r.type === "pt" && r.delegateName ? r.delegateName : null;
+  // 관리자 화면에서 대리 트레이너 담당 레슨의 강사 이름(담당자 값 → 없으면 예전 대리 기록). 대표 레슨은 null.
+  const delegateNameFor = (r: Pick<Reservation, "type" | "trainerEmail" | "delegationId">): string | null => {
+    if (isDelegate || r.type !== "pt") return null;
+    const key = trainerOfRes(r);
+    return key === OWNER_KEY ? null : trainerOptOf(key).name;
+  };
+  const trainerColorFor = (r: Pick<Reservation, "type" | "trainerEmail" | "delegationId">): number | null =>
+    isDelegate || r.type !== "pt" ? null : trainerOptOf(trainerOfRes(r)).colorIdx;
   const [delegationPreset, setDelegationPreset] = useState<{ key: number; customerId: string } | null>(null);
+
+  // ---- 예약 담당자(강사) ---- 규칙은 lib/trainers 한 곳. 담당자 값이 없는 예전 예약은 대표로(대리 기록이 있으면 그 트레이너로) 본다.
+  // 대리 화면에서는 담당자를 고르지 않는다(서버가 본인으로 고정).
+  const trainerOpts = useMemo(() => trainerOptions(delegations), [delegations]);
+  const delegEmailById = useMemo(() => delegationEmailMap(delegations), [delegations]);
+  const trainerOptOf = (key: string): TrainerOption => trainerOpts.find((o) => o.key === key) || trainerOpts[0];
+  const trainerOfRes = (r: Pick<Reservation, "trainerEmail" | "delegationId" | "type">) => (r.type === "misc" ? OWNER_KEY : trainerKeyOf(r, delegEmailById));
+  const [quickTrainer, setQuickTrainer] = useState(OWNER_KEY); // 새 예약 창(빈 시간 누르기 등)
+  const [resTrainer, setResTrainer] = useState<{ pid: string | null; key: string }>({ pid: null, key: OWNER_KEY }); // 고객 이용권의 예약 창
+  const [recTrainer, setRecTrainer] = useState<string | null>(null); // 반복 예약 창(null = 기본값)
+  const [scheduleTrainer, setScheduleTrainer] = useState("all"); // 스케줄 보기: 전체 / 강사별
+
+  // 담당자 관련 확인 창(예/아니오를 기다리는 방식). 닫으면 항상 "아니오"로 끝난다.
+  const [trainerAsk, setTrainerAsk] = useState<{ title: string; message: string; label: string; resolve: (ok: boolean) => void } | null>(null);
+  const askTrainer = (title: string, message: string, label: string) => new Promise<boolean>((resolve) => setTrainerAsk({ title, message, label, resolve }));
+  const closeTrainerAsk = (ok: boolean) => { if (trainerAsk) trainerAsk.resolve(ok); setTrainerAsk(null); };
+
+  // 고른 담당자로 저장할 값. 그 트레이너의 대리 대상이 아닌 고객이면 대상에 추가할지 묻는다(트레이너 화면에도 보이게).
+  const resolveTrainerFields = async (customerId: string | null, key: string): Promise<Pick<Reservation, "trainerEmail" | "delegationId" | "delegateName"> | null> => {
+    const opt = trainerOptOf(key);
+    const a = trainerAssignment(opt, customerId);
+    if (a.kind === "ok") return a.fields;
+    if (a.kind === "unavailable") { flash(`${opt.name} 트레이너의 대리 지정이 해제돼 있어요. 대리 레슨에서 다시 지정해주세요`, 4000); return null; }
+    const custName = customers.find((c) => c.id === customerId)?.name || "이 고객";
+    const ok = await askTrainer("대리 대상에 추가", `${custName} 님은 ${opt.name} 트레이너의 대리 대상이 아니에요. 대상에 추가하면 ${opt.name} 트레이너 화면에도 이 레슨이 보여요. 추가하고 예약할까요?`, "추가하고 예약");
+    if (!ok || !customerId) return null;
+    try {
+      const d = a.delegation;
+      const updated = await db.updateDelegation(d.id, { delegateName: d.delegateName, delegateEmail: d.delegateEmail, customerIds: [...d.customerIds, customerId], startsOn: d.startsOn, endsOn: d.endsOn }, false);
+      setDelegations((cur) => cur.map((x) => (x.id === updated.id ? updated : x)));
+      return { trainerEmail: opt.key, delegationId: updated.id, delegateName: updated.delegateName };
+    } catch { flash("대리 대상 추가 실패, 다시 시도해주세요"); return null; }
+  };
+  // 같은 시간에 같은 강사의 다른 예약이 있으면 경고(그래도 등록 가능). 다른 강사끼리는 겹쳐도 괜찮다.
+  const confirmTrainerFree = async (rows: { date: string; time: string; duration: number | string }[], key: string, excludeIds: Set<string> = new Set()): Promise<boolean> => {
+    const hits = trainerConflicts(rows, key, reservations, delegEmailById, excludeIds);
+    if (hits.length === 0) return true;
+    const first = hits.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))[0];
+    const who = first.type === "misc" ? (first.memo || "기타 일정") : (customers.find((c) => c.id === first.customerId)?.name || "다른 고객");
+    return askTrainer("시간이 겹쳐요",
+      `${trainerOptOf(key).name} 담당 예약이 같은 시간에 ${hits.length}건 있어요 (예: ${koDate(first.date)} ${first.time} ${who}). 그래도 등록할까요?`, "그래도 등록");
+  };
+  // 반복 설정까지 펼친 예약 날짜들(겹침 확인용 — 실제 저장은 pushReservation이 같은 규칙으로 만든다)
+  const plannedRows = (data: ReservationFormData) => {
+    const repeat = data.repeat && data.repeat !== "none" ? data.repeat : "none";
+    const count = repeat !== "none" ? Math.max(1, Number(data.repeatCount) || 1) : 1;
+    return Array.from({ length: count }, (_, i) => ({ date: i === 0 ? data.date : addRepeatInterval(data.date, repeat, i), time: data.time, duration: data.duration }));
+  };
+  const trainerEmoji = (o: TrainerOption) => (o.colorIdx === null ? "⚪" : ["🟡", "🔵", "🟣", "🟢"][o.colorIdx]);
+  const renderTrainerSelect = (value: string, onChange: (key: string) => void, note?: string) => {
+    const cur = trainerOptOf(value);
+    return (
+      <div className="ptm-field"><label>담당자{note ? ` — ${note}` : ""}</label>
+        <div className="ptm-trainer-select">
+          <i className={`ptm-tdot ${cur.colorIdx === null ? "owner" : `t${cur.colorIdx}`}`} />
+          <select value={cur.key} onChange={(e) => onChange(e.target.value)}>
+            {trainerOpts.filter((o) => o.active || o.key === cur.key).map((o) => <option key={o.key} value={o.key}>{trainerEmoji(o)} {o.name}</option>)}
+          </select>
+        </div>
+      </div>
+    );
+  };
   const [delegationSubTab, setDelegationSubTab] = useState<"manage" | "settle">("manage"); // 대리 레슨 탭 안: 지정 관리 / 월 정산
   // 레슨 처리자 기록(관리자/대리 중 누가 상태를 바꿨는지). 월 정산·서명 탭을 열 때마다 새로 읽어 방금 처리한 레슨도 반영한다.
   // null = 표가 아직 없음(SQL 실행 전) → 두 화면은 예전 기준(대리 이름·서명 위치)으로만 판단한다.
@@ -1457,6 +1526,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         const atomic = await db.registerUsedReservations(customerId, productId, status as "done" | "noshow",
           rows.map((r) => ({ date: r.date, time: r.time, duration: r.duration, memo: r.memo })));
         if (atomic) {
+          // 지난 레슨을 바로 출석/결석으로 등록할 때도 고른 담당자를 붙인다(차감은 위 DB 함수가 이미 끝냄 — 담당자 칸만 갱신).
+          if (extra.trainerEmail) {
+            const tf = { trainerEmail: extra.trainerEmail, delegationId: extra.delegationId ?? null, delegateName: extra.delegateName ?? null };
+            atomic.reservations = await Promise.all(atomic.reservations.map((r) => db.updateReservation(r.id, tf)));
+          }
           setReservations((prev) => [...prev, ...atomic.reservations]);
           setProducts((prev) => prev.map((x) => (x.id === productId ? atomic.product : x)));
           return atomic.reservations.length;
@@ -1518,7 +1592,16 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const addReservation = (customerId: string, productId: string, statusOverride?: ReservationStatus) => runExclusive("add-reservation", async () => {
     if (!resForm.date || !resForm.time) { flash("날짜/시간을 입력해주세요"); return; }
     try {
-      const n = await pushReservation(customerId, productId, resForm, statusOverride);
+      // 담당자(관리자 화면만): 고른 강사로 저장하고, 같은 강사가 같은 시간에 이미 예약돼 있으면 확인받는다.
+      let trainerExtra: Partial<Reservation> = {};
+      if (!isDelegate) {
+        const key = resTrainer.pid === productId ? resTrainer.key : OWNER_KEY;
+        const fields = await resolveTrainerFields(customerId, key);
+        if (!fields) return;
+        if (!(await confirmTrainerFree(plannedRows(resForm), key))) return;
+        trainerExtra = fields;
+      }
+      const n = await pushReservation(customerId, productId, resForm, statusOverride, trainerExtra);
       if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setResForm({ date: today(), time: nowTime(), duration: 50, memo: "", repeat: "none", repeatCount: 4 });
       if (n > 0) flash(statusOverride === "done" ? "출석으로 등록됨" : statusOverride === "noshow" ? "결석으로 등록됨" : (n > 1 ? `예약 ${n}건 등록됨` : "예약 등록됨"));
@@ -1529,6 +1612,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const walkInCustomerRef = useRef<Customer | null>(null);
   const resetQuickAddState = () => {
     walkInCustomerRef.current = null;
+    setQuickTrainer(OWNER_KEY);
     setQuickForm({ customerId: "", productId: "", date: today(), time: "18:00", duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
@@ -1555,9 +1639,13 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         walkInCustomerRef.current = newCustomer;
         // 고객은 이미 DB에 저장됐으므로, 뒤이은 예약 저장이 실패해도 고객 목록에는 바로 보이게 한다.
         setCustomers((prev) => (prev.some((c) => c.id === newCustomer.id) ? prev.map((c) => (c.id === newCustomer.id ? newCustomer : c)) : [...prev, newCustomer]));
+        const walkInTrainer = await resolveTrainerFields(newCustomer.id, quickTrainer);
+        if (!walkInTrainer) return;
+        if (!(await confirmTrainerFree([{ date: quickForm.date, time: quickForm.time, duration: Number(quickForm.duration) || 60 }], quickTrainer))) return;
         const [newRes] = await db.insertReservations([{
           customerId: newCustomer.id, productId: null, seriesId: null,
           date: quickForm.date, time: quickForm.time, duration: Number(quickForm.duration) || 60, memo: quickForm.memo || "", status: statusOverride || "scheduled",
+          ...walkInTrainer,
         }]);
         setReservations((prev) => [...prev, newRes]);
         setShowQuickAdd(false);
@@ -1567,7 +1655,14 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       }
       if (!quickForm.customerId) { flash("고객을 선택해주세요"); return; }
       if (quickAvailableProducts.length > 0 && !quickForm.productId) { flash("이용권을 선택해주세요"); return; }
-      const n = await pushReservation(quickForm.customerId, emptyToNull(quickForm.productId), quickForm, statusOverride);
+      let trainerExtra: Partial<Reservation> = {};
+      if (!isDelegate) {
+        const fields = await resolveTrainerFields(quickForm.customerId, quickTrainer);
+        if (!fields) return;
+        if (!(await confirmTrainerFree(plannedRows(quickForm), quickTrainer))) return;
+        trainerExtra = fields;
+      }
+      const n = await pushReservation(quickForm.customerId, emptyToNull(quickForm.productId), quickForm, statusOverride, trainerExtra);
       if (n === 0) return; // pushReservation이 이미 차단 안내를 띄웠음
       setShowQuickAdd(false);
       resetQuickAddState();
@@ -1579,6 +1674,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     const time = pxToTime(e.clientY - rect.top);
     setHoverInfo(null);
     walkInCustomerRef.current = null;
+    setQuickTrainer(OWNER_KEY);
     setQuickForm({ customerId: "", productId: "", date, time, duration: 50, memo: "", repeat: "none", repeatCount: 4 });
     setQuickSearch("");
     setQuickIsNew(false);
@@ -1784,6 +1880,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       return;
     }
     try {
+      const moving = reservations.find((x) => x.id === resId);
+      if (moving && !(await confirmTrainerFree([{ date: newDate, time: newTime, duration: moving.duration || 50 }], trainerOfRes(moving), new Set([resId])))) return;
       const updated = await db.updateReservation(resId, { date: newDate, time: newTime });
       setReservations((prev) => prev.map((r) => (r.id === resId ? updated : r)));
       flash("예약 일정이 변경됨");
@@ -1804,6 +1902,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   };
   // 회차 저장: 이용권은 지금처럼 "가장 먼저 등록한 유효 이용권"에 연결(완료 시점에 소진됐으면 다른 유효 이용권으로
   // 자동 전환되는 기존 규칙 그대로). 예약을 만드는 것만으로는 잔여가 줄지 않는다.
+  // 반복 예약 창의 기본 담당자: 기존 반복을 이어 잡을 때는 그 반복의 마지막 회차 담당자, 새 반복은 대표.
+  const seriesLastRes = (seriesId: string) => reservations.filter((r) => r.seriesId === seriesId).sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time))[0];
+  const defaultRecTrainer = recurringSheet?.seriesId && seriesLastRes(recurringSheet.seriesId) ? trainerOfRes(seriesLastRes(recurringSheet.seriesId)) : OWNER_KEY;
   const confirmRecurring = async (rule: RecurringRule, dates: string[]): Promise<boolean> => {
     if (!recurringSheet) return false;
     const { customerId } = recurringSheet;
@@ -1815,11 +1916,17 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         seriesId = created.id;
       }
       const productId = emptyToNull(pickActiveProductId(customerId));
+      // 반복 예약: 고른 담당자를 모든 회차에 똑같이 붙인다(한 회차만 바꾸는 건 예약 수정 창에서).
+      const key = recTrainer ?? defaultRecTrainer;
+      const tf = await resolveTrainerFields(customerId, key);
+      if (!tf) return false;
+      if (!(await confirmTrainerFree(dates.map((date) => ({ date, time: rule.time, duration: rule.duration })), key))) return false;
       const rows = dates.map((date) => ({
-        customerId, productId, seriesId, date, time: rule.time, duration: rule.duration, memo: "", status: "scheduled" as const,
+        customerId, productId, seriesId, date, time: rule.time, duration: rule.duration, memo: "", status: "scheduled" as const, ...tf,
       }));
       const createdRows = await db.insertReservations(rows);
       setReservations((prev) => [...prev, ...createdRows]);
+      setRecTrainer(null);
       flash(`반복 예약 ${createdRows.length}회 등록됨`);
       return true;
     } catch {
@@ -1836,9 +1943,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       const holidays = await loadHolidays([start.slice(0, 4), String(Number(start.slice(0, 4)) + 1)]);
       const { dates } = generateSlotDates({ startDate: start, weekdays: rule.weekdays, count: 1, skipHolidays: rule.skipHolidays, holidays });
       if (dates.length === 0) return;
+      // 반복에 1회 더할 때는 그 반복의 마지막 회차 담당자를 그대로 이어 붙인다.
+      const last = seriesLastRes(seriesId);
       const [created] = await db.insertReservations([{
         customerId, productId: emptyToNull(pickActiveProductId(customerId)), seriesId, date: dates[0],
         time: rule.time, duration: rule.duration, memo: "", status: "scheduled",
+        ...(last?.trainerEmail ? { trainerEmail: last.trainerEmail, delegationId: last.delegationId ?? null, delegateName: last.delegateName ?? null } : {}),
       }]);
       setReservations((prev) => [...prev, created]);
       flash(`${koDate(created.date)} ${created.time}에 1회 추가됨`);
@@ -1848,12 +1958,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const [timeEditRes, setTimeEditRes] = useState<ReservationLike | null>(null);
   // 반복 회차의 날짜/시간 변경 범위: 이 회차만 / 이 회차 이후 전체(같은 반복의 예약됨 회차를 같은 만큼 옮김)
   const [timeEditScope, setTimeEditScope] = useState<"one" | "following">("one");
-  const [timeEditForm, setTimeEditForm] = useState<{ date: string; hour: string; minute: string; duration: number | string; title: string }>({ date: "", hour: "09", minute: "00", duration: 50, title: "" });
+  const [timeEditForm, setTimeEditForm] = useState<{ date: string; hour: string; minute: string; duration: number | string; title: string; trainer: string }>({ date: "", hour: "09", minute: "00", duration: 50, title: "", trainer: OWNER_KEY });
   const openTimeEdit = (r: ReservationLike) => {
     const [h, m] = r.time.split(":");
     setTimeEditRes(r);
     setTimeEditScope("one");
-    setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50, title: r.type === "misc" ? (r.memo || "") : "" });
+    setTimeEditForm({ date: r.date, hour: h, minute: m, duration: r.duration || 50, title: r.type === "misc" ? (r.memo || "") : "", trainer: trainerOfRes(r) });
   };
   const saveTimeEdit = async () => {
     if (!timeEditRes) return;
@@ -1862,6 +1972,23 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       if (isMisc && !timeEditForm.title.trim()) { flash("제목을 입력해주세요"); return; }
       const newTime = `${timeEditForm.hour}:${timeEditForm.minute}`;
       const newDuration = Number(timeEditForm.duration) || 50;
+      // 담당자(관리자 화면, PT만): 바뀌었으면 새 담당자 값을 함께 저장하고, 새 시간에 같은 강사 예약이 겹치면 확인받는다.
+      let trainerFields: Partial<Reservation> = {};
+      if (!isDelegate && !isMisc) {
+        const key = timeEditForm.trainer;
+        const following = timeEditScope === "following" && !!timeEditRes.seriesId;
+        const targets = following
+          ? reservations.filter((r) => r.seriesId === timeEditRes.seriesId && r.date >= timeEditRes.date && r.status === "scheduled")
+          : [timeEditRes];
+        const shift = daysBetween(timeEditForm.date, timeEditRes.date);
+        const newRows = targets.map((r) => ({ date: following ? addDays(r.date, shift) : timeEditForm.date, time: newTime, duration: newDuration }));
+        if (key !== trainerOfRes(timeEditRes)) {
+          const tf = await resolveTrainerFields(timeEditRes.customerId, key);
+          if (!tf) return;
+          trainerFields = tf;
+        }
+        if (!(await confirmTrainerFree(newRows, key, new Set(targets.map((r) => r.id))))) return;
+      }
       if (isDelegate) {
         // 대리 화면은 이 회차만 바꾼다(반복 규칙 수정은 관리자 전용).
         applyDelegateState(await delegateMove(timeEditRes.id, timeEditForm.date, newTime, newDuration));
@@ -1871,7 +1998,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         const shift = daysBetween(timeEditForm.date, timeEditRes.date);
         const targets = reservations.filter((r) => r.seriesId === timeEditRes.seriesId && r.date >= timeEditRes.date && r.status === "scheduled");
         const updatedRows = await Promise.all(targets.map((r) =>
-          db.updateReservation(r.id, { date: addDays(r.date, shift), time: newTime, duration: newDuration })));
+          db.updateReservation(r.id, { date: addDays(r.date, shift), time: newTime, duration: newDuration, ...trainerFields })));
         setReservations((prev) => prev.map((r) => updatedRows.find((u) => u.id === r.id) || r));
         // 새 방식 반복이면 규칙도 맞춰 둔다(나중에 연장할 때 바뀐 요일/시간으로 이어지도록).
         const rule = seriesRules.find((s) => s.id === timeEditRes.seriesId);
@@ -1887,6 +2014,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           time: newTime,
           duration: newDuration,
           ...(isMisc ? { memo: timeEditForm.title.trim() } : {}),
+          ...trainerFields,
         });
         setReservations((prev) => prev.map((r) => (r.id === timeEditRes.id ? updated : r)));
         flash("예약 일정이 변경됨");
@@ -2096,17 +2224,24 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     const all = [...products, ...archivedProducts];
     return new Set([...customers, ...archivedCustomers].filter((c) => isNewCustomer(c.id, all)).map((c) => c.id));
   }, [customers, archivedCustomers, products, archivedProducts, isDelegate, delegateNewIds]);
-  const mobileScheduleItems = useMemo<MobileScheduleItem[]>(() => allReservations.map((r) => ({
+  // 스케줄 "강사별 보기": 고른 강사의 레슨만(기타 일정은 대표 일정으로 본다). 전체면 그대로.
+  const scheduleReservations = useMemo(
+    () => (scheduleTrainer === "all" ? allReservations : allReservations.filter((r) => trainerOfRes(r) === scheduleTrainer)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- trainerOfRes는 delegations만 읽는다
+    [allReservations, scheduleTrainer, delegations],
+  );
+  const mobileScheduleItems = useMemo<MobileScheduleItem[]>(() => scheduleReservations.map((r) => ({
     id: r.id, date: r.date, time: r.time, duration: r.duration || 50, status: r.status, type: r.type,
     title: r.customerName, subtitle: r.type === "misc" ? "" : r.productName,
     signed: !!r.signatureUrl, hasNote: !!(r.workoutNote || "").trim(),
     isNewCustomer: !!r.customerId && newCustomerIds.has(r.customerId),
     locked: isBusyId(r.id),
     delegateName: delegateNameFor(r),
+    trainerColor: trainerColorFor(r),
     sessionLabel: sessionLabelOf(r.id),
     remainLabel: sessionLabelOf(r.id, true),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- delegateNameFor는 delegations/isDelegate만 읽는다
-  })), [allReservations, newCustomerIds, delegations, isDelegate, sessionInfoByRes]);
+  })), [scheduleReservations, newCustomerIds, delegations, isDelegate, sessionInfoByRes]);
   // 모바일 목록에서 일정을 누르면 PC 그리드에서 블록을 누를 때와 똑같은 기존 예약 메뉴를 연다.
   const openReservationMenu = (id: string, x: number, y: number) => {
     const r = allReservations.find((x) => x.id === id);
@@ -2504,6 +2639,18 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       </div>
       )}
 
+      {/* 스케줄 보기: 전체 / 강사별(관리자 화면, 대리 트레이너가 있을 때만) */}
+      {view === "schedule" && !isDelegate && trainerOpts.length > 1 && (
+        <div className="ptm-trainer-filter">
+          <button className={`ptm-tf-chip ${scheduleTrainer === "all" ? "active" : ""}`} onClick={() => setScheduleTrainer("all")}>전체</button>
+          {trainerOpts.map((o) => (
+            <button key={o.key} className={`ptm-tf-chip ${scheduleTrainer === o.key ? "active" : ""}`} onClick={() => setScheduleTrainer(o.key)}>
+              <i className={`ptm-tdot ${o.colorIdx === null ? "owner" : `t${o.colorIdx}`}`} />{o.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {view === "schedule" && isMobileSchedule && (
         <MobileMonthSchedule
           items={mobileScheduleItems}
@@ -2554,7 +2701,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   ))}
                 </div>
                 {weekDates.map((d) => {
-                  const dayRes = layoutDayReservations(allReservations.filter((r) => r.date === d));
+                  const dayRes = layoutDayReservations(scheduleReservations.filter((r) => r.date === d));
                   return (
                     <div
                       key={d}
@@ -2598,8 +2745,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                         // 신규 고객(아직 이용권을 산 적 없는 고객) 레슨 — 모바일 시간표와 같은 기준(productUtils.isNewCustomer)
                         const isNewLesson = r.type === "pt" && !!r.customerId && newCustomerIds.has(r.customerId);
                         const lessonDelegate = delegateNameFor(r);
+                        const lessonColor = lessonDelegate ? trainerColorFor(r) : null;
                         return (
-                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}${lessonDelegate ? " delegated" : ""}${(r.duration || 50) < 40 ? " short" : ""}`}
+                          <div key={r.id} className={`ptm-block ${r.status} ${r.type === "misc" ? "misc" : ""} ${dragResId === r.id ? "dragging" : ""}${isNewLesson ? " new-customer" : ""}${isBusyId(r.id) ? " busy" : ""}${lessonDelegate ? ` delegated${lessonColor ? ` t${lessonColor}` : ""}` : ""}${(r.duration || 50) < 40 ? " short" : ""}`}
                             style={{
                               top: timeTopPx(r.time), height: durHeightPx(r.duration || 50),
                               left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
@@ -3431,7 +3579,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             initialRule={recurringSheet.rule}
             intro={recurringSheet.intro}
             onConfirm={confirmRecurring}
-            onClose={() => setRecurringSheet(null)}
+            onClose={() => { setRecurringSheet(null); setRecTrainer(null); }}
+            extra={isDelegate ? undefined : renderTrainerSelect(recTrainer ?? defaultRecTrainer, setRecTrainer, "모든 회차에 같은 담당자")}
           />
         );
       })()}
@@ -4231,6 +4380,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   </div>
                   <button className="ptm-res-add-btn" onClick={() => addReservation(resSheetCustomer.id, resSheetProduct.id)}><Plus size={16} /></button>
                 </div>
+                {!isDelegate && renderTrainerSelect(resTrainer.pid === resSheetProduct.id ? resTrainer.key : OWNER_KEY, (key) => setResTrainer({ pid: resSheetProduct.id, key }))}
                 {resForm.repeat === "none" && isPastDateTime(resForm.date, resForm.time) && (
                   <div className="ptm-res-actions" style={{ marginTop: -8, marginBottom: 14 }}>
                     <span className="ptm-no-product-msg" style={{ padding: 0 }}>이미 지난 시간 →</span>
@@ -4376,6 +4526,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 )}
               </div>
             )}
+
+            {/* 담당자(관리자 화면만, 기타 일정 제외) — 기본은 대표(나) */}
+            {!isDelegate && !quickIsMisc && renderTrainerSelect(quickTrainer, setQuickTrainer)}
 
             <div className="ptm-row3">
               <div className="ptm-field"><label>날짜</label>
@@ -4692,7 +4845,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         <div className="ptm-overlay" onClick={() => setTimeEditRes(null)}>
           <div className="ptm-sheet" style={{ maxWidth: 380 }} onClick={(e) => e.stopPropagation()}>
             <div className="ptm-sheet-head">
-              <span className="ptm-sheet-title">{timeEditRes.type === "misc" ? "기타 일정 수정" : "날짜·시간 수정"}</span>
+              <span className="ptm-sheet-title">{timeEditRes.type === "misc" ? "기타 일정 수정" : isDelegate ? "날짜·시간 수정" : "예약 수정"}</span>
               <button className="ptm-icon-btn" onClick={() => setTimeEditRes(null)}><X size={16} /></button>
             </div>
             {timeEditRes.type === "misc" ? (
@@ -4718,8 +4871,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             <div className="ptm-field"><label>진행 시간(분) — 50분이 기본이지만 직접 바꿀 수 있어요</label>
               <input type="number" min="1" onFocus={(e) => e.target.select()} value={timeEditForm.duration} onChange={(e) => setTimeEditForm({ ...timeEditForm, duration: e.target.value })} placeholder="50" />
             </div>
+            {!isDelegate && timeEditRes.type !== "misc" && renderTrainerSelect(timeEditForm.trainer, (key) => setTimeEditForm({ ...timeEditForm, trainer: key }))}
             {!isDelegate && timeEditRes.type !== "misc" && timeEditRes.seriesId && (
-              <div className="ptm-field"><label>반복 예약 — 바꿀 범위</label>
+              <div className="ptm-field"><label>반복 예약 — 바꿀 범위(날짜·시간·담당자)</label>
                 <div className="ptm-type-toggle">
                   <button className={`ptm-type-btn ${timeEditScope === "one" ? "active" : ""}`} onClick={() => setTimeEditScope("one")}>이 회차만</button>
                   <button className={`ptm-type-btn ${timeEditScope === "following" ? "active" : ""}`} onClick={() => setTimeEditScope("following")}>이 회차 이후 전체</button>
@@ -5058,6 +5212,22 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           </div>
         );
       })()}
+
+      {trainerAsk && (
+        <div className="ptm-overlay" onClick={() => closeTrainerAsk(false)}>
+          <div className="ptm-sheet ptm-series-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">{trainerAsk.title}</span>
+              <button className="ptm-icon-btn" onClick={() => closeTrainerAsk(false)}><X size={16} /></button>
+            </div>
+            <p className="ptm-series-desc">{trainerAsk.message}</p>
+            <div className="ptm-confirm-actions">
+              <button autoFocus className="ptm-series-btn" onClick={() => closeTrainerAsk(false)}>취소</button>
+              <button className="ptm-series-btn primary" onClick={() => closeTrainerAsk(true)}>{trainerAsk.label}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {confirmState && (
         <div className="ptm-overlay" onClick={() => setConfirmState(null)}>
