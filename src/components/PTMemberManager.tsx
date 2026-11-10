@@ -488,10 +488,11 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
   // 소진된 이용권을 대신할, 그 고객의 등록순으로 가장 먼저 등록된 유효한(잔여 있는) 이용권을 찾는다.
   // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
-  const findAlternativeProduct = (customerId: string | null, productList: Product[]): Product | undefined =>
+  // 같은 날 등록한 이용권끼리는 지금 묶여 있는 이용권(preferId)을 먼저, 그다음 id 순으로 순서를 고정한다.
+  const findAlternativeProduct = (customerId: string | null, productList: Product[], preferId?: string | null): Product | undefined =>
     productList
       .filter((p) => p.customerId === customerId && p.type === "session" && !p.archivedAt && remainingSessions(p) > 0)
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))[0];
+      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || (a.id === preferId ? -1 : b.id === preferId ? 1 : a.id.localeCompare(b.id)))[0];
   // 완료 처리를 기다리지 않고, 예약됨(scheduled) 상태인 예약이 이미 소진된 이용권을 물고 있으면
   // 그 고객의 다른 유효한 이용권으로 조용히 재연결한다 — 새 이용권을 등록하는 시점과 앱을 새로
   // 불러올 때(자동 새로고침) 둘 다에서 호출해, 재등록 후 남은 반복예약이 계속 옛 이용권에
@@ -1711,20 +1712,21 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     if (will && !was) delta = 1;
     if (!will && was) delta = -1;
 
-    // 세션을 새로 차감해야 하는 전환(완료/노쇼)인데 연결된 이용권이 이미 소진됐다면,
-    // 그 고객의 다른 유효한(잔여 있는) 이용권으로 자동 전환을 시도하고, 없으면 완료 자체를 막는다.
+    // 세션을 새로 차감하는 전환(완료/노쇼)은 "먼저 등록한 이용권부터" 차감한다: 레슨이 어느 횟수권에 묶여 있든
+    // 그 고객의 잔여 있는 횟수권 중 가장 먼저 등록한 것에서 차감하고, 그게 다 쓰이면 다음 이용권으로 넘어간다
+    // (중복 등록·직접 고른 이용권 때문에 나중 이용권부터 줄어드는 일을 막는다). 잔여 있는 횟수권이 하나도 없으면 막는다.
+    // 이용권 없이 잡은 단발 레슨(체험 등)과 기간권 레슨은 예전처럼 그대로 둔다.
     let targetProductId = r.productId;
     if (delta === 1 && r.productId) {
       const linked = products.find((x) => x.id === r.productId);
-      // 묶인 이용권이 소진됐거나 보관된(목록에 없는) 경우 다른 유효 이용권으로 전환
       const linkedArchived = !linked && archivedProducts.some((x) => x.id === r.productId);
-      if (linkedArchived || (linked && linked.type === "session" && remainingSessions(linked) <= 0)) {
-        const alt = findAlternativeProduct(r.customerId, products);
-        if (!alt) {
+      if (linkedArchived || (linked && linked.type === "session")) {
+        const first = findAlternativeProduct(r.customerId, products, r.productId);
+        if (!first) {
           flash("차감할 수 있는 이용권이 없습니다. 재등록 또는 예약 유형 변경이 필요합니다");
           return;
         }
-        targetProductId = alt.id;
+        targetProductId = first.id;
       }
     }
 
@@ -2209,8 +2211,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     const effective = (r: Reservation): Product | undefined => {
       const linked = r.productId ? byId.get(r.productId) : undefined;
       if (r.status !== "scheduled") return linked;
-      if (linked && !linked.archivedAt && (linked.type !== "session" || remainingSessions(linked) > 0)) return linked;
-      return findAlternativeProduct(r.customerId, products) || linked;
+      // 예정 레슨은 완료할 때 차감될 이용권(먼저 등록한 잔여 있는 횟수권)으로 회차를 미리 보여준다.
+      if (linked && !linked.archivedAt && linked.type !== "session") return linked;
+      return findAlternativeProduct(r.customerId, products, r.productId) || linked;
     };
     const used: Record<string, Reservation[]> = {};
     const upcoming: Record<string, Reservation[]> = {};
@@ -2329,12 +2332,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const quickAvailableProducts = quickCustomerProducts.filter((p) => !isDepleted(p));
   // 잔여횟수가 남은 이용권 중 가장 먼저 등록한 것을 우선 사용 (재등록으로 이용권이 여러 개여도
   // 등록한 순서대로 차감되도록 기본 선택 — 필요하면 드롭다운에서 직접 바꿀 수 있다).
-  const pickActiveProductId = (customerId: string) => {
-    const active = products
-      .filter((p) => p.customerId === customerId && p.type === "session" && remainingSessions(p) > 0)
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
-    return active.length ? active[0].id : "";
-  };
+  // 차감 규칙(먼저 등록한 잔여 있는 횟수권)과 똑같은 함수로 고른다.
+  const pickActiveProductId = (customerId: string) => findAlternativeProduct(customerId, products)?.id || "";
 
   // ---- Payroll ----
   const revenueForMonth = (y: number, m: number) => {
