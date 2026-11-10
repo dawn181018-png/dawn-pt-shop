@@ -882,6 +882,10 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     try {
       if (editingProductId) {
         if (Number(productForm.usedSessions) === editOriginalUsed) delete payload.usedSessions;
+        else if (productForm.type === "session") {
+          const below = usedBelowRecordMessage(editingProductId, Number(productForm.usedSessions) || 0);
+          if (below) { flash(below, 5000); return; }
+        }
         const updated = await db.updateProduct(editingProductId, payload);
         setProducts(products.map((p) => (p.id === editingProductId ? updated : p)));
         const after = products.map((x) => (x.id === editingProductId ? updated : x));
@@ -1243,7 +1247,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     const doneCount = reservations.filter((r) => r.productId === p.id && countsAsUsed(r.status)).length;
     const used = Math.max(p.usedSessions || 0, doneCount);
     let blocked: string | null = null;
-    if (used > 0) blocked = `이미 ${used}회 사용된 상품이라 삭제할 수 없습니다. 금액이나 정보 수정이 필요하면 수정 기능을 이용해주세요.`;
+    // 사용 횟수가 0인데 완료 레슨이 연결된 경우(숫자가 어긋난 이용권)는 실제 이유를 따로 알려준다.
+    if ((p.usedSessions || 0) === 0 && doneCount > 0) blocked = `사용 횟수는 0회지만 완료·노쇼 레슨 ${doneCount}개가 이 이용권에 연결돼 있어서 삭제할 수 없어요. 레슨이 다른 이용권으로 한 수업이면 연결을 먼저 바로잡아야 해요(담당자에게 문의).`;
+    else if (used > 0) blocked = `이미 ${used}회 사용된 상품이라 삭제할 수 없습니다. 금액이나 정보 수정이 필요하면 수정 기능을 이용해주세요.`;
     else if (passTransfers.some((t) => t.sourceProductId === p.id || t.recipientProductId === p.id)) blocked = "양도와 연결된 상품(양도받은 이용권 또는 양도한 원본)은 삭제할 수 없어요.";
     const linkedRes = reservations
       .filter((r) => r.productId === p.id && r.status === "scheduled" && r.date >= today())
@@ -1321,9 +1327,23 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       "정리",
     );
   };
+  // 이 이용권에 연결된 완료·노쇼 레슨 수 + 양도로 넘긴 횟수 = 사용 횟수의 "기록된 최소값".
+  // 사용 횟수를 이보다 작게 손으로 줄이면 레슨 기록과 숫자가 어긋나서(예: 사용 0회인데 완료 레슨 22개 연결)
+  // 나중에 판매 건 삭제·서명 시트·잔여 계산이 꼬인다 → 수동조정·수정창에서 막는다(늘리는 것은 그대로 가능).
+  const recordedUseOf = (productId: string) =>
+    reservations.filter((r) => r.productId === productId && countsAsUsed(r.status)).length
+    + passTransfers.filter((t) => t.sourceProductId === productId).reduce((sum, t) => sum + (Number(t.sessionsTransferred) || 0), 0);
+  const usedBelowRecordMessage = (productId: string, newUsed: number): string | null => {
+    const rec = recordedUseOf(productId);
+    return newUsed < rec
+      ? `이 이용권에는 완료·노쇼 레슨(양도 포함) ${rec}회가 기록돼 있어서 사용 횟수를 ${rec}회보다 줄일 수 없어요. 잘못 연결된 레슨이 있으면 그 레슨부터 정리해주세요`
+      : null;
+  };
   const bumpSession = async (id: string, delta: number) => {
     const p = products.find((x) => x.id === id);
     if (!p || p.type !== "session") return;
+    const below = delta < 0 ? usedBelowRecordMessage(id, (p.usedSessions || 0) + delta) : null;
+    if (below) { flash(below, 5000); return; }
     try {
       const updated = await db.adjustUsedSessions(id, delta);
       setProducts(products.map((x) => (x.id === id ? updated : x)));
