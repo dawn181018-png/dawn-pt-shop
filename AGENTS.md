@@ -28,3 +28,10 @@ For anything touching the Supabase schema or a deploy, work through this yoursel
 3. **Verify**: re-read what you just did specifically looking for (a) breakage in other features that touch the same table/component, (b) any risk of existing data being lost or corrupted.
 
 If step 3 turns up something you're not sure about, stop and ask — that's the one exception to working hands-off. If it checks out, proceed and report back briefly: what you checked and why it's safe. Don't skip the report even when nothing was wrong — the owner isn't watching the screen while it happens.
+
+## 자동 점검 (2026-11-11 도입 — 오류 예방 규칙)
+
+- 코드를 GitHub에 올리면 Actions "자동 점검"이 타입·lint·계산 시험(`tests/unit`)·빈 시험용 DB 회귀 시험(`tests/db`)·빌드를 돌린다.
+  **빨간 X(실패)면 main에 합치지 않는다.** 합치기 전에 그 브랜치의 점검 결과를 확인하고 사장님께 같이 알린다.
+- 새 기능·버그 수정에는 그 내용을 확인하는 시험을 같이 추가한다(자세한 규칙: `docs/CHECKLIST.md` 9·12·13번).
+- 회귀 시험은 매번 새로 만든 빈 시험용 DB에서만 돈다. `tests/db/run.sh`는 로컬/CI 시험 서버가 아니면 멈춘다 — 운영 DB에 시험을 돌리지 않는다.
