@@ -143,6 +143,53 @@ select t_login('00000000-0000-0000-0000-00000000000a', '');
 select t_err($$select delete_product('a0000000-0000-0000-0000-000000000004', '환불')$$, '사용된', '사용된 판매 건은 삭제 막힘');
 reset role;
 
+\echo '== 8. 판매 확정(상품판매·고객 상세 "상품(이용권) 추가"가 같이 쓰는 저장 경로)'
+-- 관리자가 서명 대기 건을 만들고(현장 서명이면 바로) 서버가 confirm_pending_sale로 확정 → 이용권 + 계약서 서명 기록이 함께 생긴다.
+select count(*) as prod0 from products \gset
+select count(*) as sig0 from contract_signatures \gset
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+insert into pending_sales(id, owner_id, customer_id, product, contract_version)
+ values ('f1000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000001',
+  '{"name":"PT 20회","type":"session","totalSessions":20,"startDate":"2026-11-11","endDate":"","sessionDuration":50,"listPrice":1500000,"price":1400000,"paidAmount":1000000,"paymentMethod":"card"}'::jsonb, 'v1');
+reset role;
+select token as sale_token from pending_sales where id = 'f1000000-0000-0000-0000-000000000001' \gset
+select (confirm_pending_sale(:'sale_token', 'a/contracts/test.png'))->>'productId' as sold_pid \gset
+select t_ok((select count(*) from products) = :prod0 + 1, '판매 확정 → 이용권 1개 생김');
+select t_ok((select count(*) from contract_signatures where product_id = :'sold_pid') = 1, '판매 확정 → 계약서 서명 기록이 같은 이용권에 연결');
+select t_ok((select status from pending_sales where id = 'f1000000-0000-0000-0000-000000000001') = 'signed', '서명 대기 건은 "서명 완료"로 바뀜');
+select t_ok((select total_sessions = 20 and used_sessions = 0 and price = 1400000 and paid_amount = 1000000 and customer_id = 'c0000000-0000-0000-0000-000000000001'
+             from products where id = :'sold_pid'), '입력한 그대로 저장(20회·사용 0·판매가 1,400,000·결제 1,000,000·그 고객)');
+select t_ok((select price - paid_amount from products where id = :'sold_pid') = 400000, '미수금 400,000원은 기존 규칙대로(판매가 − 결제금액)');
+select t_err($$select confirm_pending_sale('$$ || :'sale_token' || $$', 'x.png')$$, 'not_pending', '같은 판매를 두 번 확정할 수 없음');
+-- 중간에 닫기(취소): 서명 대기 건만 취소되고 이용권·서명 기록은 생기지 않는다
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+insert into pending_sales(id, owner_id, customer_id, product) values ('f1000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000001','{"name":"PT 10회","type":"session","totalSessions":10,"price":500000,"paidAmount":500000,"paymentMethod":"card"}'::jsonb);
+update pending_sales set status = 'cancelled' where id = 'f1000000-0000-0000-0000-000000000002';
+reset role;
+select t_ok((select count(*) from products) = :prod0 + 1 and (select count(*) from contract_signatures) = :sig0 + 1, '취소한 판매는 이용권·서명 기록을 만들지 않음');
+set role authenticated;
+select t_login('00000000-0000-0000-0000-0000000000dd', 'delegate');
+select t_ok((select count(*) from pending_sales) = 0, '대리: 판매 대기 건 조회 0건');
+reset role;
+
+\echo '== 9. 수동조정·이용권 양도(기존 기능 그대로)'
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (adjust_used_sessions(:'sold_pid', 1)) is not null;
+reset role;
+select t_ok((select used_sessions from products where id = :'sold_pid') = 1, '수동조정 +1');
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (adjust_used_sessions(:'sold_pid', -1)) is not null;
+select (transfer_pass(:'sold_pid', '[{"customer_id":"c0000000-0000-0000-0000-000000000002","sessions":5,"amount":0,"payment_method":"cash"}]'::jsonb)) is not null;
+reset role;
+select t_ok((select used_sessions from products where id = :'sold_pid') = 5, '수동조정 −1 뒤 양도 5회 → 원래 이용권 사용 5');
+select t_ok((select count(*) from pass_transfers where source_product_id = :'sold_pid') = 1
+            and (select total_sessions from products p join pass_transfers t on t.recipient_product_id = p.id where t.source_product_id = :'sold_pid') = 5,
+  '양도 기록 1건 + 받는 사람에게 5회 이용권');
+
 \echo '== 7. 계정별 접근 권한'
 set role authenticated;
 select t_login('00000000-0000-0000-0000-0000000000aa', 'member');
