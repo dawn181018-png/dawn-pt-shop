@@ -33,7 +33,7 @@ import { getCustomerWorkoutLogs, matchBodyPartTags } from "@/lib/workoutLog";
 import { CATALOG_CATEGORIES, CATEGORY_LABELS, isCountBased, categoryToProductType, formatCatalogSummary } from "@/lib/catalogCategory";
 import { toLocalDateStr, today, addDays, addMonths, fmtNum, parseNum, formatPhone, emptyToNull } from "@/lib/formatUtils";
 import { loadHolidays, isWeekend, type HolidayMap } from "@/lib/holidays";
-import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch } from "@/lib/productUtils";
+import { daysBetween, remainingSessions, urgency, remainLabel, shortRemain, progressPct, isDepleted, isNewCustomer, nameSessionMismatch, earliestUsableProduct } from "@/lib/productUtils";
 import type { Customer, Product, ProductType, PaymentMethod, Reservation, ReservationStatus, CatalogItem, CatalogCategory, PeriodUnit, RenewalForecast, ForecastStatus, PassTransfer, PendingSale, LessonDelegation, ReservationSeries, PaymentEditLog, PaymentReceipt, PaymentCollection } from "@/lib/types";
 import { shrinkImage } from "@/lib/imageUtils";
 import {
@@ -489,10 +489,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // 소진된 이용권을 대신할, 그 고객의 등록순으로 가장 먼저 등록된 유효한(잔여 있는) 이용권을 찾는다.
   // pickActiveProductId(자동 선택용)와 동일한 규칙 — 재등록으로 이용권이 여러 개여도 등록한 순서대로 사용.
   // 같은 날 등록한 이용권끼리는 지금 묶여 있는 이용권(preferId)을 먼저, 그다음 id 순으로 순서를 고정한다.
-  const findAlternativeProduct = (customerId: string | null, productList: Product[], preferId?: string | null): Product | undefined =>
-    productList
-      .filter((p) => p.customerId === customerId && p.type === "session" && !p.archivedAt && remainingSessions(p) > 0)
-      .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || (a.id === preferId ? -1 : b.id === preferId ? 1 : a.id.localeCompare(b.id)))[0];
+  const findAlternativeProduct = earliestUsableProduct; // 규칙은 lib/productUtils 한 곳(자동 점검 시험 있음)
   // 완료 처리를 기다리지 않고, 예약됨(scheduled) 상태인 예약이 이미 소진된 이용권을 물고 있으면
   // 그 고객의 다른 유효한 이용권으로 조용히 재연결한다 — 새 이용권을 등록하는 시점과 앱을 새로
   // 불러올 때(자동 새로고침) 둘 다에서 호출해, 재등록 후 남은 반복예약이 계속 옛 이용권에

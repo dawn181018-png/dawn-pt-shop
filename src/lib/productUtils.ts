@@ -85,3 +85,12 @@ export function nameSessionMismatch(name: string, sessions: number): number | nu
   if (inName === null || !(Number(sessions) > 0)) return null;
   return inName > 0 && inName !== Number(sessions) ? inName : null;
 }
+
+// 차감 순서 규칙(한 곳): 그 고객의 잔여 있는 유효(보관 안 됨) 횟수권 중 "가장 먼저 등록한 것".
+// 완료·노쇼로 차감할 이용권, 예약할 때 기본으로 고르는 이용권, 스케줄 카드의 예정 회차가 모두 이 함수를 쓴다.
+// 같은 날 등록한 이용권끼리는 지금 묶여 있는 이용권(preferId)을 먼저, 그다음 id 순으로 순서를 고정한다.
+export function earliestUsableProduct(customerId: string | null, productList: Product[], preferId?: string | null): Product | undefined {
+  return productList
+    .filter((p) => p.customerId === customerId && p.type === "session" && !p.archivedAt && remainingSessions(p) > 0)
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0) || (a.id === preferId ? -1 : b.id === preferId ? 1 : a.id.localeCompare(b.id)))[0];
+}
