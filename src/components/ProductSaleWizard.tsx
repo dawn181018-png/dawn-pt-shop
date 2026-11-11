@@ -43,20 +43,23 @@ type ProductSaleWizardProps = {
   // 링크 서명: 서명 대기 건을 만든 직후 호출된다(부모가 링크 복사 + 서명 대기 목록 갱신).
   onLinkCreated: (sale: PendingSale) => void;
   prefill?: SalePrefill | null;
+  // 고객 상세 > 이용권 탭의 "상품(이용권) 추가": 이미 정해진 고객으로 2단계(상품·결제)부터 시작하고, 고객을 바꿀 수 없다.
+  // 저장 경로(서명 대기 건 → 서명 확정)와 화면은 상품판매와 완전히 같다.
+  fixedCustomer?: Customer | null;
   flash: (msg: string, ms?: number) => void;
 };
 
-export default function ProductSaleWizard({ customers, catalog, onSaleComplete, onLinkCreated, prefill, flash }: ProductSaleWizardProps) {
-  const [step, setStep] = useState(prefill ? 3 : 1);
+export default function ProductSaleWizard({ customers, catalog, onSaleComplete, onLinkCreated, prefill, fixedCustomer, flash }: ProductSaleWizardProps) {
+  const [step, setStep] = useState(prefill ? 3 : fixedCustomer ? 2 : 1);
 
   // ---- 1단계: 고객 검색/등록 ----
   const [query, setQuery] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(prefill?.customer ?? null); // 기존 고객을 선택하면 채워짐(재등록)
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(prefill?.customer ?? fixedCustomer ?? null); // 기존 고객을 선택하면 채워짐(재등록)
   const [isNewCustomer, setIsNewCustomer] = useState(!!prefill?.newCustomer);
   const [customerForm, setCustomerForm] = useState<SaleCustomerForm>(
     prefill?.newCustomer ??
-      (prefill?.customer
-        ? { name: prefill.customer.name, gender: prefill.customer.gender || "", phone: prefill.customer.phone || "", birthdate: prefill.customer.birthdate || "" }
+      ((prefill?.customer ?? fixedCustomer)
+        ? (({ name, gender, phone, birthdate }: Customer) => ({ name, gender: gender || "", phone: phone || "", birthdate: birthdate || "" }))((prefill?.customer ?? fixedCustomer) as Customer)
         : emptyCustomerForm),
   );
 
@@ -306,7 +309,9 @@ export default function ProductSaleWizard({ customers, catalog, onSaleComplete, 
 
       {step === 2 && (
         <div className="ptm-sale-card">
-          <button className="ptm-change-btn ptm-sale-back" onClick={() => setStep(1)}><ChevronLeft size={14} /> 이전</button>
+          {fixedCustomer
+            ? <div className="ptm-sale-fixed-customer">{fixedCustomer.name}님 이용권 판매 (재등록)</div>
+            : <button className="ptm-change-btn ptm-sale-back" onClick={() => setStep(1)}><ChevronLeft size={14} /> 이전</button>}
           {catalog.length > 0 && (
             <div className="ptm-field"><label>이용권에서 불러오기 (선택 시 자동 입력 · 이후 금액 등 수정 가능)</label>
               <select value={catalogPick} onChange={(e) => applyCatalogItem(e.target.value)}>
