@@ -1499,6 +1499,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         setReplaceOffer({
           customerId, productId, date: data.date, time: data.time, duration: Number(data.duration) || 50, memo: data.memo || "",
           candidates, chosenId: candidates[0].id, saving: false,
+          trainer: extra.trainerEmail ? { trainerEmail: extra.trainerEmail, delegationId: extra.delegationId ?? null, delegateName: extra.delegateName ?? null } : undefined,
         });
         return 0;
       }
@@ -1575,6 +1576,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const [replaceOffer, setReplaceOffer] = useState<{
     customerId: string; productId: string; date: string; time: string; duration: number; memo: string;
     candidates: Reservation[]; chosenId: string; saving: boolean;
+    trainer?: Partial<Reservation>; // 예약 창에서 고른 담당자(관리자 화면) — 새 레슨에 그대로 붙인다
   } | null>(null);
   const replaceCandidates = (customerId: string): Reservation[] => {
     const nowKey = `${today()} ${nowTime()}`;
@@ -1597,7 +1599,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         applyDelegateState(await delegateAddLessonReplacingLast(o.customerId, o.productId, o.date, o.time, o.duration, o.chosenId));
       } else {
         const { created, cancelled } = await db.addLessonReplacingLast(o.customerId, o.productId, o.date, o.time, o.duration, o.memo, o.chosenId);
-        setReservations((prev) => [...prev.map((r) => (r.id === cancelled.id ? cancelled : r)), created]);
+        // 새 레슨에도 예약 창에서 고른 담당자를 붙인다(이 DB 함수는 담당자 값을 받지 않으므로 바로 이어서 저장).
+        const withTrainer = o.trainer ? await db.updateReservation(created.id, o.trainer).catch(() => created) : created;
+        setReservations((prev) => [...prev.map((r) => (r.id === cancelled.id ? cancelled : r)), withTrainer]);
       }
       const c = o.candidates.find((x) => x.id === o.chosenId);
       setReplaceOffer(null);
