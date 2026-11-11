@@ -845,6 +845,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   };
 
   // ---- Products ----
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- 예전 "바로 추가" 경로. 화면 연결만 끊고 되돌릴 수 있게 남겨 둔다.
   const openNewProduct = (customerId: string) => { setProductForm(emptyProduct); setProductFormCustomerId(customerId); setEditingProductId(null); setProductCatalogPick(""); setShowProductForm(true); };
   // 수정 폼을 연 시점의 "사용한 횟수". 폼이 열려 있는 동안 다른 기기에서 출석 처리 등으로 차감되면,
   // 이 값을 그대로 다시 저장할 경우 그 차감이 되돌려진다. 그래서 사용자가 이 칸을 직접 바꿨을 때만 저장한다.
@@ -916,6 +917,16 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // (이 목록을 못 불러와도 앱의 다른 화면에는 영향이 없도록 실패는 조용히 넘긴다.)
   const [pendingSales, setPendingSales] = useState<PendingSale[]>([]);
   const [salePrefill, setSalePrefill] = useState<{ key: number; prefill: SalePrefill } | null>(null);
+  // 판매 확정 뒤 공통 처리(상품판매 화면과 고객 상세 "상품(이용권) 추가"가 똑같이 쓴다).
+  const afterSaleComplete = async (customer: Customer, product: Product) => {
+    setCustomers((cur) => (cur.some((c) => c.id === customer.id) ? cur.map((c) => (c.id === customer.id ? customer : c)) : [...cur, customer]));
+    setProducts((cur) => [...cur, product]);
+    // 재등록으로 새 이용권이 생겼으니, 이전 이용권 소진으로 발 묶여 있던 예약됨 상태의 예약을 바로 이어준다.
+    await reconnectScheduledReservations(reservations, [...products, product]);
+    offerSeriesExtension(customer.id, [...products, product]);
+  };
+  // 고객 상세 > 이용권 탭 "상품(이용권) 추가": 상품판매와 같은 단계 창(계약서·동의·서명)을 이 고객으로 연다. 닫으면 아무것도 저장 안 됨.
+  const [detailSale, setDetailSale] = useState<{ key: number; customerId: string } | null>(null);
   const [linkSheet, setLinkSheet] = useState<{ url: string; title: string; copied: boolean; note?: string } | null>(null);
   const pendingIdsRef = useRef<Set<string>>(new Set());
   // 목록에서 빠진 건(고객이 서명했거나 다른 기기에서 취소)이 있으면, 서명으로 새 고객/이용권이 생겼을 수
@@ -3549,11 +3560,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
           customers={customers}
           catalog={catalog}
           onSaleComplete={async (customer: Customer, product: Product) => {
-            setCustomers((cur) => (cur.some((c) => c.id === customer.id) ? cur.map((c) => (c.id === customer.id ? customer : c)) : [...cur, customer]));
-            setProducts((cur) => [...cur, product]);
-            // 재등록으로 새 이용권이 생겼으니, 이전 이용권 소진으로 발 묶여 있던 예약됨 상태의 예약을 바로 이어준다.
-            await reconnectScheduledReservations(reservations, [...products, product]);
-            offerSeriesExtension(customer.id, [...products, product]);
+            await afterSaleComplete(customer, product);
             setSalePrefill(null);
           }}
           flash={flash}
@@ -3948,7 +3955,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                       </div>
                     );
                   })}
-                  <button className="ptm-add-product-btn" onClick={() => openNewProduct(cust.id)}><Plus size={14} /> 상품(이용권) 추가</button>
+                  {/* 예전 "바로 추가"(openNewProduct — 계약서·서명 없이 이용권만 저장)는 되돌릴 수 있게 코드는 남기고 연결만 끊었다(2026-11-11). */}
+                  <button className="ptm-add-product-btn" onClick={() => setDetailSale((prev) => ({ key: (prev?.key ?? 0) + 1, customerId: cust.id }))}><Plus size={14} /> 상품(이용권) 추가</button>
                   {archivedProducts.some((p) => p.customerId === cust.id) && (
                     <div className="ptm-acct-hint" style={{ marginTop: 8 }}>삭제된 이용권은 판매내역 탭의 “삭제된 내역 보기”에서 볼 수 있고 복구할 수 있어요.</div>
                   )}
@@ -4995,6 +5003,36 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 <button className="ptm-series-btn ghost" style={{ marginTop: 0 }} disabled={o.saving} onClick={() => setReplaceOffer(null)}>등록하지 않기</button>
                 <button className="ptm-save-btn" style={{ marginTop: 0 }} disabled={o.saving} onClick={confirmReplaceOffer}>{o.saving ? "처리 중..." : "마지막 회차 취소하고 등록"}</button>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {detailSale && (() => {
+        const saleCustomer = customers.find((c) => c.id === detailSale.customerId);
+        if (!saleCustomer) return null;
+        const close = () => setDetailSale(null);
+        return (
+          <div className="ptm-overlay" onClick={close}>
+            <div className="ptm-sheet ptm-sale-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="ptm-sheet-head">
+                <span className="ptm-sheet-title">상품(이용권) 추가 · {saleCustomer.name}</span>
+                <button className="ptm-icon-btn" onClick={close}><X size={16} /></button>
+              </div>
+              <ProductSaleWizard
+                key={detailSale.key}
+                fixedCustomer={saleCustomer}
+                customers={customers}
+                catalog={catalog}
+                onSaleComplete={async (customer: Customer, product: Product) => {
+                  await afterSaleComplete(customer, product);
+                  setDetailSale(null);
+                  setCustomerDetailId(customer.id);
+                  setCustomerDetailTab("products");
+                }}
+                onLinkCreated={(sale) => { setDetailSale(null); handleLinkCreated(sale); }}
+                flash={flash}
+              />
             </div>
           </div>
         );

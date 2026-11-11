@@ -907,3 +907,5 @@ button.ptm-ss-cell { cursor:zoom-in; }
 .ptm-mtl-item.delegated.t1 .ptm-mtl-delegate { background:#5aa9e6; color:#0d2f4d; }
 .ptm-mtl-item.delegated.t2 .ptm-mtl-delegate { background:#a77bd8; color:#ffffff; }
 .ptm-mtl-item.delegated.t3 .ptm-mtl-delegate { background:#6cc36a; color:#123d12; }
+.ptm-sale-fixed-customer { font-size:13px; font-weight:700; color:var(--amber); margin-bottom:10px; }
+.ptm-sheet.ptm-sale-sheet { max-width:640px; }
