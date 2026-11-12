@@ -5,7 +5,7 @@
 // 예약 생성/수정/세션 차감 로직은 이 파일에 없다.
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, Plus, Check, NotebookPen } from "lucide-react";
 import { addDays } from "@/lib/formatUtils";
 import type { HolidayMap } from "@/lib/holidays";
@@ -42,7 +42,7 @@ type MobileMonthScheduleProps = {
 const WEEK = ["일", "월", "화", "수", "목", "금", "토"];
 // 시간표 범위/단위는 PC 스케줄 그리드와 같게: 06:00~23:00, 빈 칸 터치는 30분 단위.
 // 그 범위 밖 레슨이 있는 날만 범위를 넓힌다.
-const DAY_START = 6 * 60, DAY_END = 23 * 60, SLOT_MIN = 30, PX_PER_MIN = 1.3;
+const DAY_START = 6 * 60, DAY_END = 23 * 60, SLOT_MIN = 30, PX_PER_MIN = 1.0; // 1시간 = 60px(달력과 시간표를 한 화면에 함께 보이게)
 const toMin = (t: string) => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
 const fromMin = (min: number) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
 const shiftYm = (ym: string, delta: number) => {
@@ -133,15 +133,40 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
   const isPastDay = selected < todayStr;
   const topOf = (min: number) => (min - range.start) * PX_PER_MIN;
 
-  // 날짜를 바꿀 때마다 한 번: 오늘이면 지금 시각 조금 위, 다른 날은 첫 일정 조금 위, 일정이 없으면 오전 9시 근처.
+  // 날짜를 고를 때마다(같은 날을 다시 눌러도) 한 번: 첫 레슨 조금 위로 내린다.
+  // 오늘은 아직 끝나지 않은 첫 레슨(다 끝났으면 마지막 레슨), 다른 날은 그날 첫 레슨, 일정이 없으면 오전 9시 근처.
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || scrolledFor.current === selected) return;
-    scrolledFor.current = selected;
-    const firstActive = placed.find((r) => r.status !== "cancelled") || placed[0];
-    const target = selected === todayStr && now >= 0 ? now - 60 : firstActive ? firstActive.start - 30 : 9 * 60;
+    // 데이터가 늦게 도착하면(처음 접속) 일정이 생긴 뒤에 한 번 더 맞춘다.
+    const key = `${selected}|${placed.length > 0}`;
+    if (!el || scrolledFor.current === key) return;
+    scrolledFor.current = key;
+    const active = placed.filter((r) => r.status !== "cancelled");
+    const list = active.length ? active : placed;
+    const pick = selected === todayStr && now >= 0 ? list.find((r) => r.end > now) || list[list.length - 1] : list[0];
+    const target = pick ? pick.start - 30 : 9 * 60;
     el.scrollTop = Math.max(0, topOf(target));
   });
+  const pickDate = (d: string) => { scrolledFor.current = null; setSelected(d); };
+
+  // 시간표 칸 높이 = 화면에서 남은 높이(페이지 자체는 움직이지 않고 시간표 안에서만 스크롤).
+  // 그릴 때마다(위쪽 필터가 생기거나 달이 5주/6주로 바뀌어도) 다시 재고, 화면 크기·회전·주소창 변화에도 맞춘다.
+  // 너무 작은 화면은 최소 150px(그때는 페이지가 조금 스크롤된다).
+  const fitHeight = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    const below = document.documentElement.scrollHeight - (top + el.offsetHeight); // 시간표 아래에 남는 여백
+    const h = `${Math.max(150, Math.floor(window.innerHeight - top - below))}px`;
+    if (el.style.height !== h) el.style.height = h;
+  };
+  useLayoutEffect(fitHeight);
+  useEffect(() => {
+    const onResize = () => fitHeight();
+    window.addEventListener("resize", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    return () => { window.removeEventListener("resize", onResize); window.visualViewport?.removeEventListener("resize", onResize); };
+  }, []);
 
   const onTouchStart = (e: React.TouchEvent) => { touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
   const onTouchEnd = (e: React.TouchEvent) => {
@@ -164,7 +189,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
         </div>
         <div className="ptm-mcal-actions">
           <button className="ptm-nav-btn" onClick={() => goMonth(shiftYm(month, -1))}><ChevronLeft size={18} /></button>
-          <button className="ptm-nav-today" onClick={() => { setMonth(todayStr.slice(0, 7)); setSelected(todayStr); onMonthChange(todayStr.slice(0, 7)); }}>오늘</button>
+          <button className="ptm-nav-today" onClick={() => { setMonth(todayStr.slice(0, 7)); pickDate(todayStr); onMonthChange(todayStr.slice(0, 7)); }}>오늘</button>
           <button className="ptm-nav-btn" onClick={() => goMonth(shiftYm(month, 1))}><ChevronRight size={18} /></button>
           <button className="ptm-nav-btn ptm-mcal-add" onClick={() => onAdd(selected)} title="선택한 날짜에 예약 추가"><Plus size={18} /></button>
         </div>
@@ -183,7 +208,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
             d === selected ? "selected" : "",
           ].filter(Boolean).join(" ");
           return (
-            <button key={d} className={classes} onClick={() => setSelected(d)}>
+            <button key={d} className={classes} onClick={() => pickDate(d)}>
               <span className="ptm-mcal-num">{Number(d.slice(8, 10))}</span>
               <span className={`ptm-mcal-bar${n === 0 ? " none" : n === 1 ? " dot" : n <= 3 ? " short" : " long"}`} />
             </button>
@@ -224,7 +249,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
               isNew ? "new-customer" : "",
               finished ? "finished" : "",
               inProgress ? "in-progress" : "",
-              height < 50 ? "compact" : "",
+              height < 40 ? "compact" : "", // 30분 이하 짧은 칸만 한 줄로
               r.locked ? "locked" : "",
               r.delegateName ? "delegated" : "",
               r.delegateName && r.trainerColor ? `t${r.trainerColor}` : "",
@@ -256,7 +281,7 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
                   {r.status === "cancelled" && <span>취소</span>}
                   {r.status === "scheduled" && r.subtitle && <span>{r.subtitle}</span>}
                   {r.hasNote && <span className="ptm-mcal-note"><NotebookPen size={12} /> 운동일지</span>}
-                  {r.sessionLabel && <span className="ptm-mtl-remain">{r.cols > 1 || height < 50 ? r.remainLabel : r.sessionLabel}</span>}
+                  {r.sessionLabel && <span className="ptm-mtl-remain">{r.cols > 1 || height < 40 ? r.remainLabel : r.sessionLabel}</span>}
                 </span>
               </button>
             );

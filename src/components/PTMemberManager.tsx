@@ -2635,7 +2635,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   };
 
   return (
-    <div className="ptm-root">
+    <div className={`ptm-root${view === "schedule" && isMobileSchedule ? " ptm-msched" : ""}`}>
       <div className="ptm-eyebrow">던휘트니스 삼성점</div>
       <h1 className="ptm-title">회원 관리</h1>
 
