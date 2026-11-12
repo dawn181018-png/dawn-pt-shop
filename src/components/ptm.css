@@ -945,3 +945,10 @@ button.ptm-ss-cell { cursor:zoom-in; }
   .ptm-row3 { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .ptm-field input, .ptm-field select, .ptm-field textarea { min-width:0; max-width:100%; }
 }
+/* 고객 상세 > 판매내역 요약 5칸: PC는 한 줄 5칸, 휴대폰은 2칸씩(큰 금액이 창 밖으로 잘리지 않게) */
+.ptm-detail-stats.ptm-detail-stats-5 { grid-template-columns:repeat(5,minmax(0,1fr)); }
+@media (max-width:640px) {
+  .ptm-detail-stats { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .ptm-detail-stats.ptm-detail-stats-5 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ptm-detail-stat-num { word-break:keep-all; overflow-wrap:anywhere; }
+}

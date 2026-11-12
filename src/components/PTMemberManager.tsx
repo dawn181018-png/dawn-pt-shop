@@ -3973,7 +3973,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                 return (
                   <>
                     {renderPendingSales(pendingSales.filter((s) => s.customerId === cust.id))}
-                    <div className="ptm-detail-stats" style={{ gridTemplateColumns: "repeat(5,1fr)" }}>
+                    <div className="ptm-detail-stats ptm-detail-stats-5">
                       <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{salesTotal.toLocaleString()}원</div><div className="ptm-detail-stat-label">누적 판매금액</div></div>
                       <div className="ptm-detail-stat"><div className="ptm-detail-stat-num">{paidTotal.toLocaleString()}원</div><div className="ptm-detail-stat-label">총 결제금액</div></div>
                       <div className="ptm-detail-stat" style={unpaidTotal > 0 ? { color: "var(--coral)" } : {}}><div className="ptm-detail-stat-num">{unpaidTotal.toLocaleString()}원</div><div className="ptm-detail-stat-label">미수금 잔액</div></div>
