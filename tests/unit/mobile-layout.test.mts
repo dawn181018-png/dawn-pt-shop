@@ -32,4 +32,8 @@ show("시간표 1시간 높이 60px 이하(달력과 한 화면)", px > 0 && px 
 show("50분 수업 카드는 두 줄(요약 아님)로 보인다", compactAt > 0 && card50 >= compactAt, `카드=${card50}px, 한 줄 기준<${compactAt}px`);
 show("50분 카드가 너무 작지 않다(글자 두 줄 들어갈 높이)", card50 >= 44, `${card50}px`);
 
+const css = read("src/components/ptm.css");
+const cellMin = Number((css.match(/\.ptm-mcal-cell \{[^}]*min-height:(\d+)px/) || [])[1]);
+show("휴대폰 달력 날짜 줄은 낮게(시간표가 더 보이게)", cellMin > 0 && cellMin <= 32, `날짜 줄 최소 ${cellMin}px`);
+
 if (fail) { console.log(`\n${fail}개 실패`); process.exit(1); }
