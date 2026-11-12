@@ -296,7 +296,16 @@
 .ptm-hover-link-btn { width:100%; margin-top:9px; background:var(--amber); color:#ffffff; border:none; border-radius:7px; padding:7px; font-size:12px; font-weight:700; cursor:pointer; }
 .ptm-grid-hover-tag { position:fixed; z-index:65; pointer-events:none; background:var(--panel-2); border:1px solid var(--amber); color:var(--amber); font-family:'Oswald',sans-serif; font-size:12px; font-weight:600; padding:5px 10px; border-radius:7px; white-space:nowrap; box-shadow:0 4px 12px rgba(0,0,0,0.35); }
 
-@media (max-width:420px) { .ptm-stats, .ptm-pay-grid, .ptm-stats-compare { grid-template-columns:repeat(2,1fr); } .ptm-charts { grid-template-columns:1fr; } }
+@media (max-width:420px) { .ptm-stats, .ptm-pay-grid, .ptm-stats-compare { grid-template-columns:repeat(2,minmax(0,1fr)); } .ptm-charts { grid-template-columns:1fr; } }
+/* 통계 맨 위 큰 매출 카드 2개: PC는 반반, 휴대폰은 위아래 한 줄씩(큰 금액이 칸을 밀어 화면이 옆으로 넓어지지 않게) */
+.ptm-pay-grid.ptm-stats-hero { grid-template-columns:repeat(2,minmax(0,1fr)); }
+@media (max-width:640px) {
+  .ptm-pay-grid.ptm-stats-hero { grid-template-columns:minmax(0,1fr); }
+  /* 금액은 '원'과 붙여 한 덩어리로(keep-all), 그래도 칸보다 길 때만 숫자 중간에서 줄바꿈(anywhere) — 칸 밖으로 넘치지 않게 */
+  .ptm-stats-hero .ptm-pay-hero-num { font-size:28px; }
+  .ptm-pay-hero-num, .ptm-compare-num, .ptm-stat-num { word-break:keep-all; overflow-wrap:anywhere; }
+  .ptm-compare-num { font-size:15px; }
+}
 
 .ptm-signature-sheet { max-width:640px; }
 .ptm-signature-hint { font-size:12.5px; color:var(--ink-dim); margin-bottom:10px; }
@@ -501,7 +510,7 @@
 .ptm-mtl-now span { position:absolute; left:calc(-1 * var(--mtl-gutter)); top:-8px; font-size:10.5px; font-weight:700; color:var(--coral); background:var(--panel); padding-right:2px; }
 
 /* ---- 휴대폰 매출 계획: 카드 목록 (640px 이하에서만 렌더) ---- */
-@media (max-width:640px) { .ptm-pay-grid.ptm-fc-summary { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:640px) { .ptm-pay-grid.ptm-fc-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 /* 기존 고객 한 줄 목록: 신규 고객 명단(.ptm-table-compact)과 같은 글자 크기/행 높이/구분선 */
 .ptm-fc-rows { background:var(--panel); border:1px solid var(--line); border-radius:12px; }
 .ptm-fc-row { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,0.85fr) 46px 54px 26px; align-items:center; column-gap:6px; padding:3px 6px 3px 10px; min-height:33px; font-size:12.5px; line-height:1.3; border-bottom:1px solid var(--line); cursor:pointer; }
@@ -589,7 +598,7 @@
 .ptm-acct-log { border-top:1px solid var(--line); padding-top:10px; margin-top:10px; }
 .ptm-acct-log-when { font-size:12px; color:var(--ink-dim); }
 @media (max-width:640px) {
-  .ptm-pay-grid.ptm-acct-cards { grid-template-columns:repeat(2,1fr); }
+  .ptm-pay-grid.ptm-acct-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .ptm-acct-days { grid-template-columns:repeat(4,1fr); }
 }
 
@@ -760,7 +769,7 @@
 .ptm-ds-sheet-sum .sum { font-size:16px; font-weight:700; border-top:2px solid #1f2937; padding-top:6px; margin-top:4px; }
 .ptm-export-print { padding:0 !important; background:#fff !important; }
 @media (max-width:640px) {
-  .ptm-pay-grid.ptm-ds-cards { grid-template-columns:repeat(2,1fr); }
+  .ptm-pay-grid.ptm-ds-cards { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .ptm-ds-card-main { grid-column:1 / -1; }
   .ptm-ds-row { grid-template-columns:48px 1fr auto; }
   .ptm-ds-prod { grid-column:1 / 3; font-size:12px; }

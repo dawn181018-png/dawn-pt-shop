@@ -3389,7 +3389,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       )}
       {view === "stats" && statsSubTab === "sales" && (
         <>
-          <div className="ptm-pay-grid" style={{ gridTemplateColumns: "1fr 1fr", marginBottom: 14 }}>
+          <div className="ptm-pay-grid ptm-stats-hero" style={{ marginBottom: 14 }}>
             <div className="ptm-pay-hero" style={{ margin: 0 }}>
               <div className="ptm-pay-hero-label">{statsCurrent.y}년 {statsCurrent.m}월 등록 매출 <span style={{ fontWeight: 400 }}>(실제 결제 금액 기준 · 미수금 제외)</span></div>
               <div className="ptm-pay-hero-num">{statsCurrent.regRevenue.toLocaleString()}원</div>
