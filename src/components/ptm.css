@@ -939,3 +939,9 @@ button.ptm-ss-cell { cursor:zoom-in; }
 .ptm-mtl-item .ptm-mcal-item-sub > .ptm-mcal-overdue,
 .ptm-mtl-item .ptm-mcal-item-sub > .ptm-mcal-done,
 .ptm-mtl-item .ptm-mcal-item-sub > .ptm-noshow-mark { flex-shrink:0; }
+/* 휴대폰 입력창 줄: 칸이 내용(날짜·시간 입력) 때문에 늘어나 창 밖으로 밀리지 않게 — 세 칸 줄은 두 칸 + 다음 줄로 */
+@media (max-width:640px) {
+  .ptm-row2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ptm-row3 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .ptm-field input, .ptm-field select, .ptm-field textarea { min-width:0; max-width:100%; }
+}
