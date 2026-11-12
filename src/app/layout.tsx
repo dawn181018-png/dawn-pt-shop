@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "던휘트니스 삼성점 · 회원 관리",
   description: "PT샵 회원/예약/매출 관리 시스템",
+};
+
+// 휴대폰에서 처음부터 기기 폭에 맞춰 그린다. 손가락으로 확대·축소하는 기능은 막지 않는다(maximumScale/userScalable 미지정).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({
