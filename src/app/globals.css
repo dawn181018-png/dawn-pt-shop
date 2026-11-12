@@ -24,3 +24,11 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* 휴대폰(640px 이하): 아이폰 Safari는 글자 16px 미만인 입력칸을 누르면 화면을 저절로 확대하고 그대로 남겨 둔다.
+   그래서 휴대폰 폭에서는 모든 입력·선택칸 글자를 16px로 맞춘다(화면 속 직접 지정한 크기보다 우선). PC는 그대로. */
+@media (max-width: 640px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
