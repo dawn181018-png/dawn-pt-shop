@@ -952,3 +952,8 @@ button.ptm-ss-cell { cursor:zoom-in; }
   .ptm-detail-stats.ptm-detail-stats-5 { grid-template-columns:repeat(2,minmax(0,1fr)); }
   .ptm-detail-stat-num { word-break:keep-all; overflow-wrap:anywhere; }
 }
+/* 휴대폰 예약창 종류 버튼(등록 회원/미등록 회원/기타 일정): 좁은 폭에서 세 번째 버튼이 창 밖으로 숨지 않게 두 줄 허용 */
+@media (max-width:640px) {
+  .ptm-type-toggle { gap:6px; }
+  .ptm-type-btn { min-width:0; padding:8px 6px; white-space:normal; word-break:keep-all; line-height:1.3; }
+}
