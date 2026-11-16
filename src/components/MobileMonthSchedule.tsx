@@ -5,7 +5,7 @@
 // 예약 생성/수정/세션 차감 로직은 이 파일에 없다.
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ChevronLeft, ChevronRight, Plus, Check, NotebookPen } from "lucide-react";
 import { addDays } from "@/lib/formatUtils";
 import type { HolidayMap } from "@/lib/holidays";
@@ -149,24 +149,6 @@ export default function MobileMonthSchedule({ items, holidays, todayStr, onMonth
   });
   const pickDate = (d: string) => { scrolledFor.current = null; setSelected(d); };
 
-  // 시간표 칸 높이 = 화면에서 남은 높이(페이지 자체는 움직이지 않고 시간표 안에서만 스크롤).
-  // 그릴 때마다(위쪽 필터가 생기거나 달이 5주/6주로 바뀌어도) 다시 재고, 화면 크기·회전·주소창 변화에도 맞춘다.
-  // 너무 작은 화면은 최소 150px(그때는 페이지가 조금 스크롤된다).
-  const fitHeight = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const top = el.getBoundingClientRect().top + window.scrollY;
-    const below = document.documentElement.scrollHeight - (top + el.offsetHeight); // 시간표 아래에 남는 여백
-    const h = `${Math.max(150, Math.floor(window.innerHeight - top - below))}px`;
-    if (el.style.height !== h) el.style.height = h;
-  };
-  useLayoutEffect(fitHeight);
-  useEffect(() => {
-    const onResize = () => fitHeight();
-    window.addEventListener("resize", onResize);
-    window.visualViewport?.addEventListener("resize", onResize);
-    return () => { window.removeEventListener("resize", onResize); window.visualViewport?.removeEventListener("resize", onResize); };
-  }, []);
 
   const onTouchStart = (e: React.TouchEvent) => { touchStart.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }; };
   const onTouchEnd = (e: React.TouchEvent) => {

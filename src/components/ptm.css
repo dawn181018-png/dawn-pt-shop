@@ -932,7 +932,13 @@ button.ptm-ss-cell { cursor:zoom-in; }
   .ptm-trainer-filter { margin-bottom:8px; }
   .ptm-tf-chip { min-height:32px; padding:5px 11px; }
   /* 스케줄 화면: 페이지는 움직이지 않고 시간표 칸만 스크롤(시간표 높이는 화면 남은 높이에 맞춰 계산) */
-  .ptm-root.ptm-msched { padding-bottom:8px; }
+  /* 화면 전체 높이(아이폰 주소창·홈 화면 앱에서도 실제 보이는 높이 = dvh)를 세로로 나눠, 달력 아래 남는 공간을
+     시간표가 끝까지 채운다. 스크립트로 한 번 재던 방식은 아이폰에서 보이는 높이가 나중에 커지면 아래가 비었다. */
+  .ptm-root.ptm-msched { padding-bottom:8px; height:100vh; height:100dvh; display:flex; flex-direction:column; }
+  .ptm-root.ptm-msched > * { flex-shrink:0; }
+  .ptm-root.ptm-msched > .ptm-mcal { flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+  .ptm-root.ptm-msched > .ptm-mcal > * { flex-shrink:0; }
+  .ptm-root.ptm-msched .ptm-mcal > .ptm-mtl-scroll { flex:1 1 0; height:auto; min-height:150px; }
 }
 /* 휴대폰 시간표 카드: 상태(진행 중·처리 전·완료·NO SHOW)는 줄이지 않고, 길면 이용권 이름 쪽이 말줄임 */
 .ptm-mtl-item .ptm-mcal-item-sub > .ptm-mcal-live,

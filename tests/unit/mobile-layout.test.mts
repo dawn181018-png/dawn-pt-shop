@@ -35,5 +35,7 @@ show("50분 카드가 너무 작지 않다(글자 두 줄 들어갈 높이)", ca
 const css = read("src/components/ptm.css");
 const cellMin = Number((css.match(/\.ptm-mcal-cell \{[^}]*min-height:(\d+)px/) || [])[1]);
 show("휴대폰 달력 날짜 줄은 낮게(시간표가 더 보이게)", cellMin > 0 && cellMin <= 32, `날짜 줄 최소 ${cellMin}px`);
+show("스케줄 화면은 실제 보이는 높이(dvh)로 나눠 시간표가 아래까지 채운다", /\.ptm-root\.ptm-msched \{[^}]*height:100dvh/.test(css) && /\.ptm-mtl-scroll \{[^}]*flex:1 1 0/.test(css));
+show("시간표 높이를 스크립트로 한 번만 재지 않는다(아이폰에서 아래가 비던 원인)", !/style\.height\s*=/.test(mms));
 
 if (fail) { console.log(`\n${fail}개 실패`); process.exit(1); }
