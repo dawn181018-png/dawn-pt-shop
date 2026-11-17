@@ -4499,15 +4499,15 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
       {showQuickAdd && (
         <div className="ptm-overlay" onClick={() => setShowQuickAdd(false)}>
-          <div className="ptm-sheet" onClick={(e) => e.stopPropagation()}>
+          <div className="ptm-sheet ptm-quick-sheet" onClick={(e) => e.stopPropagation()}>
             <div className="ptm-sheet-head">
               <span className="ptm-sheet-title">{quickIsMisc ? "새 일정 등록" : "새 예약 등록"} · {koDate(quickForm.date)} {quickForm.time}</span>
               <button className="ptm-icon-btn" onClick={() => setShowQuickAdd(false)}><X size={16} /></button>
             </div>
 
             <div className="ptm-type-toggle" style={{ marginBottom: 14 }}>
-              <button className={`ptm-type-btn ${!quickIsNew && !quickIsMisc ? "active" : ""}`} onClick={() => { setQuickIsNew(false); setQuickIsMisc(false); }}>등록 회원 예약하기</button>
-              {!isDelegate && <button className={`ptm-type-btn ${quickIsNew ? "active" : ""}`} onClick={() => { setQuickIsNew(true); setQuickIsMisc(false); setQuickForm({ ...quickForm, customerId: "", productId: "" }); setQuickSearch(""); }}>미등록 회원 추가하기</button>}
+              <button className={`ptm-type-btn ${!quickIsNew && !quickIsMisc ? "active" : ""}`} onClick={() => { setQuickIsNew(false); setQuickIsMisc(false); }}>등록 회원<span className="ptm-hide-m"> 예약하기</span></button>
+              {!isDelegate && <button className={`ptm-type-btn ${quickIsNew ? "active" : ""}`} onClick={() => { setQuickIsNew(true); setQuickIsMisc(false); setQuickForm({ ...quickForm, customerId: "", productId: "" }); setQuickSearch(""); }}>미등록 회원<span className="ptm-hide-m"> 추가하기</span></button>}
               {!isDelegate && <button className={`ptm-type-btn ${quickIsMisc ? "active" : ""}`} onClick={() => { setQuickIsMisc(true); setQuickIsNew(false); setQuickForm({ ...quickForm, customerId: "", productId: "", memo: "" }); setQuickSearch(""); }}>기타 일정</button>}
             </div>
 
@@ -4562,7 +4562,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             )}
 
             {!quickIsNew && quickForm.customerId && (
-              <div className="ptm-field"><label>예약할 이용권 (등록순으로 잔여 있는 것을 자동 선택 — 필요하면 직접 변경)</label>
+              <div className="ptm-field"><label>예약할 이용권<span className="ptm-hide-m"> (등록순으로 잔여 있는 것을 자동 선택 — 필요하면 직접 변경)</span></label>
                 {quickAvailableProducts.length === 0 ? (
                   <div className="ptm-no-product-msg">현재 사용 가능한 이용권이 없어요 — 세션 차감 없는 상담 예약으로 등록됩니다</div>
                 ) : (
@@ -4584,6 +4584,8 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               </div>
             )}
 
+            {/* 휴대폰에서는 날짜·시간 한 줄, 그 아래 담당자·반복을 나란히(한 화면에 보이게). PC는 감싸기만 하고 배치는 그대로. */}
+            <div className="ptm-quick-grid">
             {/* 담당자(관리자 화면만, 기타 일정 제외) — 기본은 대표(나) */}
             {!isDelegate && !quickIsMisc && renderTrainerSelect(quickTrainer, setQuickTrainer)}
 
@@ -4614,6 +4616,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   <input type="number" min="1" onFocus={(e) => e.target.select()} value={quickForm.repeatCount} onChange={(e) => setQuickForm({ ...quickForm, repeatCount: e.target.value })} />
                 </div>
               )}
+            </div>
             </div>
             {quickForm.repeat !== "none" && (
               <div className="ptm-discount-note">{repeatLabel[quickForm.repeat]} 간격으로 총 {Math.max(1, Number(quickForm.repeatCount) || 1)}회 예약이 등록돼요</div>

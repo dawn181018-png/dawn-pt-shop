@@ -991,3 +991,33 @@ button.ptm-ss-cell { cursor:zoom-in; }
 .ptm-cl-presets button { border:1px solid var(--line); background:var(--panel); color:var(--ink-dim); border-radius:999px; padding:5px 10px; font-size:12px; font-weight:600; cursor:pointer; min-height:30px; }
 .ptm-cl-result { font-size:12px; color:var(--ink-dim); margin:0 2px 6px; }
 .ptm-cl-open { margin-left:auto; }
+
+/* ---- 휴대폰 예약 등록 창: 스크롤 없이 한 화면에(PC는 그대로) ---- */
+.ptm-quick-grid { display:contents; }
+@media (max-width:640px) {
+  .ptm-hide-m { display:none; }
+  .ptm-overlay { padding:10px; }
+  .ptm-sheet { max-height:calc(100dvh - 20px); }
+  /* 아이폰 날짜·시간 칸이 자기 글자 폭만큼 넓어져 창 밖으로 삐져나오지 않게 */
+  .ptm-field input[type="date"], .ptm-field input[type="time"] { -webkit-appearance:none; appearance:none; display:block; min-width:0; width:100%; text-align:left; }
+  .ptm-quick-sheet .ptm-row3 { grid-template-columns:minmax(0,1.25fr) minmax(0,1.15fr) minmax(0,0.6fr); gap:8px; }
+  .ptm-quick-sheet { padding:12px 14px; }
+  .ptm-quick-sheet .ptm-sheet-head { margin-bottom:8px; }
+  .ptm-quick-sheet .ptm-sheet-title { font-size:16px; }
+  .ptm-quick-sheet .ptm-type-toggle { margin-bottom:8px !important; }
+  .ptm-quick-sheet .ptm-type-btn { padding:7px 4px; font-size:13px; }
+  .ptm-quick-sheet .ptm-field { margin-bottom:7px; }
+  .ptm-quick-sheet .ptm-field label { font-size:12px; margin-bottom:3px; }
+  .ptm-quick-sheet .ptm-field input, .ptm-quick-sheet .ptm-field select { padding:7px 10px; height:38px; }
+  .ptm-quick-sheet .ptm-selected-chip { padding:7px 12px; margin-bottom:7px; }
+  .ptm-quick-sheet .ptm-quick-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); column-gap:8px; }
+  .ptm-quick-sheet .ptm-quick-grid > .ptm-row3 { grid-column:1 / -1; order:-1; }
+  .ptm-quick-sheet .ptm-quick-grid > .ptm-repeat-row { margin-bottom:7px; min-width:0; }
+  .ptm-quick-sheet .ptm-quick-grid > .ptm-field { min-width:0; }
+  .ptm-quick-sheet .ptm-trainer-select { gap:6px; }
+  .ptm-quick-sheet .ptm-trainer-select select { min-width:0; }
+  .ptm-quick-sheet .ptm-discount-note { margin:-2px 0 7px; }
+  .ptm-quick-sheet .ptm-rec-open { margin:0 0 7px; padding:8px 10px; font-size:12.5px; }
+  .ptm-quick-sheet .ptm-no-product-msg { margin-bottom:7px; }
+  .ptm-quick-sheet .ptm-save-btn { margin-top:2px; padding:11px; }
+}
