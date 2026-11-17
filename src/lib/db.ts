@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
 import type { DelegateSettlementRecord, ReservationStatusLog, SettlementAction, SettlementSnapshot } from "@/lib/delegateSettlement";
+import type { ReservationCancelLog } from "@/lib/cancelLogs";
 import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PaymentCollection, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
@@ -181,6 +182,33 @@ export async function registerUsedReservations(
 }
 export async function closeSeriesFrom(seriesId: string, fromDate: string, del: boolean): Promise<{ products: Product[] } | null> {
   const { data, error } = await supabase.rpc("close_series_from", { p_series_id: seriesId, p_from: fromDate, p_delete: del });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { products: Record<string, unknown>[] };
+  return { products: (result.products || []).map(mapProduct) };
+}
+
+// 취소 내역을 남기며 취소 — DB의 cancel_reservation_logged / close_series_from_logged가 "취소 방식·사유"를 알려 준 뒤
+// 기존 함수(set_reservation_status / close_series_from)를 그대로 부른다(차감·잔여 규칙 동일). 기록은 DB 트리거가
+// 같은 처리 안에서 남기고, 기록이 실패하면 취소도 실패한다. 이 함수들이 아직 설치되지 않았으면(SQL 실행 전) null —
+// 호출한 쪽은 예전 함수로 취소한다(그때는 기록 장치도 없으므로 동작은 예전과 같다).
+export async function cancelReservationLogged(
+  reservationId: string, productId: string | null, memo: string | null,
+): Promise<{ reservation: Reservation; product: Product | null } | null> {
+  const { data, error } = await supabase.rpc("cancel_reservation_logged", {
+    p_reservation_id: reservationId, p_product_id: productId, p_memo: memo || null,
+  });
+  if (error) {
+    if (isMissingFunction(error)) return null;
+    throw new Error(error.message);
+  }
+  const result = data as { reservation: Record<string, unknown>; product: Record<string, unknown> | null };
+  return { reservation: mapReservation(result.reservation), product: result.product ? mapProduct(result.product) : null };
+}
+export async function closeSeriesFromLogged(seriesId: string, fromDate: string, del: boolean, memo: string | null): Promise<{ products: Product[] } | null> {
+  const { data, error } = await supabase.rpc("close_series_from_logged", { p_series_id: seriesId, p_from: fromDate, p_delete: del, p_memo: memo || null });
   if (error) {
     if (isMissingFunction(error)) return null;
     throw new Error(error.message);
@@ -638,4 +666,26 @@ export async function insertReservationSeries(data: Omit<ReservationSeries, "id"
 export async function updateReservationSeries(id: string, data: Partial<Pick<ReservationSeries, "weekdays" | "time" | "duration">>): Promise<ReservationSeries> {
   const { data: row, error } = await supabase.from("reservation_series").update(toSnake(data)).eq("id", id).select().single();
   return mapSeries(must(row, error));
+}
+
+// ---------- reservation_cancel_logs (예약 취소 내역 — 관리자만 조회, 추가는 DB 트리거만) ----------
+// 표가 아직 없으면(SQL 실행 전) null.
+export async function listReservationCancelLogs(): Promise<ReservationCancelLog[] | null> {
+  const pageSize = 1000;
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("reservation_cancel_logs")
+      .select("id, reservation_id, customer_id, customer_name, product_id, product_name, reservation_type, reservation_date, reservation_time, duration, trainer_email, trainer_name, series_id, from_series, old_status, cancel_kind, memo, actor_role, actor_name, cancelled_at")
+      .order("cancelled_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+      throw new Error(error.message);
+    }
+    rows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return rows.map((r) => toCamel<ReservationCancelLog>(r));
 }
