@@ -212,4 +212,104 @@ set role anon;
 select t_err($$select * from payment_collections$$, 'permission denied', '비로그인: 잔금 기록 조회 막힘');
 reset role;
 
+\echo '== 10. 예약 취소 내역 기록(2026-11-17) — 경로마다 1건, 완료·노쇼·시간 변경은 기록 안 함, 실패하면 취소도 안 됨'
+reset role;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+insert into customers(id, owner_id, name) values ('c0000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000000a','취소시험');
+insert into products(id, owner_id, customer_id, name, type, total_sessions, used_sessions, price, paid_amount, created_at) values
+ ('a0000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','PT 10회(취소시험)','session',10,0,1000000,1000000,'2026-04-01 00:00+09');
+insert into reservation_series(id, owner_id, customer_id, weekdays, time, duration, skip_holidays)
+ values ('e0000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004', array[0,1,2,3,4,5,6], '11:00', 50, false);
+insert into reservations(id, owner_id, customer_id, product_id, series_id, date, time, duration, status, type, trainer_email) values
+ ('b1000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date + 1,'09:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','e0000000-0000-0000-0000-000000000002', current_date + 2,'11:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','e0000000-0000-0000-0000-000000000002', current_date + 3,'11:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','e0000000-0000-0000-0000-000000000002', current_date + 4,'11:00',50,'scheduled','pt','jang@test.com'),
+ ('b1000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005','e0000000-0000-0000-0000-000000000002', current_date + 5,'11:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000006','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date + 1,'12:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000008','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date - 1,'08:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000009','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date - 2,'08:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000010','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date + 6,'08:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000012','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005',null, current_date + 7,'08:00',50,'scheduled','pt','owner'),
+ ('b1000000-0000-0000-0000-000000000011','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000003',null, current_date + 1,'13:00',50,'scheduled','pt','owner');
+select t_ok((select count(*) from reservation_cancel_logs where reservation_id::text like 'b1%') = 0, '준비: 새 예약 등록만으로는 기록 없음');
+select t_ok((select count(*) from reservation_cancel_logs where cancel_kind = 'pushed') = 2, '밀려서 취소(3번 시험의 대리·관리자 두 경로) → 2건');
+select t_ok((select actor_role = 'delegate' and actor_name = '장재혁' and trainer_name = '대표' and from_series
+  from reservation_cancel_logs where cancel_kind = 'pushed' order by cancelled_at limit 1), '밀려서 취소: 대리 이름·담당(대표)·반복 여부 기록');
+select count(*) as products_before from products \gset
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (cancel_reservation_logged('b1000000-0000-0000-0000-000000000001','a0000000-0000-0000-0000-000000000005','감기')) is not null;
+select (cancel_reservation_logged('b1000000-0000-0000-0000-000000000006','a0000000-0000-0000-0000-000000000005',null)) is not null;
+reset role;
+select t_ok((select count(*) from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000001') = 1, '한 건 취소 → 기록 1건');
+select t_ok((select cancel_kind = 'single' and memo = '감기' and actor_role = 'owner' and trainer_name = '대표' and customer_name = '취소시험'
+  and product_name = 'PT 10회(취소시험)' and old_status = 'scheduled' and not from_series and reservation_time = '09:00'
+  from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000001'), '한 건 취소: 회원·이용권·시간·담당·사유 기록');
+select t_ok((select memo is null from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000006'), '사유를 비워도 취소되고 기록됨');
+select t_ok((select status from reservations where id = 'b1000000-0000-0000-0000-000000000001') = 'cancelled', '취소 결과는 기존과 같음(상태=취소, 줄은 남음)');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (close_series_from_logged('e0000000-0000-0000-0000-000000000002', current_date + 3, false, '휴가')) is not null;
+reset role;
+select t_ok((select count(*) from reservation_cancel_logs where series_id = 'e0000000-0000-0000-0000-000000000002' and cancel_kind = 'series') = 3, '반복 이후 전체 취소 → 취소된 3건 각각 기록');
+select t_ok((select bool_and(from_series and memo = '휴가') from reservation_cancel_logs where series_id = 'e0000000-0000-0000-0000-000000000002'), '반복 취소: 반복 여부·사유 기록');
+select t_ok((select trainer_name from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000004') = '장재혁', '담당 강사(대리) 이름 기록');
+select t_ok((select status from reservations where id = 'b1000000-0000-0000-0000-000000000002') = 'scheduled', '반복 취소 시작일 앞 회차는 그대로');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (set_reservation_status('b1000000-0000-0000-0000-000000000008','done','a0000000-0000-0000-0000-000000000005','{}'::jsonb)) is not null;
+select (set_reservation_status('b1000000-0000-0000-0000-000000000009','noshow','a0000000-0000-0000-0000-000000000005','{}'::jsonb)) is not null;
+update reservations set date = current_date + 8, time = '10:00' where id = 'b1000000-0000-0000-0000-000000000010';
+reset role;
+select t_ok((select count(*) from reservation_cancel_logs where reservation_id in ('b1000000-0000-0000-0000-000000000008','b1000000-0000-0000-0000-000000000009','b1000000-0000-0000-0000-000000000010')) = 0, '완료·노쇼·시간 변경은 취소 기록 안 함');
+select t_ok((select used_sessions from products where id = 'a0000000-0000-0000-0000-000000000005') = 2, '취소는 차감과 무관(완료·노쇼만 2회 차감)');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (delete_reservation('b1000000-0000-0000-0000-000000000008')) is not null;
+select (close_series_from_logged('e0000000-0000-0000-0000-000000000002', current_date + 2, true, null)) is not null;
+reset role;
+select t_ok((select cancel_kind = 'delete' and old_status = 'done' from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000008'), '완료 레슨 삭제 → "예약 삭제" 1건(취소 전 상태=완료)');
+select t_ok((select used_sessions from products where id = 'a0000000-0000-0000-0000-000000000005') = 1, '완료 레슨 삭제는 기존처럼 1회 복구');
+select t_ok((select count(*) from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000002') = 1
+  and (select cancel_kind from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000002') = 'delete', '반복 이후 전체 삭제: 예약됨 회차 1건 기록');
+select t_ok((select count(*) from reservation_cancel_logs where series_id = 'e0000000-0000-0000-0000-000000000002') = 4, '이미 취소된 회차를 지울 때는 다시 기록 안 함');
+select t_ok((select count(*) from reservations where series_id = 'e0000000-0000-0000-0000-000000000002') = 0, '반복 삭제 결과는 기존과 같음(줄이 지워짐)');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-0000000000dd', 'delegate');
+select (proxy_set_reservation_status('b1000000-0000-0000-0000-000000000011','cancelled',null,null)) is not null;
+select t_ok((select count(*) from reservation_cancel_logs) = 0, '대리: 취소 내역 조회 0건');
+reset role;
+select t_ok((select cancel_kind = 'single' and actor_role = 'delegate' and actor_name = '장재혁' from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000011'), '대리 트레이너 취소도 기록(이름 포함)');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select set_config('app.cancel_kind', 'bogus', false); -- 기록 저장이 실패하는 상황을 일부러 만든다
+select t_err($$update reservations set status = 'cancelled' where id = 'b1000000-0000-0000-0000-000000000012'$$, 'cancel_kind', '기록 저장 실패 → 취소도 오류');
+select set_config('app.cancel_kind', '', false);
+reset role;
+select t_ok((select status from reservations where id = 'b1000000-0000-0000-0000-000000000012') = 'scheduled', '기록 실패 시 예약은 그대로(취소 안 됨)');
+select t_ok((select count(*) from reservation_cancel_logs where reservation_id = 'b1000000-0000-0000-0000-000000000012') = 0, '기록 실패 시 반쪽 기록 없음');
+select t_ok((select count(*) from products) = :products_before, '취소·삭제로 이용권 줄 수는 변하지 않음');
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select t_ok((select count(*) from reservation_cancel_logs) >= 10, '관리자: 취소 내역 조회 가능');
+select t_err($$insert into reservation_cancel_logs(owner_id, reservation_id, cancel_kind, actor_role) values ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'other', 'owner')$$, 'permission denied', '관리자도 기록 직접 추가 불가');
+select t_err($$update reservation_cancel_logs set memo = 'x'$$, 'permission denied', '관리자도 기록 수정 불가');
+select t_err($$delete from reservation_cancel_logs$$, 'permission denied', '관리자도 기록 삭제 불가');
+select t_login('00000000-0000-0000-0000-0000000000aa', 'member');
+select t_ok((select count(*) from reservation_cancel_logs) = 0, '회원: 취소 내역 조회 0건');
+select t_login('00000000-0000-0000-0000-00000000000b', '');
+select t_ok((select count(*) from reservation_cancel_logs) = 0, '다른 관리자: 남의 취소 내역 0건');
+reset role;
+set role anon;
+select t_err($$select * from reservation_cancel_logs$$, 'permission denied', '비로그인: 취소 내역 조회 막힘');
+reset role;
+
 \echo '== 모든 DB 시험 통과'
