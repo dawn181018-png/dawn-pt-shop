@@ -20,6 +20,8 @@ import DelegateSettlement from "./DelegateSettlement";
 import SignatureGallery from "./SignatureGallery";
 import SignatureSheet from "./SignatureSheet";
 import PtUnitPrice from "./PtUnitPrice";
+import { CustomerCancelLogs, CancelLogsSheet } from "./CancelLogs";
+import type { ReservationCancelLog } from "@/lib/cancelLogs";
 import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
 import { OWNER_KEY, trainerOptions, delegationEmailMap, trainerKeyOf, trainerAssignment, trainerConflicts, type TrainerOption } from "@/lib/trainers";
 import RecurringBookingSheet, { type RecurringRule } from "./RecurringBookingSheet";
@@ -464,6 +466,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   } | null>(null);
   // 새 방식 반복의 회차 하나를 취소했을 때 "끝에 1회 이어서 추가할까요?"
   const [seriesAppendPrompt, setSeriesAppendPrompt] = useState<{ seriesId: string; customerId: string } | null>(null);
+  // 예약 취소 내역(관리자만): 고객 상세나 전체 목록을 열었을 때, 그리고 예약이 바뀔 때마다 다시 읽는다. null = 아직 표가 없음(SQL 실행 전).
+  const [cancelLogs, setCancelLogs] = useState<ReservationCancelLog[] | null>([]);
+  const [showCancelLogs, setShowCancelLogs] = useState(false);
+  // "사유 적고 취소"(선택): 평소 취소는 그대로 한 번에 되고, 사유를 남기고 싶을 때만 이 작은 창을 쓴다.
+  const [cancelMemoRes, setCancelMemoRes] = useState<{ id: string; label: string; memo: string } | null>(null);
+  const [seriesMemo, setSeriesMemo] = useState("");
   const seriesLastDate = (seriesId: string) =>
     reservations.filter((r) => r.seriesId === seriesId).reduce((max, r) => (r.date > max ? r.date : max), "");
   // 재등록 등으로 새 이용권이 생겼을 때: 그 고객에게 새 방식 반복이 있고 아직 예약 안 된 횟수가 생겼으면,
@@ -1716,7 +1724,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
     setWalkInPhone("");
     setShowQuickAdd(true);
   };
-  const setReservationStatus = (resId: string, newStatus: ReservationStatus, extra: Partial<Reservation> = {}) => runExclusive(`reservation:${resId}`, async () => {
+  const setReservationStatus = (resId: string, newStatus: ReservationStatus, extra: Partial<Reservation> = {}, cancelMemo: string | null = null) => runExclusive(`reservation:${resId}`, async () => {
     const r = reservations.find((x) => x.id === resId);
     if (!r) return;
     const was = countsAsUsed(r.status), will = countsAsUsed(newStatus);
@@ -1749,7 +1757,9 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
         flash(newStatus === "noshow" ? "노쇼 처리됨" : newStatus === "cancelled" ? "예약 취소됨" : newStatus === "done" ? "완료 처리됨" : "예약 상태로 되돌림");
         return;
       }
-      const atomic = await db.setReservationStatusAtomic(resId, newStatus, targetProductId, extra);
+      // 취소는 "취소 내역"을 함께 남기는 DB 함수로(차감·잔여 규칙은 기존 함수 그대로). 그 함수가 아직 없으면 예전 함수로.
+      const atomic = (newStatus === "cancelled" ? await db.cancelReservationLogged(resId, targetProductId, cancelMemo) : null)
+        ?? await db.setReservationStatusAtomic(resId, newStatus, targetProductId, extra);
       if (atomic) {
         setReservations((prev) => prev.map((x) => (x.id === resId ? atomic.reservation : x)));
         const updatedProduct = atomic.product;
@@ -1832,15 +1842,31 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   // ---- 반복 예약: 이 예약만 / 이후 전체 선택 처리 ----
   const [seriesPrompt, setSeriesPrompt] = useState<{ reservation: Reservation; action: "cancel" | "delete" } | null>(null);
   const requestCancelReservation = (r: ReservationLike) => {
-    if (r.seriesId) setSeriesPrompt({ reservation: r, action: "cancel" });
+    if (r.seriesId) { setSeriesMemo(""); setSeriesPrompt({ reservation: r, action: "cancel" }); }
     else setReservationStatus(r.id, "cancelled");
   };
+  // 사유를 적고 취소(선택 기능): 반복 예약은 원래 뜨는 "이 예약만/이후 전체" 창의 사유 칸에서, 그 밖은 작은 사유 창에서.
+  const requestCancelWithMemo = (r: ReservationLike) => {
+    if (r.seriesId) { setSeriesMemo(""); setSeriesPrompt({ reservation: r, action: "cancel" }); return; }
+    setCancelMemoRes({ id: r.id, label: `${koDate(r.date)} ${r.time} ${r.customerName || ""}`, memo: "" });
+  };
+  const submitCancelWithMemo = () => {
+    if (!cancelMemoRes) return;
+    setReservationStatus(cancelMemoRes.id, "cancelled", {}, cancelMemoRes.memo.trim() || null);
+    setCancelMemoRes(null);
+  };
+  useEffect(() => {
+    if (!loaded || isDelegate || (!customerDetailId && !showCancelLogs)) return;
+    let alive = true;
+    db.listReservationCancelLogs().then((rows) => { if (alive) setCancelLogs(rows); }).catch(() => {});
+    return () => { alive = false; };
+  }, [loaded, isDelegate, customerDetailId, showCancelLogs, reservations]);
   const requestDeleteReservation = (r: ReservationLike) => {
-    if (r.seriesId) { setSeriesPrompt({ reservation: r, action: "delete" }); return; }
+    if (r.seriesId) { setSeriesMemo(""); setSeriesPrompt({ reservation: r, action: "delete" }); return; }
     const label = r.type === "misc" ? r.customerName : `${r.customerName} · ${r.productName}`;
     askConfirm(`${koDate(r.date)} ${r.time} "${label}" 예약을 삭제할까요?`, () => deleteReservation(r.id));
   };
-  const cancelSeriesFuture = (seriesId: string, fromDate: string) => runExclusive(`series:${seriesId}`, async () => {
+  const cancelSeriesFuture = (seriesId: string, fromDate: string, memo: string | null = null) => runExclusive(`series:${seriesId}`, async () => {
     const deltaByProduct: Record<string, number> = {};
     reservations.forEach((r) => {
       if (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" && countsAsUsed(r.status) && r.productId) {
@@ -1848,7 +1874,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       }
     });
     try {
-      const atomic = await db.closeSeriesFrom(seriesId, fromDate, false);
+      const atomic = (await db.closeSeriesFromLogged(seriesId, fromDate, false, memo)) ?? await db.closeSeriesFrom(seriesId, fromDate, false);
       if (atomic) {
         setReservations((prev) => prev.map((r) => (r.seriesId === seriesId && r.date >= fromDate && r.status !== "cancelled" ? { ...r, status: "cancelled" as const } : r)));
         setProducts((prev) => prev.map((x) => atomic.products.find((u) => u.id === x.id) || x));
@@ -1870,7 +1896,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
       if (r.seriesId === seriesId && r.date >= fromDate && countsAsUsed(r.status) && r.productId) deltaByProduct[r.productId] = (deltaByProduct[r.productId] || 0) - 1;
     });
     try {
-      const atomic = await db.closeSeriesFrom(seriesId, fromDate, true);
+      const atomic = (await db.closeSeriesFromLogged(seriesId, fromDate, true, null)) ?? await db.closeSeriesFrom(seriesId, fromDate, true);
       if (atomic) {
         setReservations((prev) => prev.filter((r) => !(r.seriesId === seriesId && r.date >= fromDate)));
         setProducts((prev) => prev.map((x) => atomic.products.find((u) => u.id === x.id) || x));
@@ -1889,11 +1915,12 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
   const applySeriesChoice = (scope: string) => {
     if (!seriesPrompt) return;
     const { reservation: r, action } = seriesPrompt;
+    const memo = seriesMemo.trim() || null;
     if (scope === "this") {
-      if (action === "cancel") setReservationStatus(r.id, "cancelled");
+      if (action === "cancel") setReservationStatus(r.id, "cancelled", {}, memo);
       else deleteReservation(r.id);
     } else {
-      if (action === "cancel") cancelSeriesFuture(r.seriesId as string, r.date);
+      if (action === "cancel") cancelSeriesFuture(r.seriesId as string, r.date, memo);
       else deleteSeriesFuture(r.seriesId as string, r.date);
     }
     setSeriesPrompt(null);
@@ -2848,6 +2875,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               <button className={`ptm-quickfilter-btn ${quickFilter === "archived" ? "active" : ""}`} onClick={() => setQuickFilter(quickFilter === "archived" ? null : "archived")}>#보관된 고객 {archivedCustomers.length}명</button>
             )}
             {quickFilter && <button className="ptm-quickfilter-clear" onClick={() => setQuickFilter(null)}>필터 해제</button>}
+            {!isDelegate && <button className="ptm-quickfilter-btn ptm-cl-open" onClick={() => setShowCancelLogs(true)}>취소 내역 보기</button>}
           </div>
           <div className="ptm-toolbar">
             <div className="ptm-search">
@@ -3868,6 +3896,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                       </table>
                     </div>
                   )}
+                  {!isDelegate && <CustomerCancelLogs logs={cancelLogs} customerId={cust.id} todayStr={today()} />}
                 </>
               )}
 
@@ -4776,6 +4805,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               {r.type === "misc" ? (
                 <>
                   <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
+                  {!isDelegate && r.status !== "cancelled" && <button className="ptm-ctx-item sub" onClick={() => { requestCancelWithMemo(r); setCtxMenu(null); }}>사유 적고 취소</button>}
                   <div className="ptm-ctx-divider" />
                   <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>제목·날짜·시간 수정</button>
                   <div className="ptm-ctx-divider" />
@@ -4786,6 +4816,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
                   <button className="ptm-ctx-item" onClick={() => { requestCompleteReservation(r); setCtxMenu(null); }}>출석(완료) 상태로 변경</button>
                   <button className="ptm-ctx-item" onClick={() => { setReservationStatus(r.id, "noshow"); setCtxMenu(null); }}>노쇼 상태로 변경</button>
                   <button className="ptm-ctx-item" onClick={() => { requestCancelReservation(r); setCtxMenu(null); }}>취소 상태로 변경</button>
+                  {!isDelegate && r.status !== "cancelled" && <button className="ptm-ctx-item sub" onClick={() => { requestCancelWithMemo(r); setCtxMenu(null); }}>사유 적고 취소</button>}
                   <div className="ptm-ctx-divider" />
                   <button className="ptm-ctx-item" onClick={() => { openTimeEdit(r); setCtxMenu(null); }}>날짜·시간 수정</button>
                   <div className="ptm-ctx-divider" />
@@ -4946,11 +4977,34 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
             <p className="ptm-series-desc">
               이 예약은 반복 등록된 일정이에요. {seriesPrompt.reservation.date} 예약만 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}할까요, 이후 반복되는 예약도 전부 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}할까요?
             </p>
+            {seriesPrompt.action === "cancel" && !isDelegate && (
+              <input className="ptm-cl-memo-input" placeholder="취소 사유 (선택 · 비워도 돼요)" value={seriesMemo} onChange={(e) => setSeriesMemo(e.target.value)} />
+            )}
             <button className="ptm-series-btn" onClick={() => applySeriesChoice("this")}>이 예약만 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn danger" onClick={() => applySeriesChoice("future")}>이후 모든 반복 예약 {seriesPrompt.action === "cancel" ? "취소" : "삭제"}</button>
             <button className="ptm-series-btn ghost" onClick={() => setSeriesPrompt(null)}>그만두기</button>
           </div>
         </div>
+      )}
+
+      {cancelMemoRes && (
+        <div className="ptm-overlay" onClick={() => setCancelMemoRes(null)}>
+          <div className="ptm-sheet ptm-series-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="ptm-sheet-head">
+              <span className="ptm-sheet-title">사유 적고 취소</span>
+              <button className="ptm-icon-btn" onClick={() => setCancelMemoRes(null)}><X size={16} /></button>
+            </div>
+            <p className="ptm-series-desc">{cancelMemoRes.label} 예약을 취소해요. 사유는 취소 내역에 함께 남아요(비워도 돼요).</p>
+            <input className="ptm-cl-memo-input" autoFocus placeholder="취소 사유 (선택)" value={cancelMemoRes.memo}
+              onChange={(e) => setCancelMemoRes({ ...cancelMemoRes, memo: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") submitCancelWithMemo(); }} />
+            <button className="ptm-series-btn danger" onClick={submitCancelWithMemo}>예약 취소</button>
+            <button className="ptm-series-btn ghost" onClick={() => setCancelMemoRes(null)}>그만두기</button>
+          </div>
+        </div>
+      )}
+      {showCancelLogs && !isDelegate && (
+        <CancelLogsSheet logs={cancelLogs} trainerOpts={trainerOpts} todayStr={today()} onClose={() => setShowCancelLogs(false)} />
       )}
 
       <input id="ptm-receipt-input" type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => onReceiptFileChosen(e.currentTarget)} />
