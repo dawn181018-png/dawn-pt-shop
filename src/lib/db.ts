@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import { toSnake, toCamel, withEpochCreatedAt } from "@/lib/caseConvert";
 import type { DelegateSettlementRecord, ReservationStatusLog, SettlementAction, SettlementSnapshot } from "@/lib/delegateSettlement";
 import type { ReservationCancelLog } from "@/lib/cancelLogs";
+import type { SignatureAdminEntry } from "@/lib/adminSignature";
 import type { Customer, Product, Reservation, CatalogItem, PayrollSettings, RenewalForecast, ContractSignature, PaymentEditLog, PaymentReceipt, PaymentCollection, PassTransfer, TransferRecipientInput, PendingSale, LessonDelegation, ReservationSeries } from "@/lib/types";
 
 const supabase = createClient();
@@ -688,4 +689,62 @@ export async function listReservationCancelLogs(): Promise<ReservationCancelLog[
     if (!data || data.length < pageSize) break;
   }
   return rows.map((r) => toCamel<ReservationCancelLog>(r));
+}
+
+// ---------- 서명 시트 관리자 서명 입력 (signature_admin_entries — 관리자만 조회, 추가는 DB 함수만) ----------
+const ADMIN_SIGNATURE_ERRORS: Record<string, string> = {
+  not_allowed: "대표 계정만 서명을 넣을 수 있어요",
+  not_found: "예약을 찾지 못했어요",
+  not_done: "완료 처리된 회차에만 서명을 넣을 수 있어요",
+  already_signed: "이미 서명이 있는 회차예요(덮어쓸 수 없어요)",
+  bad_path: "서명 그림 저장 위치가 올바르지 않아요",
+  bad_method: "넣는 방식이 올바르지 않아요",
+  not_admin_signature: "관리자가 넣은 서명만 지울 수 있어요",
+};
+const adminSignatureError = (message: string) => {
+  const key = Object.keys(ADMIN_SIGNATURE_ERRORS).find((k) => message.includes(k));
+  return new Error(key ? ADMIN_SIGNATURE_ERRORS[key] : message);
+};
+// 관리자 입력 서명 그림은 관리자 폴더 아래 admin/ 에 따로 둔다(고객 서명 파일과 섞이지 않게, 덮어쓰지 않음).
+export async function uploadAdminSignature(reservationId: string, blob: Blob): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("로그인이 필요합니다");
+  const path = `${user.id}/admin/${reservationId}-${Date.now()}.png`;
+  const { error } = await supabase.storage.from("signatures").upload(path, blob, { contentType: "image/png", upsert: false });
+  if (error) throw new Error(error.message);
+  return path;
+}
+export async function attachAdminSignature(reservationId: string, path: string, method: "paste" | "file"): Promise<Reservation> {
+  const { data, error } = await supabase.rpc("admin_attach_signature", { p_reservation_id: reservationId, p_path: path, p_method: method });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("이 기능은 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw adminSignatureError(error.message);
+  }
+  return mapReservation(data as Record<string, unknown>);
+}
+export async function removeAdminSignature(reservationId: string): Promise<Reservation> {
+  const { data, error } = await supabase.rpc("admin_remove_signature", { p_reservation_id: reservationId });
+  if (error) {
+    if (isMissingFunction(error)) throw new Error("이 기능은 아직 설치되지 않았어요(SQL 실행 필요)");
+    throw adminSignatureError(error.message);
+  }
+  return mapReservation(data as Record<string, unknown>);
+}
+// 표가 아직 없으면(SQL 실행 전) null.
+export async function listSignatureAdminEntries(): Promise<SignatureAdminEntry[] | null> {
+  const rows: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase
+      .from("signature_admin_entries")
+      .select("id, reservation_id, action, signature_path, method, actor_id, created_at")
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) {
+      if (["PGRST205", "42P01"].includes(error.code || "")) return null;
+      throw new Error(error.message);
+    }
+    rows.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return rows.map((r) => toCamel<SignatureAdminEntry>(r));
 }
