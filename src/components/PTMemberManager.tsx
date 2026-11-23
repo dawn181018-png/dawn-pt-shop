@@ -4142,6 +4142,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
               )}
               {customerDetailTab === "signatures" && !isDelegate && sigView === "sheet" && (
                 <SignatureSheet
+                  onAdminSignatureChanged={(u) => setReservations((prev) => prev.map((x) => (x.id === u.id ? { ...x, signatureUrl: u.signatureUrl ?? null } : x)))}
                   customerName={cust.name}
                   products={[...products, ...archivedProducts].filter((p) => p.customerId === cust.id)}
                   reservations={reservations.filter((r) => r.customerId === cust.id)}

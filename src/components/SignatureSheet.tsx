@@ -2,7 +2,8 @@
 // 그대로 이미지(PNG)·PDF·인쇄로 내보낸다. 고객에게 "이만큼 사용하셨습니다"를 보여주는 용도라 결제금액·연락처·메모는 넣지 않는다.
 // 칸 채우는 기준은 lib/signatureSheet(레슨에 저장된 이용권 연결 + 날짜순), 담당 구분은 lib/delegateSettlement(classifyLesson).
 // 서명 파일은 관리자 권한으로 직접 받아 브라우저 안에서만 쓰는 임시 주소로 보여준다(공개 주소를 만들지 않음).
-// 조회와 저장만 한다 — 예약·서명·세션 차감·잔여 횟수는 바꾸지 않는다.
+// 조회와 저장만 한다 — 예약·세션 차감·잔여 횟수는 바꾸지 않는다. 단, 관리자 화면에서는 완료됐지만 서명이 빈 회차에
+// "서명 붙여넣기"로 서명 그림만 넣을 수 있고(관리자 입력으로 구분·기록), 관리자 입력 서명만 다시 지울 수 있다.
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
@@ -12,6 +13,8 @@ import { today, toLocalDateStr } from "@/lib/formatUtils";
 import { printElement, saveElementPng, shareOrSaveElementPng, waitForElementImages } from "@/lib/exportUtils";
 import { classifyLesson, type LessonHandler, type StatusLogActor } from "@/lib/delegateSettlement";
 import { buildSheet, defaultSheetProductId, sheetFileName, splitColumns, type SheetCell } from "@/lib/signatureSheet";
+import { currentAdminSignatures, type SignatureAdminEntry } from "@/lib/adminSignature";
+import AdminSignaturePaste from "./AdminSignaturePaste";
 import type { PassTransfer, Product, Reservation } from "@/lib/types";
 
 const PAGE_W = 794; // A4 세로(96dpi) — 화면에서는 이 크기를 줄여서 보여주고, 저장은 이 크기의 2배로
@@ -29,7 +32,7 @@ const handlerText = (h: LessonHandler) =>
   : h.kind === "owner" ? "본인" : "담당 구분 없음";
 
 export default function SignatureSheet({
-  customerName, products, reservations, transfers, firstDay, statusLogs, flash,
+  customerName, products, reservations, transfers, firstDay, statusLogs, flash, onAdminSignatureChanged,
 }: {
   customerName: string;
   products: Product[]; // 이 고객의 이용권(보관 포함 — 선택 목록에서는 보관된 것을 뺀다)
@@ -38,6 +41,8 @@ export default function SignatureSheet({
   firstDay: string | null;
   statusLogs?: Map<string, StatusLogActor>;
   flash: (msg: string, ms?: number) => void;
+  // 관리자(대표) 화면에서만 넘긴다 — 있으면 "서명 붙여넣기"·"관리자 입력 지우기"를 보여준다(대리 화면에는 이 화면 자체가 없음).
+  onAdminSignatureChanged?: (updated: Reservation) => void;
 }) {
   const choices = useMemo(
     () => products.filter((p) => p.type === "session" && !p.archivedAt).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
@@ -56,6 +61,19 @@ export default function SignatureSheet({
   const [zoom, setZoom] = useState<SheetCell | null>(null);
   const [busy, setBusy] = useState(false);
   const [exportAll, setExportAll] = useState(false); // 전체 저장·전체 인쇄 때만 모든 장을 화면 밖에 그린다
+  // 관리자 입력 서명 기록(null = 표가 아직 없음). 바뀔 때마다 다시 읽는다.
+  const [adminEntries, setAdminEntries] = useState<SignatureAdminEntry[] | null>([]);
+  const [entriesVer, setEntriesVer] = useState(0);
+  useEffect(() => {
+    let alive = true;
+    db.listSignatureAdminEntries().then((rows) => { if (alive) setAdminEntries(rows); }).catch(() => {});
+    return () => { alive = false; };
+  }, [entriesVer]);
+  const adminSigs = useMemo(() => currentAdminSignatures(adminEntries || [], reservations), [adminEntries, reservations]);
+  const [pasteFor, setPasteFor] = useState<{ r: Reservation; no: number } | null>(null);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const canPaste = !!onAdminSignatureChanged && adminEntries !== null; // SQL 실행 전이면 버튼을 숨긴다
 
   // 레슨별 담당(본인/대리/구분 없음) — 정산·서명 목록과 같은 판단(classifyLesson)
   const handlers = useMemo(
@@ -151,20 +169,24 @@ export default function SignatureSheet({
   if (choices.length === 0) return <div className="ptm-table-empty">횟수제 이용권이 없어요</div>;
   if (!product || !sheet) return null;
 
-  const renderCell = (c: SheetCell) => {
+  // forScreen: 화면에서만 보이는 "서명 붙여넣기" 버튼(이미지 저장·인쇄본에는 그리지 않는다)
+  const renderCell = (c: SheetCell, forScreen = false) => {
     const base = `ptm-ss-cell ${c.kind}`;
     if (c.kind === "lesson") {
       const h = handlerOf(c.r);
       const dlg = showDelegate && h.kind === "delegate";
       const sig = c.r.signatureUrl ? blobs[c.r.signatureUrl] : undefined;
+      const pastable = forScreen && canPaste && !busy && c.r.status === "done" && !c.r.signatureUrl;
+      const isAdmin = !!c.r.signatureUrl && adminSigs.has(c.r.id);
       return (
-        <button key={c.no} type="button" className={`${base}${dlg ? " delegate" : ""}`} onClick={() => setZoom(c)}>
+        <button key={c.no} type="button" className={`${base}${dlg ? " delegate" : ""}`} onClick={() => (pastable ? setPasteFor({ r: c.r, no: c.no }) : setZoom(c))}>
           <span className="ptm-ss-no">{c.no}</span>
           <span className="ptm-ss-date">{shortDate(c.r.date)}{showTime && <small>{c.r.time}</small>}</span>
           <span className="ptm-ss-sign">
             {c.r.status === "noshow" ? <span className="ptm-ss-noshow">NO SHOW</span>
-              : !c.r.signatureUrl ? <span className="ptm-ss-nosign">서명 없음</span>
+              : !c.r.signatureUrl ? (pastable ? <span className="ptm-ss-paste">＋ 서명 붙여넣기</span> : <span className="ptm-ss-nosign">서명 없음</span>)
               : sig ? <img src={sig} alt="" /> : <span className="ptm-ss-nosign">…</span>}
+            {isAdmin && <span className="ptm-ss-admin">관리자 입력</span>}
             {dlg && <span className="ptm-ss-dlg">대리: {h.delegateName || "이름 없음"}</span>}
           </span>
         </button>
@@ -175,8 +197,9 @@ export default function SignatureSheet({
     if (c.kind === "scheduled" && showPlanned) return <div key={c.no} className={base}><span className="ptm-ss-no">{c.no}</span><span className="ptm-ss-date">{shortDate(c.r.date)}{showTime && <small>{c.r.time}</small>}</span><span className="ptm-ss-sign"><span className="ptm-ss-planned">예정</span></span></div>;
     return <div key={c.no} className="ptm-ss-cell empty"><span className="ptm-ss-no">{c.no}</span><span className="ptm-ss-date" /><span className="ptm-ss-sign" /></div>;
   };
-  const renderPage = (cells: SheetCell[], i: number, ref?: Ref<HTMLDivElement>) => {
+  const renderPage = (cells: SheetCell[], i: number, ref?: Ref<HTMLDivElement>, forScreen = false) => {
     const [left, right] = splitColumns(cells);
+    const cell = (c: SheetCell) => renderCell(c, forScreen);
     return (
       <div key={i} ref={ref} className="ptm-ss-page" style={{ width: PAGE_W, height: PAGE_H }}>
         <div className="ptm-ss-head">
@@ -191,11 +214,12 @@ export default function SignatureSheet({
           <div className="ptm-ss-range">{sheet.firstDate ? `첫 수업 ${dotDate(sheet.firstDate)} ~ 최근 수업 ${dotDate(sheet.lastDate as string)}` : "아직 진행한 수업이 없어요"}</div>
         </div>
         <div className="ptm-ss-cols">
-          <div className="ptm-ss-col">{left.map(renderCell)}</div>
-          <div className="ptm-ss-col">{right.map(renderCell)}</div>
+          <div className="ptm-ss-col">{left.map(cell)}</div>
+          <div className="ptm-ss-col">{right.map(cell)}</div>
         </div>
         <div className="ptm-ss-foot">
           {showDelegate && <span><i className="ptm-ss-swatch" /> 대리 트레이너 진행</span>}
+          {cells.some((c) => c.kind === "lesson" && !!c.r.signatureUrl && adminSigs.has(c.r.id)) && <span>관리자 입력: 현장에서 받지 못해 관리자가 넣은 서명</span>}
           <span>노쇼는 1회 사용으로 계산돼요</span>
           <span>{dotDate(todayStr)} 기준</span>
         </div>
@@ -203,7 +227,20 @@ export default function SignatureSheet({
     );
   };
 
-  const zoomInfo = zoom && zoom.kind === "lesson" ? { r: zoom.r, h: handlerOf(zoom.r), sig: zoom.r.signatureUrl ? blobs[zoom.r.signatureUrl] : undefined } : null;
+  const zoomLesson = zoom && zoom.kind === "lesson" ? (reservations.find((x) => x.id === zoom.r.id) || zoom.r) : null; // 넣기·지우기 뒤 최신 상태
+  const zoomInfo = zoomLesson ? { r: zoomLesson, h: handlerOf(zoomLesson), sig: zoomLesson.signatureUrl ? blobs[zoomLesson.signatureUrl] : undefined, admin: zoomLesson.signatureUrl ? adminSigs.get(zoomLesson.id) : undefined } : null;
+  const closeZoom = () => { setZoom(null); setConfirmRemove(false); };
+  const removeAdmin = async () => {
+    if (!zoomInfo || !onAdminSignatureChanged || removing) return;
+    setRemoving(true);
+    try {
+      const updated = await db.removeAdminSignature(zoomInfo.r.id);
+      onAdminSignatureChanged(updated);
+      setEntriesVer((v) => v + 1);
+      flash("관리자 입력 서명을 지웠어요(지운 기록은 남아요)", 2500);
+      closeZoom();
+    } catch (e) { flash(e instanceof Error ? e.message : "지우지 못했어요", 3500); } finally { setRemoving(false); }
+  };
 
   return (
     <div className="ptm-ss">
@@ -235,7 +272,7 @@ export default function SignatureSheet({
 
       <div ref={boxRef} className="ptm-ss-box" style={{ height: PAGE_H * scale }}>
         <div style={{ width: PAGE_W, transform: `scale(${scale})`, transformOrigin: "top left" }}>
-          {renderPage(sheet.pages[page] || [], page, pageRef)}
+          {renderPage(sheet.pages[page] || [], page, pageRef, true)}
         </div>
       </div>
       <div className="ptm-ss-basis">
@@ -251,11 +288,11 @@ export default function SignatureSheet({
       )}
 
       {zoom && (
-        <div className="ptm-overlay" onClick={() => setZoom(null)}>
+        <div className="ptm-overlay" onClick={closeZoom}>
           <div className="ptm-sheet ptm-ss-zoom" onClick={(e) => e.stopPropagation()}>
             <div className="ptm-sheet-head">
               <span className="ptm-sheet-title">{zoom.no}회차</span>
-              <button className="ptm-icon-btn" onClick={() => setZoom(null)}><X size={16} /></button>
+              <button className="ptm-icon-btn" onClick={closeZoom}><X size={16} /></button>
             </div>
             {zoomInfo && (
               <>
@@ -267,11 +304,41 @@ export default function SignatureSheet({
                   <li>날짜 {dotDate(zoomInfo.r.date)} ({weekdayShort[new Date(`${zoomInfo.r.date}T00:00:00`).getDay()]}) · {zoomInfo.r.time}{zoomInfo.r.duration ? ` · ${zoomInfo.r.duration}분` : ""}</li>
                   <li>담당 {handlerText(zoomInfo.h)}</li>
                   <li>상태 {statusText[zoomInfo.r.status]}</li>
+                  {zoomInfo.admin && (
+                    <li className="ptm-ss-admin-info">관리자 입력 서명 · {new Date(zoomInfo.admin.createdAt).toLocaleString("ko-KR")} · {zoomInfo.admin.method === "file" ? "파일" : "붙여넣기"}</li>
+                  )}
                 </ul>
+                {zoomInfo.admin && onAdminSignatureChanged && (
+                  confirmRemove ? (
+                    <div className="ptm-confirm-actions">
+                      <button className="ptm-series-btn ghost" disabled={removing} onClick={() => setConfirmRemove(false)}>그만두기</button>
+                      <button className="ptm-series-btn danger" disabled={removing} onClick={removeAdmin}>{removing ? "지우는 중…" : "지우기(기록은 남음)"}</button>
+                    </div>
+                  ) : (
+                    <button className="ptm-series-btn ghost" onClick={() => setConfirmRemove(true)}>관리자 입력 서명 지우기</button>
+                  )
+                )}
+                {!zoomInfo.r.signatureUrl && zoomInfo.r.status === "done" && canPaste && (
+                  <button className="ptm-series-btn primary" onClick={() => { setPasteFor({ r: zoomInfo.r, no: zoom.no }); closeZoom(); }}>서명 붙여넣기</button>
+                )}
               </>
             )}
           </div>
         </div>
+      )}
+
+      {pasteFor && onAdminSignatureChanged && (
+        <AdminSignaturePaste
+          reservationId={pasteFor.r.id}
+          label={`${pasteFor.no}회차 · ${dotDate(pasteFor.r.date)} ${pasteFor.r.time}`}
+          onClose={() => setPasteFor(null)}
+          onSaved={(updated) => {
+            onAdminSignatureChanged(updated);
+            setEntriesVer((v) => v + 1);
+            setPasteFor(null);
+            flash("서명을 넣었어요(관리자 입력으로 기록)", 2500);
+          }}
+        />
       )}
     </div>
   );
