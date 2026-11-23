@@ -312,4 +312,65 @@ set role anon;
 select t_err($$select * from reservation_cancel_logs$$, 'permission denied', '비로그인: 취소 내역 조회 막힘');
 reset role;
 
+\echo '== 11. 서명 시트 관리자 서명 입력(2026-11-23) — 완료·빈 서명에만, 대표만, 덮어쓰기 불가, 기록은 추가만'
+reset role;
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+insert into reservations(id, owner_id, customer_id, product_id, date, time, duration, status, type, trainer_email, signature_url) values
+ ('b2000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005', current_date - 5,'09:00',50,'done','pt','owner', null),
+ ('b2000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005', current_date - 4,'09:00',50,'done','pt','owner', '00000000-0000-0000-0000-00000000000a/b2-own.png'),
+ ('b2000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005', current_date - 3,'09:00',50,'noshow','pt','owner', null),
+ ('b2000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000004','a0000000-0000-0000-0000-000000000005', current_date + 3,'09:00',50,'scheduled','pt','owner', null),
+ ('b2000000-0000-0000-0000-000000000005','00000000-0000-0000-0000-00000000000a','c0000000-0000-0000-0000-000000000002','a0000000-0000-0000-0000-000000000003', current_date - 2,'09:00',50,'done','pt','owner', null);
+select used_sessions as used_before from products where id = 'a0000000-0000-0000-0000-000000000005' \gset
+select count(*) as products_before2 from products \gset
+select count(*) as contract_before from contract_signatures \gset
+select count(*) as cancel_before from reservation_cancel_logs \gset
+
+set role authenticated;
+select t_login('00000000-0000-0000-0000-0000000000dd', 'delegate');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000005', '00000000-0000-0000-0000-0000000000dd/admin/x.png', 'paste')$$, 'not_allowed', '대리 트레이너: 서명 넣기 서버에서 막힘');
+select t_ok((select count(*) from signature_admin_entries) = 0, '대리: 관리자 서명 기록 조회 0건');
+select t_login('00000000-0000-0000-0000-0000000000aa', 'member');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-0000000000aa/admin/x.png', 'file')$$, 'not_allowed', '회원: 서명 넣기 서버에서 막힘');
+select t_login('00000000-0000-0000-0000-00000000000b', '');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000b/admin/x.png', 'file')$$, 'not_found', '다른 관리자: 남의 회차에 못 넣음');
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000003', '00000000-0000-0000-0000-00000000000a/admin/x.png', 'paste')$$, 'not_done', 'NO SHOW 회차에는 못 넣음');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000004', '00000000-0000-0000-0000-00000000000a/admin/x.png', 'paste')$$, 'not_done', '예정 회차에는 못 넣음');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000002', '00000000-0000-0000-0000-00000000000a/admin/x.png', 'paste')$$, 'already_signed', '고객이 서명한 회차는 덮어쓰기 막힘');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000b/admin/x.png', 'paste')$$, 'bad_path', '다른 계정 폴더의 그림은 거절');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a/x.png', 'paste')$$, 'bad_path', '관리자 입력 전용 폴더가 아니면 거절');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a/admin/x.png', 'camera')$$, 'bad_method', '넣은 방식은 붙여넣기/파일만');
+select (admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a/admin/b2-1-1.png', 'paste')) is not null;
+select t_ok((select signature_url from reservations where id = 'b2000000-0000-0000-0000-000000000001') = '00000000-0000-0000-0000-00000000000a/admin/b2-1-1.png', '완료·빈 서명 회차에 관리자 서명 저장');
+select t_ok((select count(*) = 1 and bool_and(action = 'add' and method = 'paste' and actor_id = '00000000-0000-0000-0000-00000000000a') from signature_admin_entries where reservation_id = 'b2000000-0000-0000-0000-000000000001'), '기록: 관리자 입력·넣은 계정·방식(붙여넣기)·시각');
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a/admin/b2-1-2.png', 'file')$$, 'already_signed', '관리자 서명 위에도 덮어쓰기 막힘(지우고 다시 넣기)');
+select t_err($$select admin_remove_signature('b2000000-0000-0000-0000-000000000002')$$, 'not_admin_signature', '고객이 직접 한 서명은 지울 수 없음');
+select t_err($$update signature_admin_entries set method = 'file'$$, 'permission denied', '관리자도 기록 수정 불가');
+select t_err($$delete from signature_admin_entries$$, 'permission denied', '관리자도 기록 삭제 불가');
+select t_err($$insert into signature_admin_entries(owner_id, reservation_id, action, signature_path, actor_id) values ('00000000-0000-0000-0000-00000000000a', gen_random_uuid(), 'add', 'x', '00000000-0000-0000-0000-00000000000a')$$, 'permission denied', '관리자도 기록 직접 추가 불가');
+select t_login('00000000-0000-0000-0000-0000000000dd', 'delegate');
+select t_err($$select admin_remove_signature('b2000000-0000-0000-0000-000000000001')$$, 'not_allowed', '대리 트레이너: 관리자 서명 지우기 막힘');
+select t_login('00000000-0000-0000-0000-00000000000a', '');
+select (admin_remove_signature('b2000000-0000-0000-0000-000000000001')) is not null;
+select t_ok((select signature_url is null from reservations where id = 'b2000000-0000-0000-0000-000000000001'), '관리자 입력 서명 지우기 → 서명 칸만 비움');
+select t_ok((select count(*) = 2 and bool_or(action = 'remove' and method is null and signature_path like '%b2-1-1.png') from signature_admin_entries where reservation_id = 'b2000000-0000-0000-0000-000000000001'), '지워도 "넣었다가 지웠다" 기록이 남음');
+select t_err($$select admin_remove_signature('b2000000-0000-0000-0000-000000000001')$$, 'not_admin_signature', '이미 지운 뒤 다시 지우기 막힘');
+select (admin_attach_signature('b2000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a/admin/b2-1-3.png', 'file')) is not null;
+select t_ok((select count(*) from signature_admin_entries where reservation_id = 'b2000000-0000-0000-0000-000000000001') = 3, '지운 뒤 파일로 다시 넣기 가능(기록 3줄)');
+select t_ok((select count(*) from signature_admin_entries) = 3, '관리자: 자기 기록 조회 가능');
+select t_login('00000000-0000-0000-0000-00000000000b', '');
+select t_ok((select count(*) from signature_admin_entries) = 0, '다른 관리자: 남의 기록 0건');
+select t_login('00000000-0000-0000-0000-0000000000aa', 'member');
+select t_ok((select count(*) from signature_admin_entries) = 0, '회원: 관리자 서명 기록 조회 0건');
+reset role;
+set role anon;
+select t_err($$select admin_attach_signature('b2000000-0000-0000-0000-000000000005', 'x/admin/x.png', 'file')$$, 'permission denied', '비로그인: 함수 실행 막힘');
+reset role;
+select t_ok((select used_sessions from products where id = 'a0000000-0000-0000-0000-000000000005') = :used_before, '서명 넣기·지우기로 차감·잔여 변화 없음');
+select t_ok((select count(*) from products) = :products_before2 and (select count(*) from contract_signatures) = :contract_before, '이용권·계약서 서명 줄 수 그대로');
+select t_ok((select status from reservations where id = 'b2000000-0000-0000-0000-000000000001') = 'done', '완료 상태 그대로');
+select t_ok((select count(*) from reservation_cancel_logs) = :cancel_before, '서명 변경은 취소 내역에 안 남음');
+select t_ok((select signature_url from reservations where id = 'b2000000-0000-0000-0000-000000000002') = '00000000-0000-0000-0000-00000000000a/b2-own.png', '고객 서명은 그대로');
+
 \echo '== 모든 DB 시험 통과'
