@@ -10,7 +10,7 @@ const TABLES = [
   "contract_signatures", "pass_transfers", "pending_sales", "lesson_delegations", "reservation_series",
   // 나중에 추가된 기록 표 — 아직 없으면(SQL 실행 전) 건너뛴다
   "payment_edit_logs", "product_delete_logs", "payment_receipts", "payment_collections", "delegate_settlements", "reservation_status_logs",
-  "reservation_cancel_logs",
+  "reservation_cancel_logs", "signature_admin_entries",
 ] as const;
 const PAGE_SIZE = 1000;
 
