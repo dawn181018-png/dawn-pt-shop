@@ -49,7 +49,7 @@ export default function SignatureGallery({
   const [delegateOnly, setDelegateOnly] = useState(false);
   const [byProduct, setByProduct] = useState(false);
   const areaRef = useRef<HTMLDivElement>(null);
-  // 관리자가 넣은 서명은 "서명 시각" 대신 "관리자 입력"으로 표시(고객이 직접 한 서명과 구분)
+  // 관리자가 넣은 서명은 목록에 "서명 시각"을 적지 않는다(넣은 시각이 서명 시각처럼 보이지 않게). "관리자 입력" 표시는 서명 시트 상세 창에서만.
   const [adminEntries, setAdminEntries] = useState<SignatureAdminEntry[]>([]);
   useEffect(() => { db.listSignatureAdminEntries().then((rows) => setAdminEntries(rows || [])).catch(() => {}); }, [reservations]);
   const adminSigs = useMemo(() => currentAdminSignatures(adminEntries, reservations), [adminEntries, reservations]);
@@ -158,7 +158,7 @@ export default function SignatureGallery({
                       : urls[r.signatureUrl] ? <img src={urls[r.signatureUrl]} alt="서명" className="ptm-sg-img" />
                       : <span className="ptm-sg-nosign">불러오는 중…</span>}
                     {r.status !== "noshow" && r.signatureUrl && adminSigs.has(r.id)
-                      ? <small className="ptm-sg-admin">관리자 입력{signedAt ? ` ${signedAt}` : ""}</small>
+                      ? null
                       : signedAt && r.status !== "noshow" && <small>서명 {signedAt}</small>}
                   </span>
                   <span className={`ptm-sg-who ${h.kind}`}>{handlerText(h)}</span>

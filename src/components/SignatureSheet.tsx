@@ -4,6 +4,7 @@
 // 서명 파일은 관리자 권한으로 직접 받아 브라우저 안에서만 쓰는 임시 주소로 보여준다(공개 주소를 만들지 않음).
 // 조회와 저장만 한다 — 예약·세션 차감·잔여 횟수는 바꾸지 않는다. 단, 관리자 화면에서는 완료됐지만 서명이 빈 회차에
 // "서명 붙여넣기"로 서명 그림만 넣을 수 있고(관리자 입력으로 구분·기록), 관리자 입력 서명만 다시 지울 수 있다.
+// "관리자 입력" 표시는 시트 칸·저장 이미지에는 넣지 않고, 칸을 눌렀을 때 뜨는 상세 창에서만 보여준다(2026-11-23 사장님 요청).
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
@@ -177,7 +178,6 @@ export default function SignatureSheet({
       const dlg = showDelegate && h.kind === "delegate";
       const sig = c.r.signatureUrl ? blobs[c.r.signatureUrl] : undefined;
       const pastable = forScreen && canPaste && !busy && c.r.status === "done" && !c.r.signatureUrl;
-      const isAdmin = !!c.r.signatureUrl && adminSigs.has(c.r.id);
       return (
         <button key={c.no} type="button" className={`${base}${dlg ? " delegate" : ""}`} onClick={() => (pastable ? setPasteFor({ r: c.r, no: c.no }) : setZoom(c))}>
           <span className="ptm-ss-no">{c.no}</span>
@@ -186,7 +186,6 @@ export default function SignatureSheet({
             {c.r.status === "noshow" ? <span className="ptm-ss-noshow">NO SHOW</span>
               : !c.r.signatureUrl ? (pastable ? <span className="ptm-ss-paste">＋ 서명 붙여넣기</span> : <span className="ptm-ss-nosign">서명 없음</span>)
               : sig ? <img src={sig} alt="" /> : <span className="ptm-ss-nosign">…</span>}
-            {isAdmin && <span className="ptm-ss-admin">관리자 입력</span>}
             {dlg && <span className="ptm-ss-dlg">대리: {h.delegateName || "이름 없음"}</span>}
           </span>
         </button>
@@ -219,7 +218,6 @@ export default function SignatureSheet({
         </div>
         <div className="ptm-ss-foot">
           {showDelegate && <span><i className="ptm-ss-swatch" /> 대리 트레이너 진행</span>}
-          {cells.some((c) => c.kind === "lesson" && !!c.r.signatureUrl && adminSigs.has(c.r.id)) && <span>관리자 입력: 현장에서 받지 못해 관리자가 넣은 서명</span>}
           <span>노쇼는 1회 사용으로 계산돼요</span>
           <span>{dotDate(todayStr)} 기준</span>
         </div>
