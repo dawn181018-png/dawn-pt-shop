@@ -79,7 +79,8 @@ export default function AdminSignaturePaste({ reservationId, label, onClose, onS
 
   return (
     <div className="ptm-overlay" onClick={() => { if (!working) onClose(); }}>
-      <div className="ptm-sheet ptm-asp-sheet" onClick={(e) => e.stopPropagation()}>
+      {/* 그림을 넣은 뒤에는 휴대폰에서 바깥 터치·끌어서 닫기를 막는다(닫기 버튼·취소로만) */}
+      <div className="ptm-sheet ptm-asp-sheet" data-lock={picked ? "1" : undefined} onClick={(e) => e.stopPropagation()}>
         <div className="ptm-sheet-head">
           <span className="ptm-sheet-title">서명 붙여넣기</span>
           <button className="ptm-icon-btn" disabled={working} onClick={onClose}><X size={16} /></button>

@@ -21,6 +21,7 @@ import SignatureGallery from "./SignatureGallery";
 import SignatureSheet from "./SignatureSheet";
 import PtUnitPrice from "./PtUnitPrice";
 import { CustomerCancelLogs, CancelLogsSheet } from "./CancelLogs";
+import MobileSheetBehavior from "./MobileSheetBehavior";
 import type { ReservationCancelLog } from "@/lib/cancelLogs";
 import { firstDelegationDay, latestStatusLogs, type ReservationStatusLog } from "@/lib/delegateSettlement";
 import { OWNER_KEY, trainerOptions, delegationEmailMap, trainerKeyOf, trainerAssignment, trainerConflicts, type TrainerOption } from "@/lib/trainers";
@@ -2663,6 +2664,7 @@ export default function PTMemberManager({ mode = "owner" }: { mode?: "owner" | "
 
   return (
     <div className={`ptm-root${view === "schedule" && isMobileSchedule ? " ptm-msched" : ""}`}>
+      <MobileSheetBehavior />
       <div className="ptm-eyebrow">던휘트니스 삼성점</div>
       <h1 className="ptm-title">회원 관리</h1>
 
