@@ -11,6 +11,7 @@ export default function HomePage() {
     <>
       <form
         action={logout}
+        className="ptm-top-actions"
         style={{ position: "fixed", top: 12, right: 12, zIndex: 100, display: "flex", gap: 6 }}
       >
         {/* 전체 데이터를 JSON 파일로 내려받는다(읽기 전용, 본인 데이터만) — 일회성 백업용 */}

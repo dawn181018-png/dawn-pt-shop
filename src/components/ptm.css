@@ -1034,3 +1034,33 @@ button.ptm-ss-cell { cursor:zoom-in; }
 .ptm-asp-preview img { max-width:100%; max-height:160px; }
 .ptm-asp-error { font-size:12.5px; color:var(--coral); font-weight:600; margin-bottom:8px; }
 .ptm-sg-admin { color:#6b7684; font-weight:700; border:1px solid #c9d0db; border-radius:3px; padding:0 3px; }
+
+/* ---- 휴대폰 창(모달) 겹침·닫기 정리 (640px 이하, PC는 그대로) ----
+   원인: 화면 위 "백업 받기/로그아웃"(page.tsx, 쌓임 순서 100)이 창 배경(ptm-overlay, 50)보다 위에 있어 창 제목·닫기 버튼을 가렸다.
+   휴대폰에서는 창 배경을 맨 위층(300)으로 올려 그 버튼들을 덮고, 아이폰 시계 영역(안전 영역)을 피해서 창을 놓는다. */
+@media (max-width:640px) {
+  .ptm-overlay { z-index:300; padding:calc(env(safe-area-inset-top, 0px) + 12px) 10px calc(env(safe-area-inset-bottom, 0px) + 10px); overscroll-behavior:contain; }
+  .ptm-toast { z-index:360; }
+  .ptm-grid-hover-tag { z-index:365; }
+  .ptm-ctx-overlay { z-index:370; }
+  .ptm-hover-card { z-index:375; }
+  .ptm-sheet {
+    --sheet-px:18px;
+    max-height:calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 22px);
+    padding-top:0; overscroll-behavior:contain; position:relative;
+  }
+  .ptm-sheet.ptm-quick-sheet { --sheet-px:14px; padding-top:0; }
+  .ptm-sheet.ptm-cust-modal { max-height:calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 22px); }
+  .ptm-cust-modal .ptm-cust-main { padding-top:0; }
+  /* 맨 위 손잡이 막대: 창 안 내용을 내려도 위에 붙어 있다(아래로 끌면 닫힘 — MobileSheetBehavior) */
+  .ptm-sheet::before {
+    content:""; display:block; position:sticky; top:0; z-index:6; height:22px; margin:0 calc(-1 * var(--sheet-px));
+    background:linear-gradient(#cfd5df, #cfd5df) center 8px / 40px 5px no-repeat, var(--panel);
+  }
+  .ptm-sheet.ptm-cust-modal::before { margin:0; }
+  /* 제목 줄(제목 + 닫기 버튼)도 위에 붙어 있게 */
+  .ptm-sheet-head { position:sticky; top:22px; z-index:5; background:var(--panel); margin-left:calc(-1 * var(--sheet-px)); margin-right:calc(-1 * var(--sheet-px)); padding:0 var(--sheet-px) 4px; }
+  .ptm-cust-modal .ptm-sheet-head { margin-left:-18px; margin-right:-18px; padding-left:18px; padding-right:18px; }
+  /* 닫기(X) 버튼은 손가락으로 누르기 쉬운 44px */
+  .ptm-sheet-head .ptm-icon-btn:has(> svg.lucide-x) { width:44px; height:44px; flex-shrink:0; }
+}
