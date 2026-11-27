@@ -1,5 +1,6 @@
 import PTMemberManager from "@/components/PTMemberManager";
 import { logout } from "./login/actions";
+import LogoutButton from "./LogoutButton";
 
 const topButtonStyle = {
   background: "#ffffff", border: "1px solid #dde3ee", borderRadius: 8,
@@ -16,9 +17,7 @@ export default function HomePage() {
       >
         {/* 전체 데이터를 JSON 파일로 내려받는다(읽기 전용, 본인 데이터만) — 일회성 백업용 */}
         <a href="/api/backup/download" style={topButtonStyle} title="전체 데이터를 파일로 내려받기">백업 받기</a>
-        <button type="submit" style={topButtonStyle}>
-          로그아웃
-        </button>
+        <LogoutButton style={topButtonStyle} />
       </form>
       <PTMemberManager />
     </>
