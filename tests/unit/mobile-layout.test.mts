@@ -38,4 +38,14 @@ show("휴대폰 달력 날짜 줄은 낮게(시간표가 더 보이게)", cellMi
 show("스케줄 화면은 실제 보이는 높이(dvh)로 나눠 시간표가 아래까지 채운다", /\.ptm-root\.ptm-msched \{[^}]*height:100dvh/.test(css) && /\.ptm-mtl-scroll \{[^}]*flex:1 1 0/.test(css));
 show("시간표 높이를 스크립트로 한 번만 재지 않는다(아이폰에서 아래가 비던 원인)", !/style\.height\s*=/.test(mms));
 
+// 2026-11-27 휴대폰 창 겹침: 창 배경이 화면 위 "백업 받기/로그아웃"(z-index 100)보다 위에 있어야 하고, 닫기 버튼은 44px.
+const page = read("src/app/page.tsx");
+const topZ = Number((page.match(/zIndex:\s*(\d+)/) || [])[1]);
+const mobileOverlay = css.match(/@media \(max-width:640px\) \{\s*\.ptm-overlay \{[^}]*z-index:(\d+)/);
+show("휴대폰 창 배경이 백업/로그아웃 버튼보다 위층", !!mobileOverlay && Number(mobileOverlay[1]) > topZ, `배경 ${mobileOverlay?.[1]} > 버튼 ${topZ}`);
+show("휴대폰 창은 아이폰 시계 영역(안전 영역)을 피함", /\.ptm-overlay \{[^}]*safe-area-inset-top/.test(css));
+show("휴대폰 닫기(X) 버튼 44px", /\.ptm-sheet-head \.ptm-icon-btn:has\(> svg\.lucide-x\) \{[^}]*width:44px; height:44px/.test(css));
+show("로그아웃 전에 확인창", /confirm\("로그아웃 하시겠습니까\?"\)/.test(read("src/app/LogoutButton.tsx")) && page.includes("<LogoutButton"));
+show("창 공통 동작(끌어서 닫기·입력 중 잠금·뒤 화면 고정)이 화면에 붙어 있음", ptm.includes("<MobileSheetBehavior />"));
+
 if (fail) { console.log(`\n${fail}개 실패`); process.exit(1); }
